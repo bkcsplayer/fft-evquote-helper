@@ -118,6 +118,10 @@ location / {
 }
 ```
 
+如果你希望直接复制完整站点配置文件，可以参考仓库里的：
+
+- `docs/BAOTA-NGINX-evquote.khtain.com.conf`
+
 然后宝塔申请并启用 **Let’s Encrypt**，强制 HTTPS。
 
 ---
