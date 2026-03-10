@@ -4,8 +4,8 @@ import { api } from '../services/api.js'
 
 export default function Login() {
   const nav = useNavigate()
-  const [username, setUsername] = useState('admin')
-  const [password, setPassword] = useState('admin1234')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -36,6 +36,8 @@ export default function Login() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+              autoComplete="username"
+              autoFocus
               required
             />
           </label>
@@ -46,6 +48,7 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+              autoComplete="current-password"
               required
             />
           </label>
@@ -58,9 +61,6 @@ export default function Login() {
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-        <div className="mt-4 text-xs text-slate-500">
-          Dev default: <span className="font-semibold">admin / admin1234</span>
-        </div>
       </div>
     </div>
   )
