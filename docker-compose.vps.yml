@@ -1,0 +1,18 @@
+services:
+  # Bind public services to localhost only; Baota/Nginx will reverse-proxy 80/443 -> these ports.
+  frontend:
+    ports:
+      - "127.0.0.1:7220:80"
+
+  admin:
+    ports:
+      - "127.0.0.1:7221:80"
+
+  backend:
+    ports:
+      - "127.0.0.1:7222:8000"
+
+  # DB should not be exposed on the public network.
+  db:
+    ports: []
+

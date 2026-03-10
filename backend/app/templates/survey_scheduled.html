@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 style="margin:0 0 8px 0;">Site Survey scheduled</h2>
+  <p class="muted" style="margin:0 0 12px 0;">
+    Hi {{ nickname }}, your EV charger site survey is scheduled for <strong>{{ scheduled_text }}</strong>.
+  </p>
+  <p style="margin:0 0 12px 0;">
+    Please confirm and pay the ${{ deposit_amount }} deposit here:
+    <a class="btn" href="{{ pay_url }}">Pay deposit</a>
+  </p>
+  <p class="muted small" style="margin:0;">
+    If you proceed with installation, this deposit will be credited toward your final invoice.
+  </p>
+{% endblock %}
+

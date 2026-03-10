@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 style="margin:0 0 8px 0;">Installation scheduled</h2>
+  <p class="muted" style="margin:0 0 12px 0;">
+    Hi {{ nickname }}, your installation is scheduled for <strong>{{ scheduled_text }}</strong>.
+  </p>
+  <p style="margin:0 0 12px 0;">
+    Track progress here: <a class="btn" href="{{ status_url }}">View status</a>
+  </p>
+{% endblock %}
+

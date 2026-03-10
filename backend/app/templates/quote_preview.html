@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{{ brand_short }} EV Charger Quote</title>
+    <style>
+      :root {
+        --ink: #0f172a;
+        --muted: #475569;
+        --muted2: #64748b;
+        --line: #e2e8f0;
+        --bg: #f8fafc;
+        --card: #ffffff;
+        --accent: #0f766e;
+        --accent2: #14b8a6;
+      }
+      body { margin:0; background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+      .wrap { max-width: 920px; margin: 0 auto; padding: 28px 18px; }
+      .hero { border-radius: 18px; overflow:hidden; border: 1px solid var(--line); background: linear-gradient(135deg, rgba(15,118,110,.10), rgba(20,184,166,.06)); }
+      .hero-inner { padding: 18px 18px 16px 18px; }
+      .top { display:flex; gap:16px; justify-content:space-between; align-items:flex-start; }
+      .brand-row { display:flex; gap: 10px; align-items:center; }
+      .logo { width: 40px; height: 40px; border-radius: 12px; border:1px solid rgba(15,23,42,.08); background: rgba(15,23,42,.03); object-fit: contain; }
+      .brand { font-weight: 900; letter-spacing: .2px; font-size: 18px; margin:0; }
+      .tag { font-size: 12px; color: var(--muted2); margin-top:2px; }
+      .small { font-size: 12px; color: var(--muted); }
+      .muted { color: var(--muted); }
+      .card { margin-top: 14px; background: var(--card); border:1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: 0 1px 0 rgba(15,23,42,.03); }
+      .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
+      .k { font-size: 12px; color: var(--muted); }
+      .v { font-size: 14px; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      th { text-align:left; font-size: 12px; color: var(--muted); font-weight: 700; letter-spacing: .2px; }
+      td.r { text-align:right; white-space: nowrap; }
+      .total { font-size: 16px; font-weight: 800; }
+      .pill { display:inline-block; padding: 4px 10px; border-radius: 999px; background: rgba(15,118,110,.12); color: var(--accent); font-weight: 800; font-size: 12px; letter-spacing:.2px;}
+      .terms li { margin: 6px 0; }
+      .btn { display:inline-block; background: var(--accent); color:#fff; padding:11px 14px; border-radius: 12px; text-decoration:none; font-weight: 800; }
+      .btn-outline { display:inline-block; border:1px solid var(--line); color: var(--ink); padding:10px 14px; border-radius: 12px; text-decoration:none; font-weight: 800; background:#fff; }
+      @media print {
+        body { background: #fff; }
+        .card { border: 1px solid #ddd; box-shadow:none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <div class="hero-inner">
+          <div class="top">
+            <div class="brand-row">
+              {% if logo_url %}
+                <img class="logo" src="{{ logo_url }}" alt="{{ brand_short }}" />
+              {% endif %}
+              <div>
+                <div class="brand">{{ brand_name }}</div>
+                <div class="tag">{{ brand_tagline }}</div>
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div class="pill">QUOTE v{{ quote.version }}</div>
+              <div class="small" style="margin-top:6px;">Generated: {{ generated_at }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="grid">
+          <div>
+            <div class="k">Customer</div>
+            <div class="v">{{ customer.nickname if customer else "" }}</div>
+            <div class="small">{{ customer.email if customer else "" }}</div>
+            <div class="small">{{ customer.phone if customer else "" }}</div>
+          </div>
+          <div>
+            <div class="k">Case</div>
+            <div class="v">{{ case.reference_number if case else "" }}</div>
+            <div class="small">{{ case.install_address if case else "" }}</div>
+            <div class="small">Charger: {{ case.charger_brand if case else "" }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th class="r">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div style="font-weight:700;">Base installation</div>
+                <div class="small">Install type: {{ quote.install_type.value }}</div>
+              </td>
+              <td class="r">${{ '%.2f'|format(quote.base_price|float) }}</td>
+            </tr>
+            <tr>
+              <td>
+                <div style="font-weight:700;">Extra distance</div>
+                <div class="small">
+                  {{ '%.1f'|format(quote.extra_distance_meters|float) }} m × ${{ '%.2f'|format(quote.extra_distance_rate|float) }}
+                </div>
+              </td>
+              <td class="r">${{ '%.2f'|format(quote.extra_distance_cost|float) }}</td>
+            </tr>
+            <tr>
+              <td style="font-weight:700;">Permit fee</td>
+              <td class="r">${{ '%.2f'|format(quote.permit_fee|float) }}</td>
+            </tr>
+            {% if quote.addons %}
+              {% for a in quote.addons %}
+                <tr>
+                  <td>
+                    <div style="font-weight:700;">{{ a.name }}</div>
+                    {% if a.description %}<div class="small">{{ a.description }}</div>{% endif %}
+                  </td>
+                  <td class="r">${{ '%.2f'|format(a.price|float) }}</td>
+                </tr>
+              {% endfor %}
+            {% endif %}
+            {% if quote.survey_credit and (quote.survey_credit|float) != 0 %}
+              <tr>
+                <td>
+                  <div style="font-weight:700;">Survey deposit credit</div>
+                  <div class="small">Credit applied at checkout / invoice</div>
+                </td>
+                <td class="r">-${{ '%.2f'|format(quote.survey_credit|float) }}</td>
+              </tr>
+            {% endif %}
+            <tr>
+              <td style="font-weight:800;">Subtotal</td>
+              <td class="r" style="font-weight:800;">${{ '%.2f'|format(quote.subtotal|float) }}</td>
+            </tr>
+            <tr>
+              <td>GST ({{ '%.2f'|format(quote.gst_rate|float) }}%)</td>
+              <td class="r">${{ '%.2f'|format(quote.gst_amount|float) }}</td>
+            </tr>
+            <tr>
+              <td class="total">Total</td>
+              <td class="r total">${{ '%.2f'|format(quote.total|float) }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {% if quote.customer_notes %}
+          <div style="margin-top: 14px;">
+            <div class="k">Notes for customer</div>
+            <div class="v" style="white-space: pre-wrap; font-weight: 500;">{{ quote.customer_notes }}</div>
+          </div>
+        {% endif %}
+      </div>
+
+      {% if quote.signature %}
+        <div class="card">
+          <div style="font-weight:800; margin-bottom: 10px;">Customer approval</div>
+          <div class="grid" style="grid-template-columns: 1fr 1fr;">
+            <div>
+              <div class="k">Signed name</div>
+              <div class="v">{{ quote.signature.signed_name }}</div>
+              <div class="small">Signed at: {{ quote.signature.signed_at }}</div>
+              {% if quote.signature.ip_address %}<div class="small">IP: {{ quote.signature.ip_address }}</div>{% endif %}
+            </div>
+            <div>
+              <div class="k">Signature</div>
+              {% set sig = quote.signature.signature_data %}
+              {% if sig and sig[:10] == 'data:image' %}
+                <div style="margin-top:6px; border:1px solid var(--line); border-radius: 12px; padding: 10px; background:#fff;">
+                  <img src="{{ sig }}" alt="Signature" style="display:block; width:100%; max-width: 380px; height:auto;" />
+                </div>
+              {% else %}
+                <div class="small muted" style="margin-top:6px; white-space: pre-wrap;">{{ sig }}</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      <div class="card">
+        <div style="font-weight:800; margin-bottom: 8px;">Terms & assumptions</div>
+        <ol class="terms muted small" style="margin:0 0 0 16px; padding:0;">
+          <li>Hardware (EV charger) is customer-supplied unless stated otherwise.</li>
+          <li>Drywall/patching/painting is not included for concealed wiring.</li>
+          <li>Panel upgrades, EVEMS/DCC (if required), and unforeseen code issues are quoted separately.</li>
+          <li>Permit timelines depend on local authority processing times.</li>
+        </ol>
+        <div class="small muted" style="margin-top: 10px;">
+          Questions? Reply to your FFT contact or call {{ support_phone }}.
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+

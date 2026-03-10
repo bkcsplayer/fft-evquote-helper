@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 style="margin:0 0 8px 0;">Deposit received</h2>
+  <p class="muted" style="margin:0 0 12px 0;">
+    Hi {{ nickname }}, we received your site survey deposit. Thank you!
+  </p>
+  <p style="margin:0 0 12px 0;">
+    You can track status here: <a class="btn" href="{{ status_url }}">View status</a>
+  </p>
+  <p class="muted small" style="margin:0;">Case: {{ reference_number }}</p>
+{% endblock %}
+

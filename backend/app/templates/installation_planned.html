@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 style="margin:0 0 8px 0; font-size: 18px;">Tentative installation date planned</h2>
+  <p class="muted" style="margin:0 0 14px 0;">
+    Hi {{ nickname }}, we’ve penciled in a tentative installation time:
+  </p>
+
+  <div style="border:1px solid #e2e8f0; border-radius: 14px; padding: 12px; background: #f8fafc;">
+    <div style="font-weight:900; font-size: 16px; margin:0;">{{ scheduled_text }}</div>
+    <div class="small muted" style="margin-top:6px;">
+      This time is <strong>pending permit approval</strong>. We’ll confirm as soon as the permit is approved.
+    </div>
+  </div>
+
+  <div style="margin: 14px 0 0 0;">
+    <a class="btn" href="{{ status_url }}">Track status</a>
+  </div>
+{% endblock %}
+

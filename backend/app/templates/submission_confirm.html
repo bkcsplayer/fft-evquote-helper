@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 style="margin:0 0 8px 0;">We received your request</h2>
+  <p class="muted" style="margin:0 0 12px 0;">
+    Thanks {{ nickname }}. Your case reference number is <strong>{{ reference_number }}</strong>.
+  </p>
+  <p style="margin:0 0 12px 0;">
+    You can track status here:
+    <a class="btn" href="{{ status_url }}">View status</a>
+  </p>
+  <p class="muted small" style="margin:0;">
+    Next step: we will contact you to confirm a Site Survey time.
+  </p>
+{% endblock %}
+

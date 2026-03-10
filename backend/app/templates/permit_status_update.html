@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 style="margin:0 0 8px 0; font-size: 18px;">Permit status update</h2>
+  <p class="muted" style="margin:0 0 14px 0;">
+    Hi {{ nickname }}, here’s an update for your project permit.
+  </p>
+
+  <div style="border:1px solid #e2e8f0; border-radius: 14px; padding: 12px; background: #f8fafc;">
+    <div class="small muted" style="margin:0 0 8px 0;">
+      <strong>Case</strong>: {{ reference_number }}
+    </div>
+    <div style="font-weight:900; font-size: 16px; margin:0;">Status: {{ permit_status }}</div>
+    {% if note %}
+      <div class="small muted" style="margin-top:6px;">{{ note }}</div>
+    {% endif %}
+  </div>
+
+  <div style="margin: 14px 0 0 0;">
+    <a class="btn" href="{{ status_url }}">Track status</a>
+  </div>
+{% endblock %}
+

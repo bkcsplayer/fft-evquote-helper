@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 style="margin:0 0 8px 0; font-size: 18px;">Your quote is ready</h2>
+  <p class="muted" style="margin:0 0 14px 0;">
+    Hi {{ nickname }}, we’ve prepared your EV charger installation quote.
+    Review details and approve online when you’re ready.
+  </p>
+
+  <div style="margin: 0 0 14px 0;">
+    <a class="btn" href="{{ quote_url }}">Review & approve quote</a>
+    <span style="display:inline-block; width:10px;"></span>
+    <a class="btn-outline" href="{{ quote_url }}">Open in browser</a>
+  </div>
+
+  <div style="border:1px solid #e2e8f0; border-radius: 14px; padding: 12px; background: #f8fafc;">
+    <div class="small muted" style="margin:0 0 8px 0;">
+      <strong>Case</strong>: {{ reference_number }}
+    </div>
+    <div class="small muted" style="margin:0;">
+      After you approve, we’ll unlock permits & scheduling and keep you updated by SMS/email.
+    </div>
+  </div>
+
+  <div style="margin-top: 14px;">
+    <div class="small muted" style="font-weight:800; letter-spacing:.2px; text-transform:uppercase;">What happens next</div>
+    <div style="margin-top: 8px;">
+      <div style="display:flex; gap:10px; align-items:flex-start; margin: 8px 0;">
+        <div style="width:26px;height:26px;border-radius:12px;background:rgba(15,118,110,.12);border:1px solid rgba(15,118,110,.16);display:flex;align-items:center;justify-content:center;">
+          <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        </div>
+        <div>
+          <div style="font-weight:800; font-size:13px;">Approve digitally</div>
+          <div class="small muted" style="margin-top:2px;">Sign on the quote page to confirm and move forward.</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:flex-start; margin: 8px 0;">
+        <div style="width:26px;height:26px;border-radius:12px;background:rgba(15,118,110,.12);border:1px solid rgba(15,118,110,.16);display:flex;align-items:center;justify-content:center;">
+          <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+            <path d="M8 2h8v4H8z" />
+            <path d="M9 12h6" />
+            <path d="M9 16h6" />
+          </svg>
+        </div>
+        <div>
+          <div style="font-weight:800; font-size:13px;">Permits & scheduling</div>
+          <div class="small muted" style="margin-top:2px;">We’ll apply for permits (if required) and schedule installation.</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px; align-items:flex-start; margin: 8px 0;">
+        <div style="width:26px;height:26px;border-radius:12px;background:rgba(15,118,110,.12);border:1px solid rgba(15,118,110,.16);display:flex;align-items:center;justify-content:center;">
+          <svg class="icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0f766e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
+        <div>
+          <div style="font-weight:800; font-size:13px;">Install day</div>
+          <div class="small muted" style="margin-top:2px;">Our team completes the install and shares completion details.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 style="margin:0 0 8px 0;">Project completed</h2>
+  <p class="muted" style="margin:0 0 12px 0;">
+    Hi {{ nickname }}, thank you for choosing FFT. Your EV charger installation is completed.
+  </p>
+  <div class="muted small" style="margin: 12px 0;">
+    <div><strong>Case</strong>: {{ reference_number }}</div>
+    <div><strong>Workmanship warranty</strong>: 1 year</div>
+  </div>
+  <h3 style="margin: 14px 0 6px 0; font-size: 14px;">Key terms</h3>
+  <ol class="muted small" style="margin: 0 0 12px 16px; padding:0;">
+    <li>Panel capacity is assumed sufficient; upgrades or EVEMS/DCC (if required) are quoted separately.</li>
+    <li>Drywall/patching/painting is not included for concealed wiring.</li>
+    <li>Pre-existing code violations identified during inspection are the customer’s responsibility.</li>
+    <li>Hardware is customer-supplied; FFT covers workmanship only.</li>
+  </ol>
+  <p class="muted small" style="margin:0;">If you have any questions, just reply to this email.</p>
+{% endblock %}
+

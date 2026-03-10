@@ -1,0 +1,66 @@
+name: fft-evquote-test
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ev_charger_quote}
+      POSTGRES_USER: ${DB_USER:-ev_charger}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-your_secure_password}
+    volumes:
+      - pgdata_test:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ev_charger} -d ${DB_NAME:-ev_charger_quote}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build: ./backend
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DB_USER: ${DB_USER:-ev_charger}
+      DB_PASSWORD: ${DB_PASSWORD:-your_secure_password}
+      DB_NAME: ${DB_NAME:-ev_charger_quote}
+      DB_HOST: db
+      DB_PORT: 5432
+      SECRET_KEY: ${SECRET_KEY:-dev_secret_key}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:7220}
+      ADMIN_URL: ${ADMIN_URL:-http://localhost:7221}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-}
+    volumes:
+      - ./uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2).read()\""]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+
+  tests:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.test
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      API_BASE: http://backend:8000
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin1234}
+    restart: "no"
+
+volumes:
+  pgdata_test:
+

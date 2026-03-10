@@ -1,0 +1,21 @@
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: always
+    ports:
+      - "7224:8025" # Web UI
+      - "7225:1025" # SMTP (optional to expose)
+
+  backend:
+    environment:
+      # Local email inbox for development/testing (no external delivery)
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      # Mailpit does not support SMTP AUTH; keep SMTP_USER/PASSWORD blank.
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-FFT}
+      SMTP_FROM_EMAIL: noreply@fft.local
+      SMTP_STARTTLS: "0"
+      SMTP_USE_SSL: "0"
+
