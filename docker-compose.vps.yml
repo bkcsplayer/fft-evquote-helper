@@ -1,18 +1,84 @@
 services:
-  # Bind public services to localhost only; Baota/Nginx will reverse-proxy 80/443 -> these ports.
+  db:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ev_charger_quote}
+      POSTGRES_USER: ${DB_USER:-ev_charger}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-your_secure_password}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ev_charger} -d ${DB_NAME:-ev_charger_quote}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build: ./backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_USER: ${DB_USER:-ev_charger}
+      DB_PASSWORD: ${DB_PASSWORD:-your_secure_password}
+      DB_NAME: ${DB_NAME:-ev_charger_quote}
+      DB_HOST: db
+      DB_PORT: 5432
+      APP_ENV: ${APP_ENV:-production}
+      SECRET_KEY: ${SECRET_KEY:-}
+      FRONTEND_URL: ${FRONTEND_URL:-https://evquote.khtain.com}
+      ADMIN_URL: ${ADMIN_URL:-https://evquote.khtain.com}
+      # Stripe disabled (kept only for compatibility)
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      # Optional integrations
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-}
+      SMTP_USE_SSL: ${SMTP_USE_SSL:-}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+    volumes:
+      - ./uploads:/app/uploads
+    ports:
+      - "127.0.0.1:7622:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2).read()\""]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+
   frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
     ports:
       - "127.0.0.1:7620:80"
 
   admin:
+    build: ./admin
+    restart: always
+    depends_on:
+      backend:
+        condition: service_healthy
     ports:
       - "127.0.0.1:7621:80"
 
-  backend:
-    ports:
-      - "127.0.0.1:7622:8000"
-
-  # DB should not be exposed on the public network.
-  db:
-    ports: []
+volumes:
+  pgdata:
 

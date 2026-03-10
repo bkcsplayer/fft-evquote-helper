@@ -65,7 +65,7 @@ cp .env.example .env
 ## 5) 启动 Docker（VPS 模式）
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.vps.yml --env-file .env up -d --build
+docker compose -f docker-compose.vps.yml --env-file .env up -d --build
 ```
 
 本模式端口绑定：
@@ -138,6 +138,6 @@ location / {
 
 ```bash
 git pull
-docker compose -f docker-compose.yml -f docker-compose.vps.yml --env-file .env up -d --build
+docker compose -f docker-compose.vps.yml --env-file .env up -d --build
 ```
 

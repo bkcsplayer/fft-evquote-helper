@@ -54,7 +54,7 @@ docker compose --env-file .env up --build -d
 推荐用宝塔的 Nginx 做 HTTPS 与路由，Docker 仅绑定到 `127.0.0.1`：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.vps.yml --env-file .env up --build -d
+docker compose -f docker-compose.vps.yml --env-file .env up --build -d
 ```
 
 然后在宝塔站点 `evquote.khtain.com` 的 Nginx 配置里，把：
