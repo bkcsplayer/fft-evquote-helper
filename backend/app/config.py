@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     brand_short: str = Field(default="FFT", validation_alias="BRAND_SHORT")
     brand_name: str = Field(default="FutureFrontier Technology", validation_alias="BRAND_NAME")
     brand_tagline: str = Field(default="EV Charger Installation • Calgary, AB", validation_alias="BRAND_TAGLINE")
+    brand_support_email: str | None = Field(default=None, validation_alias="BRAND_SUPPORT_EMAIL")
     brand_support_phone: str = Field(default="+14030000000", validation_alias="BRAND_SUPPORT_PHONE")
     brand_logo_url: str | None = Field(default=None, validation_alias="BRAND_LOGO_URL")
 
@@ -67,7 +68,15 @@ class Settings(BaseSettings):
             return None
         return v
 
-    @field_validator("smtp_from_email", "smtp_host", "smtp_user", "smtp_password", "smtp_from_name", mode="before")
+    @field_validator(
+        "brand_support_email",
+        "smtp_from_email",
+        "smtp_host",
+        "smtp_user",
+        "smtp_password",
+        "smtp_from_name",
+        mode="before",
+    )
     @classmethod
     def _blank_str_to_none(cls, v):
         if v is None:

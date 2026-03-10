@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,6 +14,8 @@ from app.schemas.schemas import ChargerBrandIn, ChargerBrandOut, SettingsOut, Se
 
 
 router = APIRouter(prefix="/admin")
+
+BRAND_UPLOAD_DIR = Path("uploads") / "branding"
 
 
 @router.get("/settings", response_model=list[SettingsOut])
@@ -37,6 +42,57 @@ def put_setting(
         db.add(row)
     db.commit()
     return {"key": row.key, "value": row.value}
+
+
+@router.post("/settings/brand-logo")
+async def upload_brand_logo(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(require_super_admin),
+):
+    _ = admin
+    BRAND_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+    ext = (Path(file.filename or "").suffix or "").lower()
+    if ext not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=400, detail="Logo must be a PNG/JPG/WEBP image")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Logo too large (max 5MB)")
+
+    safe_name = f"brand_logo_{uuid.uuid4().hex}{ext}"
+    rel_path = (BRAND_UPLOAD_DIR / safe_name).as_posix()
+    with open(rel_path, "wb") as f:
+        f.write(content)
+
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").strip()
+    host = (
+        request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc or ""
+    ).strip()
+    if not host:
+        raise HTTPException(status_code=400, detail="Cannot determine public host for logo URL")
+    base = f"{proto}://{host}".rstrip("/")
+    logo_url = f"{base}/{rel_path.lstrip('/')}"
+
+    row = db.execute(select(SystemSetting).where(SystemSetting.key == "brand_profile")).scalar_one_or_none()
+    profile = (row.value if row else {}) or {}
+    if not isinstance(profile, dict):
+        profile = {}
+    profile["logo_url"] = logo_url
+
+    if not row:
+        row = SystemSetting(key="brand_profile", value=profile)
+        db.add(row)
+    else:
+        row.value = profile
+        db.add(row)
+
+    db.commit()
+    return {"ok": True, "logo_url": logo_url}
 
 
 @router.get("/charger-brands", response_model=list[ChargerBrandOut])

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,17 +13,19 @@ from app.services.notification_service import (
     render_email_from_db_or_files,
     render_sms_from_db_or_fallback,
 )
+from app.utils.url_utils import public_base_url
 
 
 router = APIRouter()
 
 
 @router.post("/cases", response_model=CaseSubmittedOut)
-def submit_case(payload: CaseCreate, db: Session = Depends(get_db)):
+def submit_case(payload: CaseCreate, request: Request, db: Session = Depends(get_db)):
     created = create_case(db, payload.model_dump())
     settings = get_settings()
 
-    status_url = f"{settings.frontend_url}/quote/status/{created.case.access_token}"
+    public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+    status_url = f"{public_base}/quote/status/{created.case.access_token}"
     ctx = {
         "title": "FFT - Submission received",
         "nickname": created.case.customer.nickname,
@@ -49,7 +51,7 @@ def submit_case(payload: CaseCreate, db: Session = Depends(get_db)):
         db,
         template_key="submission_confirm",
         ctx=ctx,
-        fallback="[FFT] Hi {{ nickname }}, we received your request. Track status: {{ status_url }}",
+        fallback="{{ brand_name }}\nHi {{ nickname }}, we received your request.\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
     )
     notify_sms(
         db,

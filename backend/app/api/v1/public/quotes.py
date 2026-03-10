@@ -8,6 +8,7 @@ from app.schemas.schemas import QuoteApproveIn, QuoteOut
 from app.config import get_settings
 from app.services.notification_service import notify_case_status_sms
 from app.services.quote_service import approve_quote_by_token
+from app.utils.url_utils import public_base_url
 
 
 router = APIRouter()
@@ -48,7 +49,8 @@ def approve_quote(token: str, payload: QuoteApproveIn, request: Request, db: Ses
     case = db.execute(select(Case).where(Case.access_token == token)).scalar_one_or_none()
     if case and case.customer and case.customer.phone:
         settings = get_settings()
-        status_url = f"{settings.frontend_url}/quote/status/{case.access_token}"
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        status_url = f"{public_base}/quote/status/{case.access_token}"
         notify_case_status_sms(
             db,
             case_id=str(case.id),

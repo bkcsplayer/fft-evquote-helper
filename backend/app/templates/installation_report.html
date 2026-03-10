@@ -54,9 +54,10 @@
       <div style="margin-top: 8px;">
         {% for p in photos %}
           <div style="margin: 10px 0; border:1px solid #e2e8f0; border-radius: 14px; overflow:hidden; background:#fff;">
-            <img src="{{ p.url }}" alt="{{ p.file_name }}" style="display:block; width:100%; height:auto;" />
+            <img src="{{ p.url }}" alt="{{ p.file_name }}" style="display:block; width:100%; height:auto;" referrerpolicy="no-referrer" />
             <div class="small muted" style="padding: 10px 12px;">
               <strong>{{ p.file_name }}</strong>
+              <div style="margin-top:6px;"><a href="{{ p.url }}">Open photo</a></div>
               {% if p.caption %}<div style="margin-top:4px;">{{ p.caption }}</div>{% endif %}
             </div>
           </div>
@@ -68,5 +69,10 @@
   <div style="margin: 14px 0 0 0;">
     <a class="btn" href="{{ status_url }}">Track status</a>
   </div>
+  <p class="muted small" style="margin: 12px 0 0 0;">
+    Need help?
+    {% if support_email %}Email <a href="mailto:{{ support_email }}">{{ support_email }}</a>{% endif %}
+    {% if support_phone %}{% if support_email %} or {% endif %}call <a href="tel:{{ support_phone }}">{{ support_phone }}</a>{% endif %}.
+  </p>
 {% endblock %}
 

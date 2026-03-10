@@ -48,9 +48,9 @@
           <div class="top">
             <div class="brand-row">
               {% if logo_url %}
-                <img class="logo" src="{{ logo_url }}" alt="{{ brand_short }}" />
+                <img class="logo" src="{{ logo_url }}" alt="{{ brand_short }}" referrerpolicy="no-referrer" />
               {% else %}
-                <div class="logo" style="display:flex;align-items:center;justify-content:center;font-weight:900;color:rgba(15,23,42,.55);">FFT</div>
+                <div class="logo" style="display:flex;align-items:center;justify-content:center;font-weight:900;color:rgba(15,23,42,.55);">{{ brand_short }}</div>
               {% endif %}
               <div>
                 <div class="brand">{{ brand_name }}</div>
@@ -86,7 +86,15 @@
 
       <div class="divider"></div>
       <div class="muted small">
-        Questions? Reply to this email or call <a href="tel:{{ support_phone }}">{{ support_phone }}</a>.
+        Questions?
+        {% if support_email %}
+          Email <a href="mailto:{{ support_email }}">{{ support_email }}</a>
+        {% endif %}
+        {% if support_phone %}
+          {% if support_email %} or {% endif %}
+          call <a href="tel:{{ support_phone }}">{{ support_phone }}</a>
+        {% endif %}
+        .
         <div style="margin-top:6px;">© {{ year }} {{ brand_name }}</div>
       </div>
     </div>

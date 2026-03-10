@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.services.notification_service import notify_case_status_sms
 from app.services.security import verify_password
 from app.services.status_machine import assert_transition_allowed
+from app.utils.url_utils import public_base_url
 
 
 router = APIRouter(prefix="/admin")
@@ -125,6 +126,7 @@ def get_case(
 @router.patch("/cases/{case_id}/status")
 def patch_case_status(
     case_id: str,
+    request: Request,
     payload: CaseStatusPatchIn,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
@@ -151,7 +153,8 @@ def patch_case_status(
     customer = db.get(Customer, case.customer_id)
     if customer and customer.phone:
         settings = get_settings()
-        status_url = f"{settings.frontend_url}/quote/status/{case.access_token}"
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        status_url = f"{public_base}/quote/status/{case.access_token}"
         notify_case_status_sms(
             db,
             case_id=str(case.id),
@@ -169,6 +172,7 @@ def patch_case_status(
 @router.post("/cases/{case_id}/override-status")
 def override_case_status(
     case_id: str,
+    request: Request,
     payload: CaseOverrideStatusIn,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
@@ -196,7 +200,8 @@ def override_case_status(
     customer = db.get(Customer, case.customer_id)
     if customer and customer.phone:
         settings = get_settings()
-        status_url = f"{settings.frontend_url}/quote/status/{case.access_token}"
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        status_url = f"{public_base}/quote/status/{case.access_token}"
         notify_case_status_sms(
             db,
             case_id=str(case.id),

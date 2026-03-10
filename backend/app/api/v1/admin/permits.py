@@ -4,7 +4,7 @@ import os
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from app.services.notification_service import (
     render_sms_from_db_or_fallback,
 )
 from app.services.status_machine import assert_transition_allowed
+from app.utils.url_utils import public_base_url
 
 
 router = APIRouter(prefix="/admin")
@@ -120,6 +121,7 @@ def get_permit_by_case(
 @router.post("/cases/{case_id}/permit", response_model=PermitOut)
 def create_or_update_permit(
     case_id: str,
+    request: Request,
     payload: PermitIn,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
@@ -213,7 +215,8 @@ def create_or_update_permit(
         customer = db.get(Customer, case.customer_id)
         if customer and customer.phone:
             settings = get_settings()
-            status_url = f"{settings.frontend_url}/quote/status/{case.access_token}"
+            public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+            status_url = f"{public_base}/quote/status/{case.access_token}"
             notify_case_status_sms(
                 db,
                 case_id=str(case.id),
@@ -258,6 +261,7 @@ def patch_permit(
 @router.patch("/permits/{permit_id}/status", response_model=PermitOut)
 def patch_permit_status(
     permit_id: str,
+    request: Request,
     payload: PermitStatusUpdateIn,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
@@ -354,7 +358,8 @@ def patch_permit_status(
     customer = db.get(Customer, case.customer_id)
     if customer:
         settings = get_settings()
-        status_url = f"{settings.frontend_url}/quote/status/{case.access_token}"
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        status_url = f"{public_base}/quote/status/{case.access_token}"
         ctx = {
             "title": "FFT - Permit update",
             "nickname": customer.nickname,
@@ -382,7 +387,7 @@ def patch_permit_status(
             db,
             template_key="permit_status_update",
             ctx=ctx,
-            fallback="[FFT] Permit status: {{ permit_status }} ({{ reference_number }}). {{ status_url }}",
+            fallback="{{ brand_name }}\nPermit update: {{ permit_status|upper }}\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
         )
         notify_sms(
             db,

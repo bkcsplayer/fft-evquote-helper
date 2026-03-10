@@ -1,20 +1,40 @@
 {% extends "base.html" %}
 {% block content %}
-  <h2 style="margin:0 0 8px 0;">Project completed</h2>
+  <h2 style="margin:0 0 8px 0;">Installation complete</h2>
   <p class="muted" style="margin:0 0 12px 0;">
-    Hi {{ nickname }}, thank you for choosing FFT. Your EV charger installation is completed.
+    Hi {{ nickname }}, great news — your EV charger installation is complete. Thank you for choosing {{ brand_short }}.
   </p>
-  <div class="muted small" style="margin: 12px 0;">
-    <div><strong>Case</strong>: {{ reference_number }}</div>
-    <div><strong>Workmanship warranty</strong>: 1 year</div>
+
+  <div style="border:1px solid #e2e8f0; border-radius: 14px; padding: 12px; background: #f8fafc;">
+    <div class="small muted"><strong>Case</strong>: {{ reference_number }}</div>
+    {% if completed_text %}<div class="small muted" style="margin-top:6px;"><strong>Completed</strong>: {{ completed_text }}</div>{% endif %}
+    <div class="small muted" style="margin-top:6px;"><strong>Workmanship warranty</strong>: {{ warranty_years }} year{% if warranty_years != 1 %}s{% endif %}</div>
   </div>
-  <h3 style="margin: 14px 0 6px 0; font-size: 14px;">Key terms</h3>
-  <ol class="muted small" style="margin: 0 0 12px 16px; padding:0;">
-    <li>Panel capacity is assumed sufficient; upgrades or EVEMS/DCC (if required) are quoted separately.</li>
-    <li>Drywall/patching/painting is not included for concealed wiring.</li>
-    <li>Pre-existing code violations identified during inspection are the customer’s responsibility.</li>
-    <li>Hardware is customer-supplied; FFT covers workmanship only.</li>
-  </ol>
-  <p class="muted small" style="margin:0;">If you have any questions, just reply to this email.</p>
+
+  <h3 style="margin: 14px 0 6px 0; font-size: 14px;">What we cover</h3>
+  <ul class="muted small" style="margin: 0 0 12px 16px; padding:0;">
+    <li>Workmanship issues directly related to our installation.</li>
+    <li>Reasonable troubleshooting support during the warranty period.</li>
+  </ul>
+
+  <h3 style="margin: 14px 0 6px 0; font-size: 14px;">What’s not included</h3>
+  <ul class="muted small" style="margin: 0 0 12px 16px; padding:0;">
+    <li>Customer-supplied hardware defects (charger/accessories) and Wi‑Fi/network issues.</li>
+    <li>Panel/service upgrades and load management devices (EVEMS/DCC), unless quoted and approved.</li>
+    <li>Drywall/patching/painting for concealed wiring, unless specified in the quote.</li>
+    <li>Pre-existing code violations or issues discovered during inspection.</li>
+  </ul>
+
+  <p class="muted small" style="margin:0;">
+    Questions?
+    {% if support_email %}Email <a href="mailto:{{ support_email }}">{{ support_email }}</a>{% endif %}
+    {% if support_phone %}{% if support_email %} or {% endif %}call <a href="tel:{{ support_phone }}">{{ support_phone }}</a>{% endif %}.
+  </p>
+
+  {% if status_url %}
+    <div style="margin: 14px 0 0 0;">
+      <a class="btn" href="{{ status_url }}">View case</a>
+    </div>
+  {% endif %}
 {% endblock %}
 

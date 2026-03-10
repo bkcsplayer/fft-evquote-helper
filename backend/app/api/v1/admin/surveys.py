@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -18,6 +18,7 @@ from app.services.notification_service import (
     render_email_from_db_or_files,
     render_sms_from_db_or_fallback,
 )
+from app.utils.url_utils import public_base_url
 
 
 router = APIRouter(prefix="/admin")
@@ -38,6 +39,7 @@ class SurveyDepositPaidIn(BaseModel):
 @router.post("/cases/{case_id}/survey/schedule")
 def schedule_survey(
     case_id: str,
+    request: Request,
     payload: SurveyScheduleIn,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
@@ -71,11 +73,13 @@ def schedule_survey(
     settings = get_settings()
     customer = db.get(Customer, case.customer_id)
     if customer:
-        pay_url = f"{settings.frontend_url}/quote/survey-confirm/{case.access_token}"
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        pay_url = f"{public_base}/quote/survey-confirm/{case.access_token}"
         scheduled_text = payload.scheduled_date.astimezone().strftime("%Y-%m-%d %H:%M %Z")
         ctx = {
             "title": "FFT - Survey scheduled",
             "nickname": customer.nickname,
+            "reference_number": case.reference_number,
             "scheduled_text": scheduled_text,
             "deposit_amount": f"{float(survey.deposit_amount):.2f}",
             "pay_url": pay_url,
@@ -99,10 +103,7 @@ def schedule_survey(
             db,
             template_key="survey_scheduled",
             ctx=ctx,
-            fallback=(
-                "[FFT] Hi {{ nickname }}, your site survey is scheduled for {{ scheduled_text }}. "
-                "Please pay the deposit here: {{ pay_url }}"
-            ),
+            fallback="{{ brand_name }}\nSite survey scheduled\nTime: {{ scheduled_text }}\nDeposit: ${{ deposit_amount }}\nPay: {{ pay_url }}",
         )
         notify_sms(
             db,
@@ -118,6 +119,7 @@ def schedule_survey(
 @router.patch("/cases/{case_id}/survey/complete")
 def complete_survey(
     case_id: str,
+    request: Request,
     payload: SurveyCompleteIn,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
@@ -154,7 +156,8 @@ def complete_survey(
     settings = get_settings()
     customer = db.get(Customer, case.customer_id)
     if customer:
-        status_url = f"{settings.frontend_url}/quote/status/{case.access_token}"
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        status_url = f"{public_base}/quote/status/{case.access_token}"
         notify_case_status_sms(
             db,
             case_id=str(case.id),
@@ -172,6 +175,7 @@ def complete_survey(
 @router.patch("/cases/{case_id}/survey/deposit-paid")
 def mark_survey_deposit_paid(
     case_id: str,
+    request: Request,
     payload: SurveyDepositPaidIn,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
@@ -206,7 +210,8 @@ def mark_survey_deposit_paid(
     settings = get_settings()
     customer = db.get(Customer, case.customer_id)
     if customer:
-        status_url = f"{settings.frontend_url}/quote/status/{case.access_token}"
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        status_url = f"{public_base}/quote/status/{case.access_token}"
         ctx = {
             "title": "FFT - Deposit received",
             "nickname": customer.nickname,
@@ -232,7 +237,7 @@ def mark_survey_deposit_paid(
             db,
             template_key="survey_deposit_received",
             ctx=ctx,
-            fallback="[FFT] Deposit received. Thank you! Case: {{ reference_number }}. Status: {{ status_url }}",
+            fallback="{{ brand_name }}\nDeposit received — thank you\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
         )
         notify_sms(
             db,

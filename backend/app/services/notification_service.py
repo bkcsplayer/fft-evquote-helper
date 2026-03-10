@@ -30,15 +30,12 @@ def _with_branding(ctx: dict[str, Any]) -> dict[str, Any]:
     out.setdefault("brand_short", s.brand_short)
     out.setdefault("brand_name", s.brand_name)
     out.setdefault("brand_tagline", s.brand_tagline)
+    out.setdefault("support_email", (s.brand_support_email or "").strip() or None)
     out.setdefault("support_phone", s.brand_support_phone)
-    # Avoid defaulting to a localhost asset in emails (won't load externally; can hurt deliverability).
+    # Use an explicit logo URL only (avoid guessing a file path that may not exist).
     if "logo_url" not in out:
-        if s.brand_logo_url:
-            out["logo_url"] = s.brand_logo_url
-        elif s.frontend_url and not _is_local_url(s.frontend_url):
-            out["logo_url"] = f"{s.frontend_url.rstrip('/')}/brand-logo.png"
-        else:
-            out["logo_url"] = None
+        out["logo_url"] = (s.brand_logo_url or "").strip() or None
+    out.setdefault("warranty_years", 1)
     out.setdefault("year", datetime.now(timezone.utc).year)
     return out
 
@@ -67,6 +64,38 @@ def _get_system_setting(db: Session, key: str) -> dict | None:
     return row.value if row else None
 
 
+def _with_brand_profile(db: Session, ctx: dict[str, Any]) -> dict[str, Any]:
+    """
+    Merge DB-managed brand profile into the rendering context.
+
+    This allows Admin -> Settings to control contact info and logo without rebuilding containers.
+    """
+    out = _with_branding(ctx)
+    profile = _get_system_setting(db, "brand_profile") or {}
+    if not isinstance(profile, dict):
+        return out
+
+    support_email = str(profile.get("support_email") or "").strip()
+    support_phone = str(profile.get("support_phone") or "").strip()
+    logo_url = str(profile.get("logo_url") or "").strip()
+    warranty_years = profile.get("warranty_years")
+
+    if support_email:
+        out["support_email"] = support_email
+    if support_phone:
+        out["support_phone"] = support_phone
+    if logo_url:
+        # Avoid defaulting to a localhost asset in production emails (won't load externally; can hurt deliverability).
+        if _is_local_url(logo_url) and get_settings().app_env == "production":
+            out["logo_url"] = None
+        else:
+            out["logo_url"] = logo_url
+    if isinstance(warranty_years, int) and warranty_years > 0:
+        out["warranty_years"] = warranty_years
+
+    return out
+
+
 def render_email_from_db_or_files(
     db: Session,
     *,
@@ -75,7 +104,7 @@ def render_email_from_db_or_files(
     fallback_file: str,
     fallback_subject: str,
 ) -> tuple[str, str]:
-    ctx = _with_branding(ctx)
+    ctx = _with_brand_profile(db, ctx)
     templates = _get_system_setting(db, "email_templates") or {}
     tpl = templates.get(template_key)
     if isinstance(tpl, dict) and tpl.get("html"):
@@ -88,7 +117,7 @@ def render_email_from_db_or_files(
 
 
 def render_sms_from_db_or_fallback(db: Session, *, template_key: str, ctx: dict[str, Any], fallback: str) -> str:
-    ctx = _with_branding(ctx)
+    ctx = _with_brand_profile(db, ctx)
     templates = _get_system_setting(db, "sms_templates") or {}
     tpl = templates.get(template_key)
     if isinstance(tpl, dict) and tpl.get("body"):
@@ -179,18 +208,43 @@ def notify_case_status_sms(
     status_url: str,
     note: str | None = None,
 ) -> Notification:
+    status_labels = {
+        "pending": "Request received",
+        "survey_scheduled": "Site survey scheduled",
+        "survey_completed": "Site survey completed",
+        "quoting": "Preparing quote",
+        "quoted": "Quote sent",
+        "customer_approved": "Quote approved",
+        "permit_applied": "Permit applied",
+        "permit_approved": "Permit approved",
+        "installation_scheduled": "Installation scheduled",
+        "installed": "Installation completed",
+        "completed": "Project completed",
+        "cancelled": "Cancelled",
+    }
+    status_label = status_labels.get(status) or str(status or "").replace("_", " ").strip().title() or "Status update"
+    clean_note = (note or "").strip()
+    if clean_note and clean_note.lower() == status_label.lower():
+        clean_note = ""
     ctx = {
         "nickname": nickname,
         "reference_number": reference_number,
         "status": status,
+        "status_label": status_label,
         "status_url": status_url,
-        "note": note or "",
+        "note": clean_note,
     }
     body = render_sms_from_db_or_fallback(
         db,
         template_key="status_update",
         ctx=ctx,
-        fallback="[FFT] Status update: {{ status }} ({{ reference_number }}). {{ status_url }}",
+        fallback=(
+            "{{ brand_name }}\n"
+            "STATUS: {{ status_label }}\n"
+            "Case: {{ reference_number }}"
+            "{% if note %}\nNote: {{ note }}{% endif %}\n"
+            "Track: {{ status_url }}"
+        ),
     )
     return notify_sms(db, case_id=case_id, to_phone=to_phone, template_name="status_update", body=body)
 

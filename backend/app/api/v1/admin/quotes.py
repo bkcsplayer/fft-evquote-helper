@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from app.services.notification_service import (
     render_sms_from_db_or_fallback,
 )
 from app.services.quote_service import create_quote, mark_quote_sent
+from app.utils.url_utils import public_base_url
 
 
 router = APIRouter(prefix="/admin")
@@ -60,6 +61,7 @@ def admin_list_quotes(
 @router.post("/quotes/{quote_id}/send", response_model=QuoteOut)
 def admin_send_quote(
     quote_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -72,7 +74,8 @@ def admin_send_quote(
     if case:
         customer = db.get(Customer, case.customer_id)
         if customer:
-            quote_url = f"{settings.frontend_url}/quote/view/{case.access_token}"
+            public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+            quote_url = f"{public_base}/quote/view/{case.access_token}"
             ctx = {
                 "title": "FFT - Quote ready",
                 "nickname": customer.nickname,
@@ -98,7 +101,7 @@ def admin_send_quote(
                 db,
                 template_key="quote_ready",
                 ctx=ctx,
-                fallback="[FFT] Hi {{ nickname }}, your quote is ready: {{ quote_url }}",
+                fallback="{{ brand_name }}\nQuote ready for review\nCase: {{ reference_number }}\nView: {{ quote_url }}",
             )
             notify_sms(
                 db,

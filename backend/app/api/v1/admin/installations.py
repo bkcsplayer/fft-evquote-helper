@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,6 +23,7 @@ from app.services.notification_service import (
     render_sms_from_db_or_fallback,
 )
 from app.services.status_machine import assert_transition_allowed
+from app.utils.url_utils import public_base_url
 
 
 router = APIRouter(prefix="/admin")
@@ -193,6 +194,7 @@ def delete_installation_photo(
 @router.post("/cases/{case_id}/installation/report/send")
 def send_installation_report(
     case_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -212,7 +214,8 @@ def send_installation_report(
         raise HTTPException(status_code=400, detail="Customer not found")
 
     settings = get_settings()
-    status_url = f"{settings.frontend_url}/quote/status/{case.access_token}"
+    public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+    status_url = f"{public_base}/quote/status/{case.access_token}"
     photos = (
         db.execute(
             select(InstallationPhoto)
@@ -224,7 +227,7 @@ def send_installation_report(
     )
     photo_urls = [
         {
-            "url": f"{settings.frontend_url.rstrip('/')}/{str(p.file_path).lstrip('/')}",
+            "url": f"{public_base}/{str(p.file_path).lstrip('/')}",
             "file_name": p.file_name,
             "caption": p.caption,
         }
@@ -265,7 +268,7 @@ def send_installation_report(
         db,
         template_key="installation_report",
         ctx=ctx,
-        fallback="[FFT] Your installation report is ready ({{ reference_number }}). {{ status_url }}",
+        fallback="{{ brand_name }}\nInstallation report ready\nCase: {{ reference_number }}\nView: {{ status_url }}",
     )
     notify_sms(
         db,
@@ -292,6 +295,7 @@ def send_installation_report(
 @router.post("/cases/{case_id}/installation/schedule", response_model=InstallationOut)
 def schedule_installation(
     case_id: str,
+    request: Request,
     payload: InstallationScheduleIn,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
@@ -365,11 +369,13 @@ def schedule_installation(
     customer = db.get(Customer, case.customer_id)
     if customer:
         settings = get_settings()
-        status_url = f"{settings.frontend_url}/quote/status/{case.access_token}"
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        status_url = f"{public_base}/quote/status/{case.access_token}"
         scheduled_text = payload.scheduled_date.astimezone().strftime("%Y-%m-%d %H:%M %Z")
         ctx = {
             "title": "FFT - Installation scheduled",
             "nickname": customer.nickname,
+            "reference_number": case.reference_number,
             "scheduled_text": scheduled_text,
             "status_url": status_url,
         }
@@ -392,7 +398,7 @@ def schedule_installation(
             db,
             template_key="installation_scheduled",
             ctx=ctx,
-            fallback="[FFT] Installation scheduled for {{ scheduled_text }}. Status: {{ status_url }}",
+            fallback="{{ brand_name }}\nInstallation scheduled\nTime: {{ scheduled_text }}\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
         )
         notify_sms(
             db,
@@ -410,6 +416,7 @@ def schedule_installation(
 @router.patch("/cases/{case_id}/installation/complete", response_model=InstallationOut)
 def complete_installation(
     case_id: str,
+    request: Request,
     payload: InstallationCompleteIn,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
@@ -451,7 +458,8 @@ def complete_installation(
     customer = db.get(Customer, case.customer_id)
     if customer and customer.phone:
         settings = get_settings()
-        status_url = f"{settings.frontend_url}/quote/status/{case.access_token}"
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        status_url = f"{public_base}/quote/status/{case.access_token}"
         notify_case_status_sms(
             db,
             case_id=str(case.id),
@@ -470,6 +478,7 @@ def complete_installation(
 @router.post("/cases/{case_id}/completion-email")
 def send_completion_email(
     case_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
@@ -484,10 +493,24 @@ def send_completion_email(
     if not customer:
         raise HTTPException(status_code=400, detail="Customer not found")
 
+    already_completed = case.status == CaseStatus.completed
+
+    settings = get_settings()
+    public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+    status_url = f"{public_base}/quote/status/{case.access_token}"
+    completed_text = None
+    if inst.completed_at:
+        try:
+            completed_text = inst.completed_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        except Exception:
+            completed_text = str(inst.completed_at)
+
     ctx = {
         "title": "FFT - Project completed",
         "nickname": customer.nickname,
         "reference_number": case.reference_number,
+        "status_url": status_url,
+        "completed_text": completed_text,
     }
     subject, html = render_email_from_db_or_files(
         db,
@@ -508,7 +531,7 @@ def send_completion_email(
         db,
         template_key="completion",
         ctx=ctx,
-        fallback="[FFT] Your installation is completed. Thank you! Case: {{ reference_number }}",
+        fallback="{{ brand_name }}\nInstallation complete\nCase: {{ reference_number }}\nThank you!",
     )
     notify_sms(
         db,
@@ -520,19 +543,30 @@ def send_completion_email(
     inst.completion_email_sent = True
     db.add(inst)
 
-    assert_transition_allowed(from_status=case.status, to_status=CaseStatus.completed)
-    from_status = case.status.value
-    case.status = CaseStatus.completed
-    db.add(case)
-    db.add(
-        CaseStatusHistory(
-            case_id=case.id,
-            from_status=from_status,
-            to_status=CaseStatus.completed.value,
-            changed_by=admin.id,
-            note="Completion email sent",
+    if already_completed:
+        db.add(
+            CaseStatusHistory(
+                case_id=case.id,
+                from_status=case.status.value,
+                to_status=case.status.value,
+                changed_by=admin.id,
+                note="Completion email re-sent",
+            )
         )
-    )
+    else:
+        assert_transition_allowed(from_status=case.status, to_status=CaseStatus.completed)
+        from_status = case.status.value
+        case.status = CaseStatus.completed
+        db.add(case)
+        db.add(
+            CaseStatusHistory(
+                case_id=case.id,
+                from_status=from_status,
+                to_status=CaseStatus.completed.value,
+                changed_by=admin.id,
+                note="Completion email sent",
+            )
+        )
     db.commit()
     return {"ok": True}
 

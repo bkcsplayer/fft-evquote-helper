@@ -56,7 +56,7 @@ DEFAULT_EMAIL_TEMPLATES_VALUE = {
     },
     "completion": {
         "subject": "Your EV charger installation is completed",
-        "html": "{% extends \"base.html\" %}{% block content %}<h2 style=\"margin:0 0 8px 0;\">Project completed</h2><p class=\"muted\" style=\"margin:0 0 12px 0;\">Hi {{ nickname }}, thank you for choosing FFT. Your EV charger installation is completed.</p><div class=\"muted small\" style=\"margin: 12px 0;\"><div><strong>Case</strong>: {{ reference_number }}</div><div><strong>Workmanship warranty</strong>: 1 year</div></div><h3 style=\"margin: 14px 0 6px 0; font-size: 14px;\">Key terms</h3><ol class=\"muted small\" style=\"margin: 0 0 12px 16px; padding:0;\"><li>Panel capacity is assumed sufficient; upgrades or EVEMS/DCC (if required) are quoted separately.</li><li>Drywall/patching/painting is not included for concealed wiring.</li><li>Pre-existing code violations identified during inspection are the customer’s responsibility.</li><li>Hardware is customer-supplied; FFT covers workmanship only.</li></ol><p class=\"muted small\" style=\"margin:0;\">If you have any questions, just reply to this email.</p>{% endblock %}",
+        "html": "{% extends \"base.html\" %}{% block content %}<h2 style=\"margin:0 0 8px 0;\">Installation complete</h2><p class=\"muted\" style=\"margin:0 0 12px 0;\">Hi {{ nickname }}, great news — your EV charger installation is complete. Thank you for choosing {{ brand_short }}.</p><div style=\"border:1px solid #e2e8f0; border-radius: 14px; padding: 12px; background: #f8fafc;\"><div class=\"small muted\"><strong>Case</strong>: {{ reference_number }}</div>{% if completed_text %}<div class=\"small muted\" style=\"margin-top:6px;\"><strong>Completed</strong>: {{ completed_text }}</div>{% endif %}<div class=\"small muted\" style=\"margin-top:6px;\"><strong>Workmanship warranty</strong>: {{ warranty_years }} year{% if warranty_years != 1 %}s{% endif %}</div></div><h3 style=\"margin: 14px 0 6px 0; font-size: 14px;\">What we cover</h3><ul class=\"muted small\" style=\"margin: 0 0 12px 16px; padding:0;\"><li>Workmanship issues directly related to our installation.</li><li>Reasonable troubleshooting support during the warranty period.</li></ul><h3 style=\"margin: 14px 0 6px 0; font-size: 14px;\">What’s not included</h3><ul class=\"muted small\" style=\"margin: 0 0 12px 16px; padding:0;\"><li>Customer-supplied hardware defects (charger/accessories) and Wi‑Fi/network issues.</li><li>Panel/service upgrades and load management devices (EVEMS/DCC), unless quoted and approved.</li><li>Drywall/patching/painting for concealed wiring, unless specified in the quote.</li><li>Pre-existing code violations or issues discovered during inspection.</li></ul><p class=\"muted small\" style=\"margin:0;\">Questions?{% if support_email %} Email <a href=\"mailto:{{ support_email }}\">{{ support_email }}</a>{% endif %}{% if support_phone %}{% if support_email %} or{% endif %} call <a href=\"tel:{{ support_phone }}\">{{ support_phone }}</a>{% endif %}.</p>{% if status_url %}<div style=\"margin: 14px 0 0 0;\"><a class=\"btn\" href=\"{{ status_url }}\">View case</a></div>{% endif %}{% endblock %}",
     },
     "survey_deposit_received": {
         "subject": "We received your survey deposit",
@@ -66,22 +66,31 @@ DEFAULT_EMAIL_TEMPLATES_VALUE = {
 
 DEFAULT_SMS_TEMPLATES_VALUE = {
     "submission_confirm": {
-        "body": "[FFT] Hi {{ nickname }}, we received your request. Track status: {{ status_url }}",
+        "body": "{{ brand_name }}\nHi {{ nickname }}, we received your request.\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
     },
     "survey_scheduled": {
-        "body": "[FFT] Hi {{ nickname }}, your site survey is scheduled for {{ scheduled_text }}. Please pay the deposit here: {{ pay_url }}",
+        "body": "{{ brand_name }}\nSite survey scheduled\nTime: {{ scheduled_text }}\nDeposit: ${{ deposit_amount }}\nPay: {{ pay_url }}",
     },
     "quote_ready": {
-        "body": "[FFT] Hi {{ nickname }}, your quote is ready: {{ quote_url }}",
+        "body": "{{ brand_name }}\nQuote ready for review\nCase: {{ reference_number }}\nView: {{ quote_url }}",
     },
     "installation_scheduled": {
-        "body": "[FFT] Installation scheduled for {{ scheduled_text }}. Status: {{ status_url }}",
+        "body": "{{ brand_name }}\nInstallation scheduled\nTime: {{ scheduled_text }}\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
     },
     "completion": {
-        "body": "[FFT] Your installation is completed. Thank you! Case: {{ reference_number }}",
+        "body": "{{ brand_name }}\nInstallation complete\nCase: {{ reference_number }}\nThank you!",
     },
     "survey_deposit_received": {
-        "body": "[FFT] Deposit received. Thank you! Case: {{ reference_number }}. Status: {{ status_url }}",
+        "body": "{{ brand_name }}\nDeposit received — thank you\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
+    },
+    "status_update": {
+        "body": "{{ brand_name }}\nSTATUS: {{ status_label }}\nCase: {{ reference_number }}{% if note %}\nNote: {{ note }}{% endif %}\nTrack: {{ status_url }}",
+    },
+    "installation_report": {
+        "body": "{{ brand_name }}\nInstallation report ready\nCase: {{ reference_number }}\nView: {{ status_url }}",
+    },
+    "permit_status_update": {
+        "body": "{{ brand_name }}\nPermit update: {{ permit_status|upper }}\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
     },
 }
 
@@ -92,12 +101,34 @@ DEFAULT_ETRANSFER_SETTINGS_VALUE = {
     "instructions": "Please send an Interac e-transfer for the survey deposit amount. Include your case reference number in the message.",
 }
 
+DEFAULT_BRAND_PROFILE_KEY = "brand_profile"
+
+
+def _default_brand_profile_value() -> dict:
+    s = get_settings()
+    return {
+        "support_email": (s.brand_support_email or "").strip(),
+        "support_phone": (s.brand_support_phone or "").strip(),
+        "logo_url": (s.brand_logo_url or "").strip(),
+        "warranty_years": 1,
+    }
+
+
+OLD_COMPLETION_EMAIL_HTML = "{% extends \"base.html\" %}{% block content %}<h2 style=\"margin:0 0 8px 0;\">Project completed</h2><p class=\"muted\" style=\"margin:0 0 12px 0;\">Hi {{ nickname }}, thank you for choosing FFT. Your EV charger installation is completed.</p><div class=\"muted small\" style=\"margin: 12px 0;\"><div><strong>Case</strong>: {{ reference_number }}</div><div><strong>Workmanship warranty</strong>: 1 year</div></div><h3 style=\"margin: 14px 0 6px 0; font-size: 14px;\">Key terms</h3><ol class=\"muted small\" style=\"margin: 0 0 12px 16px; padding:0;\"><li>Panel capacity is assumed sufficient; upgrades or EVEMS/DCC (if required) are quoted separately.</li><li>Drywall/patching/painting is not included for concealed wiring.</li><li>Pre-existing code violations identified during inspection are the customer’s responsibility.</li><li>Hardware is customer-supplied; FFT covers workmanship only.</li></ol><p class=\"muted small\" style=\"margin:0;\">If you have any questions, just reply to this email.</p>{% endblock %}"
+OLD_COMPLETION_SMS_BODY = "[FFT] Your installation is completed. Thank you! Case: {{ reference_number }}"
+OLD_SMS_SUBMISSION_CONFIRM_BODY = "[FFT] Hi {{ nickname }}, we received your request. Track status: {{ status_url }}"
+OLD_SMS_SURVEY_SCHEDULED_BODY = "[FFT] Hi {{ nickname }}, your site survey is scheduled for {{ scheduled_text }}. Please pay the deposit here: {{ pay_url }}"
+OLD_SMS_QUOTE_READY_BODY = "[FFT] Hi {{ nickname }}, your quote is ready: {{ quote_url }}"
+OLD_SMS_INSTALLATION_SCHEDULED_BODY = "[FFT] Installation scheduled for {{ scheduled_text }}. Status: {{ status_url }}"
+OLD_SMS_SURVEY_DEPOSIT_RECEIVED_BODY = "[FFT] Deposit received. Thank you! Case: {{ reference_number }}. Status: {{ status_url }}"
+
 
 def ensure_defaults(db: Session) -> None:
     _ensure_charger_brands(db)
     _ensure_system_settings(db)
     _ensure_etransfer_settings(db)
     _ensure_message_templates(db)
+    _ensure_brand_profile(db)
     _ensure_bootstrap_super_admin(db)
     _ensure_dev_super_admin(db)
 
@@ -148,6 +179,18 @@ def _ensure_message_templates(db: Session) -> None:
             if k not in (email_row.value or {}):
                 email_row.value[k] = v
                 changed = True
+        # Safe upgrade: update completion email only if it still matches the old default.
+        try:
+            existing = (email_row.value or {}).get("completion") or {}
+            if (
+                isinstance(existing, dict)
+                and existing.get("html") == OLD_COMPLETION_EMAIL_HTML
+                and DEFAULT_EMAIL_TEMPLATES_VALUE.get("completion")
+            ):
+                email_row.value["completion"] = DEFAULT_EMAIL_TEMPLATES_VALUE["completion"]
+                changed = True
+        except Exception:
+            pass
         if changed:
             db.add(email_row)
             db.commit()
@@ -162,9 +205,62 @@ def _ensure_message_templates(db: Session) -> None:
             if k not in (sms_row.value or {}):
                 sms_row.value[k] = v
                 changed = True
+        # Safe upgrade: update completion SMS only if it still matches the old default.
+        try:
+            existing = (sms_row.value or {}).get("completion") or {}
+            if (
+                isinstance(existing, dict)
+                and existing.get("body") == OLD_COMPLETION_SMS_BODY
+                and DEFAULT_SMS_TEMPLATES_VALUE.get("completion")
+            ):
+                sms_row.value["completion"] = DEFAULT_SMS_TEMPLATES_VALUE["completion"]
+                changed = True
+        except Exception:
+            pass
+        # Safe upgrade: update other SMS templates only if they still match the old defaults.
+        try:
+            upgrades = {
+                "submission_confirm": OLD_SMS_SUBMISSION_CONFIRM_BODY,
+                "survey_scheduled": OLD_SMS_SURVEY_SCHEDULED_BODY,
+                "quote_ready": OLD_SMS_QUOTE_READY_BODY,
+                "installation_scheduled": OLD_SMS_INSTALLATION_SCHEDULED_BODY,
+                "survey_deposit_received": OLD_SMS_SURVEY_DEPOSIT_RECEIVED_BODY,
+            }
+            for k, old_body in upgrades.items():
+                existing = (sms_row.value or {}).get(k) or {}
+                if (
+                    isinstance(existing, dict)
+                    and existing.get("body") == old_body
+                    and DEFAULT_SMS_TEMPLATES_VALUE.get(k)
+                ):
+                    sms_row.value[k] = DEFAULT_SMS_TEMPLATES_VALUE[k]
+                    changed = True
+        except Exception:
+            pass
         if changed:
             db.add(sms_row)
             db.commit()
+
+
+def _ensure_brand_profile(db: Session) -> None:
+    row = db.execute(select(SystemSetting).where(SystemSetting.key == DEFAULT_BRAND_PROFILE_KEY)).scalar_one_or_none()
+    default_value = _default_brand_profile_value()
+    if not row:
+        db.add(SystemSetting(key=DEFAULT_BRAND_PROFILE_KEY, value=default_value))
+        db.commit()
+        return
+
+    changed = False
+    if not isinstance(row.value, dict):
+        row.value = {}
+        changed = True
+    for k, v in default_value.items():
+        if k not in (row.value or {}):
+            row.value[k] = v
+            changed = True
+    if changed:
+        db.add(row)
+        db.commit()
 
 
 def _ensure_bootstrap_super_admin(db: Session) -> None:

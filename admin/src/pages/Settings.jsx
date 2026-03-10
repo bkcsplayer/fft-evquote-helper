@@ -8,6 +8,10 @@ export default function Settings() {
   const [etransferJson, setEtransferJson] = useState('')
   const [emailTemplatesJson, setEmailTemplatesJson] = useState('')
   const [smsTemplatesJson, setSmsTemplatesJson] = useState('')
+  const [supportEmail, setSupportEmail] = useState('')
+  const [supportPhone, setSupportPhone] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
+  const [warrantyYears, setWarrantyYears] = useState('1')
   const [brands, setBrands] = useState([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -28,6 +32,13 @@ export default function Settings() {
       setEmailTemplatesJson(JSON.stringify(emailTemplates, null, 2))
       const smsTemplates = (s.data || []).find((x) => x.key === 'sms_templates')?.value || {}
       setSmsTemplatesJson(JSON.stringify(smsTemplates, null, 2))
+
+      const bp = (s.data || []).find((x) => x.key === 'brand_profile')?.value || {}
+      setSupportEmail(bp?.support_email || '')
+      setSupportPhone(bp?.support_phone || '')
+      setLogoUrl(bp?.logo_url || '')
+      setWarrantyYears(String(bp?.warranty_years || 1))
+
       setBrands(b.data || [])
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to load settings')
@@ -94,6 +105,43 @@ export default function Settings() {
     }
   }
 
+  async function saveBrandProfile() {
+    setBusy(true)
+    setError('')
+    try {
+      const payload = {
+        support_email: (supportEmail || '').trim(),
+        support_phone: (supportPhone || '').trim(),
+        logo_url: (logoUrl || '').trim(),
+        warranty_years: Math.max(1, Number(warrantyYears || 1)),
+      }
+      await api.put('/settings/brand_profile', { value: payload })
+      await load()
+    } catch (e) {
+      setError(e?.response?.data?.detail || e.message || 'Failed to save brand_profile')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function uploadLogo(file) {
+    if (!file) return
+    setBusy(true)
+    setError('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await api.post('/settings/brand-logo', fd)
+      const nextUrl = res?.data?.logo_url || ''
+      if (nextUrl) setLogoUrl(nextUrl)
+      await load()
+    } catch (e) {
+      setError(e?.response?.data?.detail || e.message || 'Failed to upload logo')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function addBrand() {
     const name = newBrandName.trim()
     if (!name) return
@@ -134,6 +182,80 @@ export default function Settings() {
       {error ? <div className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border bg-white p-4 shadow-sm">
+          <div className="text-sm font-semibold text-slate-900">Brand profile (email footer)</div>
+          <div className="mt-2 text-xs text-slate-500">
+            Used in email templates. Stored in <span className="font-mono">system_settings.brand_profile</span>.
+          </div>
+
+          <div className="mt-3 grid grid-cols-1 gap-3">
+            <label className="block">
+              <div className="text-xs font-semibold text-slate-700">Support email</div>
+              <input
+                value={supportEmail}
+                onChange={(e) => setSupportEmail(e.target.value)}
+                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                placeholder="info@khtain.com"
+              />
+            </label>
+            <label className="block">
+              <div className="text-xs font-semibold text-slate-700">Support phone</div>
+              <input
+                value={supportPhone}
+                onChange={(e) => setSupportPhone(e.target.value)}
+                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                placeholder="+1xxxxxxxxxx"
+              />
+            </label>
+            <label className="block">
+              <div className="text-xs font-semibold text-slate-700">Workmanship warranty (years)</div>
+              <input
+                value={warrantyYears}
+                onChange={(e) => setWarrantyYears(e.target.value)}
+                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                placeholder="1"
+              />
+            </label>
+
+            <div className="rounded-xl border bg-slate-50 p-3">
+              <div className="text-xs font-semibold text-slate-700">Logo</div>
+              <div className="mt-1 text-xs text-slate-600">
+                {logoUrl ? (
+                  <>
+                    Current:{' '}
+                    <a className="break-all text-teal-700 underline" href={logoUrl} target="_blank" rel="noreferrer">
+                      {logoUrl}
+                    </a>
+                  </>
+                ) : (
+                  <>No logo URL set.</>
+                )}
+              </div>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                disabled={busy}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  e.target.value = ''
+                  uploadLogo(f)
+                }}
+                className="mt-2 block w-full text-xs"
+              />
+              <div className="mt-1 text-[11px] text-slate-500">PNG/JPG/WEBP, max 5MB.</div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={busy}
+            onClick={saveBrandProfile}
+            className="mt-3 inline-flex items-center justify-center rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+          >
+            Save brand_profile
+          </button>
+        </div>
+
         <div className="rounded-2xl border bg-white p-4 shadow-sm">
           <div className="text-sm font-semibold text-slate-900">Pricing defaults</div>
           <div className="mt-2 text-xs text-slate-500">Edit JSON and save.</div>
