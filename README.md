@@ -59,9 +59,9 @@ docker compose -f docker-compose.yml -f docker-compose.vps.yml --env-file .env u
 
 然后在宝塔站点 `evquote.khtain.com` 的 Nginx 配置里，把：
 
-- `/` 反代到 `http://127.0.0.1:7220`
-- `/admin/` 反代到 `http://127.0.0.1:7221`
-- `/api/` 与 `/uploads/`（可选）反代到 `http://127.0.0.1:7222`
+- `/` 反代到 `http://127.0.0.1:7620`
+- `/admin/` 反代到 `http://127.0.0.1:7621`
+- `/api/` 与 `/uploads/`（可选）反代到 `http://127.0.0.1:7622`
 
 ## 本地 Docker（全栈，一键跑通）
 

@@ -70,9 +70,9 @@ docker compose -f docker-compose.yml -f docker-compose.vps.yml --env-file .env u
 
 本模式端口绑定：
 
-- `127.0.0.1:7220` → frontend
-- `127.0.0.1:7221` → admin
-- `127.0.0.1:7222` → backend
+- `127.0.0.1:7620` → frontend
+- `127.0.0.1:7621` → admin
+- `127.0.0.1:7622` → backend
 - DB 不暴露端口
 
 ---
@@ -85,7 +85,7 @@ docker compose -f docker-compose.yml -f docker-compose.vps.yml --env-file .env u
 client_max_body_size 25m;
 
 location /admin/ {
-  proxy_pass http://127.0.0.1:7221;
+  proxy_pass http://127.0.0.1:7621;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -94,7 +94,7 @@ location /admin/ {
 location = /admin { return 301 /admin/; }
 
 location /api/ {
-  proxy_pass http://127.0.0.1:7222;
+  proxy_pass http://127.0.0.1:7622;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -102,7 +102,7 @@ location /api/ {
 }
 
 location /uploads/ {
-  proxy_pass http://127.0.0.1:7222;
+  proxy_pass http://127.0.0.1:7622;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -110,7 +110,7 @@ location /uploads/ {
 }
 
 location / {
-  proxy_pass http://127.0.0.1:7220;
+  proxy_pass http://127.0.0.1:7620;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;
   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -130,7 +130,7 @@ location / {
 
 - 用户端：`https://evquote.khtain.com/quote`
 - Admin：`https://evquote.khtain.com/admin/`
-- API Docs（建议仅管理员访问）：`https://evquote.khtain.com/api/docs`
+- 服务器本机验证 backend：`curl http://127.0.0.1:7622/health`（或 `curl http://127.0.0.1:7622/docs`）
 
 ---
 
