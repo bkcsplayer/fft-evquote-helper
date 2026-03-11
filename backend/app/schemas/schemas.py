@@ -49,6 +49,16 @@ class CaseStatusOut(BaseModel):
     survey_deposit_paid: bool | None = None
     survey_deposit_amount: Decimal | None = None
     quote_active_id: UUID | None = None
+    # Survey appointment request (customer -> admin)
+    survey_requested_date: datetime | None = None
+    survey_request_status: str | None = None
+    survey_request_admin_note: str | None = None
+
+    # Installation appointment request (customer -> admin)
+    installation_scheduled_date: datetime | None = None
+    installation_requested_date: datetime | None = None
+    installation_request_status: str | None = None
+    installation_request_admin_note: str | None = None
 
 
 class QuoteAddonIn(BaseModel):
@@ -160,6 +170,10 @@ class CaseDetailOut(BaseModel):
     survey_scheduled_date: datetime | None = None
     survey_deposit_paid: bool | None = None
     survey_deposit_amount: Decimal | None = None
+    survey_requested_date: datetime | None = None
+    survey_request_status: str | None = None
+    survey_request_note: str | None = None
+    survey_request_admin_note: str | None = None
     active_quote: QuoteOut | None = None
 
 
@@ -222,6 +236,10 @@ class InstallationScheduleIn(BaseModel):
 class InstallationOut(BaseModel):
     id: UUID
     case_id: UUID
+    requested_date: datetime | None = None
+    request_status: str | None = None
+    request_note: str | None = None
+    admin_note: str | None = None
     scheduled_date: datetime | None
     completed_at: datetime | None
     completion_email_sent: bool

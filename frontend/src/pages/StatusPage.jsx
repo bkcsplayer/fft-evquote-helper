@@ -27,6 +27,12 @@ export default function StatusPage() {
   const [loading, setLoading] = useState(true)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
+  const [surveyReqDt, setSurveyReqDt] = useState('')
+  const [surveyReqNote, setSurveyReqNote] = useState('')
+  const [surveyReqBusy, setSurveyReqBusy] = useState(false)
+  const [installReqDt, setInstallReqDt] = useState('')
+  const [installReqNote, setInstallReqNote] = useState('')
+  const [installReqBusy, setInstallReqBusy] = useState(false)
 
   function statusLabel(raw) {
     if (!raw) return '—'
@@ -40,6 +46,16 @@ export default function StatusPage() {
       return new Date(v).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-CA')
     } catch {
       return String(v || '')
+    }
+  }
+
+  function toLocalInputValue(v) {
+    try {
+      const d = new Date(v)
+      const pad = (n) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    } catch {
+      return ''
     }
   }
 
@@ -77,6 +93,45 @@ export default function StatusPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh, token])
 
+  async function submitSurveyRequest() {
+    const v = surveyReqDt || (data?.survey_requested_date ? toLocalInputValue(data.survey_requested_date) : '')
+    if (!v) return
+    setSurveyReqBusy(true)
+    setError('')
+    try {
+      await api.post(`/cases/survey/request/${token}`, {
+        requested_date: new Date(v).toISOString(),
+        note: surveyReqNote.trim() || null,
+      })
+      setSurveyReqNote('')
+      await load()
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Unable to submit request')
+    } finally {
+      setSurveyReqBusy(false)
+    }
+  }
+
+  async function submitInstallRequest() {
+    const v =
+      installReqDt || (data?.installation_requested_date ? toLocalInputValue(data.installation_requested_date) : '')
+    if (!v) return
+    setInstallReqBusy(true)
+    setError('')
+    try {
+      await api.post(`/cases/installation/request/${token}`, {
+        requested_date: new Date(v).toISOString(),
+        note: installReqNote.trim() || null,
+      })
+      setInstallReqNote('')
+      await load()
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Unable to submit request')
+    } finally {
+      setInstallReqBusy(false)
+    }
+  }
+
   const progress = useMemo(() => {
     const status = data?.status
     if (!status) return 0
@@ -93,6 +148,27 @@ export default function StatusPage() {
     const st = String(data?.status || '')
     return ORDER.indexOf(st) >= ORDER.indexOf('customer_approved')
   }, [data])
+
+  const showInstallScheduling = useMemo(() => {
+    const st = String(data?.status || '')
+    const i = ORDER.indexOf(st)
+    const permitI = ORDER.indexOf('permit_approved')
+    return i >= 0 && permitI >= 0 && i >= permitI
+  }, [data])
+
+  const surveyReqDtValue = useMemo(() => {
+    if (surveyReqDt) return surveyReqDt
+    if (data?.survey_requested_date) return toLocalInputValue(data.survey_requested_date)
+    return ''
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [surveyReqDt, data?.survey_requested_date])
+
+  const installReqDtValue = useMemo(() => {
+    if (installReqDt) return installReqDt
+    if (data?.installation_requested_date) return toLocalInputValue(data.installation_requested_date)
+    return ''
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [installReqDt, data?.installation_requested_date])
 
   return (
     <QuoteShell>
@@ -162,6 +238,151 @@ export default function StatusPage() {
                   </div>
                 ) : null}
               </div>
+            ) : (
+              <div className="mt-4 rounded-xl border bg-white p-3 text-sm">
+                <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('status.survey')}</div>
+                <div className="mt-1 text-slate-800">
+                  {lang === 'zh' ? '请选择上门勘查时间（我们确认后才会安排上门）' : 'Choose a site survey time (we will confirm before scheduling)'}
+                </div>
+
+                {data.survey_request_status === 'pending' && data.survey_requested_date ? (
+                  <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                    {lang === 'zh' ? '你已提交时间，等待确认：' : 'Requested (waiting for confirmation): '}
+                    <span className="font-semibold">{dt(data.survey_requested_date)}</span>
+                  </div>
+                ) : null}
+
+                {data.survey_request_status === 'rejected' ? (
+                  <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <div className="font-semibold">{lang === 'zh' ? '该时间无法安排，请重新选择' : 'That time is not available. Please choose another.'}</div>
+                    {data.survey_request_admin_note ? (
+                      <div className="mt-1 text-amber-800">{data.survey_request_admin_note}</div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <label className="block sm:col-span-1">
+                    <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                      {lang === 'zh' ? '预约时间（本地）' : 'Preferred time (local)'}
+                    </div>
+                    <input
+                      type="datetime-local"
+                      value={surveyReqDtValue}
+                      onChange={(e) => setSurveyReqDt(e.target.value)}
+                      disabled={surveyReqBusy}
+                      className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
+                    />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                      {lang === 'zh' ? '备注（可选）' : 'Note (optional)'}
+                    </div>
+                    <input
+                      value={surveyReqNote}
+                      onChange={(e) => setSurveyReqNote(e.target.value)}
+                      disabled={surveyReqBusy}
+                      className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
+                      placeholder={lang === 'zh' ? '例如：周末可，或门禁说明…' : 'e.g. weekend works, gate code…'}
+                    />
+                  </label>
+                  <div className="sm:col-span-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={surveyReqBusy || !surveyReqDt}
+                      onClick={submitSurveyRequest}
+                      className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+                    >
+                      {lang === 'zh' ? '提交时间' : 'Submit time'}
+                    </button>
+                    <div className="text-xs text-slate-500 self-center">
+                      {lang === 'zh'
+                        ? '提交后，我们会确认该时间；如不合适会退回让你重新选择。'
+                        : 'After you submit, we’ll confirm it. If unavailable, we’ll ask you to choose again.'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {showInstallScheduling ? (
+              data.installation_scheduled_date ? (
+                <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm">
+                  <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                    {lang === 'zh' ? '安装' : 'Installation'}
+                  </div>
+                  <div className="mt-1 text-slate-800">
+                    {lang === 'zh' ? '已安排：' : 'Scheduled: '} <span className="font-semibold">{dt(data.installation_scheduled_date)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border bg-white p-3 text-sm">
+                  <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                    {lang === 'zh' ? '安装' : 'Installation'}
+                  </div>
+                  <div className="mt-1 text-slate-800">
+                    {lang === 'zh' ? '请选择安装时间（我们确认后才会安排施工）' : 'Choose an installation time (we will confirm before scheduling)'}
+                  </div>
+
+                  {data.installation_request_status === 'pending' && data.installation_requested_date ? (
+                    <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                      {lang === 'zh' ? '你已提交时间，等待确认：' : 'Requested (waiting for confirmation): '}
+                      <span className="font-semibold">{dt(data.installation_requested_date)}</span>
+                    </div>
+                  ) : null}
+
+                  {data.installation_request_status === 'rejected' ? (
+                    <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                      <div className="font-semibold">{lang === 'zh' ? '该时间无法安排，请重新选择' : 'That time is not available. Please choose another.'}</div>
+                      {data.installation_request_admin_note ? (
+                        <div className="mt-1 text-amber-800">{data.installation_request_admin_note}</div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <label className="block sm:col-span-1">
+                      <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                        {lang === 'zh' ? '预约时间（本地）' : 'Preferred time (local)'}
+                      </div>
+                      <input
+                        type="datetime-local"
+                        value={installReqDtValue}
+                        onChange={(e) => setInstallReqDt(e.target.value)}
+                        disabled={installReqBusy}
+                        className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
+                      />
+                    </label>
+                    <label className="block sm:col-span-2">
+                      <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                        {lang === 'zh' ? '备注（可选）' : 'Note (optional)'}
+                      </div>
+                      <input
+                        value={installReqNote}
+                        onChange={(e) => setInstallReqNote(e.target.value)}
+                        disabled={installReqBusy}
+                        className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
+                        placeholder={lang === 'zh' ? '例如：工作日晚上更方便…' : 'e.g. evenings are better…'}
+                      />
+                    </label>
+                    <div className="sm:col-span-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={installReqBusy || !installReqDt}
+                        onClick={submitInstallRequest}
+                        className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+                      >
+                        {lang === 'zh' ? '提交时间' : 'Submit time'}
+                      </button>
+                      <div className="text-xs text-slate-500 self-center">
+                        {lang === 'zh'
+                          ? '提交后，我们会确认该时间；如不合适会退回让你重新选择。'
+                          : 'After you submit, we’ll confirm it. If unavailable, we’ll ask you to choose again.'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
             ) : null}
 
             {depositReported ? (

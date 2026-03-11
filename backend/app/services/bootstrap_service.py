@@ -40,7 +40,7 @@ DEFAULT_SMS_TEMPLATES_KEY = "sms_templates"
 DEFAULT_EMAIL_TEMPLATES_VALUE = {
     "submission_confirm": {
         "subject": "We received your EV charger quote request",
-        "html": "{% extends \"base.html\" %}{% block content %}<h2 style=\"margin:0 0 8px 0;\">We received your request</h2><p class=\"muted\" style=\"margin:0 0 12px 0;\">Thanks {{ nickname }}. Your case reference number is <strong>{{ reference_number }}</strong>.</p><p style=\"margin:0 0 12px 0;\">You can track status here: <a class=\"btn\" href=\"{{ status_url }}\">View status</a></p><p class=\"muted small\" style=\"margin:0;\">Next step: we will contact you to confirm a Site Survey time.</p>{% endblock %}",
+        "html": "{% extends \"base.html\" %}{% block content %}<h2 style=\"margin:0 0 8px 0;\">We received your request</h2><p class=\"muted\" style=\"margin:0 0 12px 0;\">Thanks {{ nickname }}. Your case reference number is <strong>{{ reference_number }}</strong>.</p><p style=\"margin:0 0 12px 0;\">You can track status here: <a class=\"btn\" href=\"{{ status_url }}\">View status</a></p><p class=\"muted small\" style=\"margin:0;\">Next step: please choose a preferred Site Survey time using the status link above. We’ll confirm the appointment by SMS/email.</p>{% endblock %}",
     },
     "survey_scheduled": {
         "subject": "Your EV charger site survey is scheduled",
@@ -66,7 +66,7 @@ DEFAULT_EMAIL_TEMPLATES_VALUE = {
 
 DEFAULT_SMS_TEMPLATES_VALUE = {
     "submission_confirm": {
-        "body": "{{ brand_name }}\nHi {{ nickname }}, we received your request.\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
+        "body": "{{ brand_name }}\nHi {{ nickname }}, request received.\nNext: choose a site survey time (we’ll confirm).\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
     },
     "survey_scheduled": {
         "body": "{{ brand_name }}\nSite survey scheduled\nTime: {{ scheduled_text }}\nDeposit: ${{ deposit_amount }}\nPay: {{ pay_url }}",
@@ -92,6 +92,12 @@ DEFAULT_SMS_TEMPLATES_VALUE = {
     "permit_status_update": {
         "body": "{{ brand_name }}\nPermit update: {{ permit_status|upper }}\nCase: {{ reference_number }}\nTrack: {{ status_url }}",
     },
+    "survey_time_action_required": {
+        "body": "{{ brand_name }}\nACTION REQUIRED: Choose a new site survey time.\nCase: {{ reference_number }}{% if note %}\nReason: {{ note }}{% endif %}\nTrack: {{ status_url }}",
+    },
+    "installation_time_action_required": {
+        "body": "{{ brand_name }}\nACTION REQUIRED: Choose a new installation time.\nCase: {{ reference_number }}{% if note %}\nReason: {{ note }}{% endif %}\nTrack: {{ status_url }}",
+    },
 }
 
 DEFAULT_ETRANSFER_SETTINGS_KEY = "etransfer_settings"
@@ -115,8 +121,10 @@ def _default_brand_profile_value() -> dict:
 
 
 OLD_COMPLETION_EMAIL_HTML = "{% extends \"base.html\" %}{% block content %}<h2 style=\"margin:0 0 8px 0;\">Project completed</h2><p class=\"muted\" style=\"margin:0 0 12px 0;\">Hi {{ nickname }}, thank you for choosing FFT. Your EV charger installation is completed.</p><div class=\"muted small\" style=\"margin: 12px 0;\"><div><strong>Case</strong>: {{ reference_number }}</div><div><strong>Workmanship warranty</strong>: 1 year</div></div><h3 style=\"margin: 14px 0 6px 0; font-size: 14px;\">Key terms</h3><ol class=\"muted small\" style=\"margin: 0 0 12px 16px; padding:0;\"><li>Panel capacity is assumed sufficient; upgrades or EVEMS/DCC (if required) are quoted separately.</li><li>Drywall/patching/painting is not included for concealed wiring.</li><li>Pre-existing code violations identified during inspection are the customer’s responsibility.</li><li>Hardware is customer-supplied; FFT covers workmanship only.</li></ol><p class=\"muted small\" style=\"margin:0;\">If you have any questions, just reply to this email.</p>{% endblock %}"
+OLD_SUBMISSION_CONFIRM_EMAIL_HTML = "{% extends \"base.html\" %}{% block content %}<h2 style=\"margin:0 0 8px 0;\">We received your request</h2><p class=\"muted\" style=\"margin:0 0 12px 0;\">Thanks {{ nickname }}. Your case reference number is <strong>{{ reference_number }}</strong>.</p><p style=\"margin:0 0 12px 0;\">You can track status here: <a class=\"btn\" href=\"{{ status_url }}\">View status</a></p><p class=\"muted small\" style=\"margin:0;\">Next step: we will contact you to confirm a Site Survey time.</p>{% endblock %}"
 OLD_COMPLETION_SMS_BODY = "[FFT] Your installation is completed. Thank you! Case: {{ reference_number }}"
 OLD_SMS_SUBMISSION_CONFIRM_BODY = "[FFT] Hi {{ nickname }}, we received your request. Track status: {{ status_url }}"
+OLD_SMS_SUBMISSION_CONFIRM_BODY_V2 = "{{ brand_name }}\nHi {{ nickname }}, we received your request.\nCase: {{ reference_number }}\nTrack: {{ status_url }}"
 OLD_SMS_SURVEY_SCHEDULED_BODY = "[FFT] Hi {{ nickname }}, your site survey is scheduled for {{ scheduled_text }}. Please pay the deposit here: {{ pay_url }}"
 OLD_SMS_QUOTE_READY_BODY = "[FFT] Hi {{ nickname }}, your quote is ready: {{ quote_url }}"
 OLD_SMS_INSTALLATION_SCHEDULED_BODY = "[FFT] Installation scheduled for {{ scheduled_text }}. Status: {{ status_url }}"
@@ -191,6 +199,18 @@ def _ensure_message_templates(db: Session) -> None:
                 changed = True
         except Exception:
             pass
+        # Safe upgrade: update submission_confirm email only if it still matches the old default.
+        try:
+            existing = (email_row.value or {}).get("submission_confirm") or {}
+            if (
+                isinstance(existing, dict)
+                and existing.get("html") == OLD_SUBMISSION_CONFIRM_EMAIL_HTML
+                and DEFAULT_EMAIL_TEMPLATES_VALUE.get("submission_confirm")
+            ):
+                email_row.value["submission_confirm"] = DEFAULT_EMAIL_TEMPLATES_VALUE["submission_confirm"]
+                changed = True
+        except Exception:
+            pass
         if changed:
             db.add(email_row)
             db.commit()
@@ -235,6 +255,18 @@ def _ensure_message_templates(db: Session) -> None:
                 ):
                     sms_row.value[k] = DEFAULT_SMS_TEMPLATES_VALUE[k]
                     changed = True
+        except Exception:
+            pass
+        # Safe upgrade: update submission_confirm SMS only if it still matches the previous default.
+        try:
+            existing = (sms_row.value or {}).get("submission_confirm") or {}
+            if (
+                isinstance(existing, dict)
+                and existing.get("body") == OLD_SMS_SUBMISSION_CONFIRM_BODY_V2
+                and DEFAULT_SMS_TEMPLATES_VALUE.get("submission_confirm")
+            ):
+                sms_row.value["submission_confirm"] = DEFAULT_SMS_TEMPLATES_VALUE["submission_confirm"]
+                changed = True
         except Exception:
             pass
         if changed:

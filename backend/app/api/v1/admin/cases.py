@@ -119,6 +119,10 @@ def get_case(
         survey_scheduled_date=survey.scheduled_date if survey else None,
         survey_deposit_paid=survey.deposit_paid if survey else None,
         survey_deposit_amount=survey.deposit_amount if survey else None,
+        survey_requested_date=getattr(survey, "requested_date", None) if survey else None,
+        survey_request_status=getattr(survey, "request_status", None) if survey else None,
+        survey_request_note=getattr(survey, "request_note", None) if survey else None,
+        survey_request_admin_note=getattr(survey, "admin_note", None) if survey else None,
         active_quote=active_quote,
     )
 

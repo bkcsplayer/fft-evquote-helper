@@ -106,6 +106,7 @@ export default function CaseDetail() {
   const [preview, setPreview] = useState(null) // { src, title, subtitle }
 
   const [surveyDt, setSurveyDt] = useState('')
+  const [surveyRejectNote, setSurveyRejectNote] = useState('')
   const [surveyNotes, setSurveyNotes] = useState('')
   const [surveyPhotoCategory, setSurveyPhotoCategory] = useState('panel_front')
   const [surveyPhotoCaption, setSurveyPhotoCaption] = useState('')
@@ -133,6 +134,7 @@ export default function CaseDetail() {
   const [installation, setInstallation] = useState(null)
   const [installDt, setInstallDt] = useState('')
   const [installNotes, setInstallNotes] = useState('')
+  const [installRejectNote, setInstallRejectNote] = useState('')
   const [installReportInstalledItems, setInstallReportInstalledItems] = useState('')
   const [installReportWireGauge, setInstallReportWireGauge] = useState('')
   const [installReportMaxAmps, setInstallReportMaxAmps] = useState('')
@@ -176,6 +178,22 @@ export default function CaseDetail() {
       setNotifications(ns.data || [])
       setNotes(notesRes.data || [])
 
+      // Pre-fill survey scheduling input from customer-requested time (preferred) or existing schedule
+      try {
+        const src = res.data?.survey_requested_date || res.data?.survey_scheduled_date
+        if (src) {
+          const d = new Date(src)
+          const pad = (n) => String(n).padStart(2, '0')
+          setSurveyDt(
+            `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+          )
+        } else {
+          setSurveyDt('')
+        }
+      } catch {
+        setSurveyDt('')
+      }
+
       if (p.data) {
         setPermitNumber(p.data.permit_number || '')
         setPermitStatus(p.data.status || 'applied')
@@ -195,8 +213,10 @@ export default function CaseDetail() {
       if (inst.data) {
         // Populate scheduling fields (and support fixing inconsistent dates)
         try {
-          if (inst.data.scheduled_date) {
-            const d = new Date(inst.data.scheduled_date)
+          const src =
+            inst.data.request_status === 'pending' && inst.data.requested_date ? inst.data.requested_date : inst.data.scheduled_date
+          if (src) {
+            const d = new Date(src)
             const pad = (n) => String(n).padStart(2, '0')
             setInstallDt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`)
           } else {
@@ -281,6 +301,21 @@ export default function CaseDetail() {
     }
   }, [data])
 
+  const installationScheduledInFuture = useMemo(() => {
+    try {
+      const sd = installation?.scheduled_date
+      if (!sd) return false
+      return new Date(sd).getTime() > Date.now()
+    } catch {
+      return false
+    }
+  }, [installation?.scheduled_date])
+
+  const hasPendingInstallRequest = useMemo(() => {
+    const rs = String(installation?.request_status || '').trim()
+    return rs === 'pending' && !!installation?.requested_date
+  }, [installation?.request_status, installation?.requested_date])
+
   const installationDateIssue = useMemo(() => {
     try {
       if (!installation?.completed_at || !installation?.scheduled_date) return false
@@ -321,8 +356,25 @@ export default function CaseDetail() {
     try {
       await api.post(`/cases/${id}/survey/schedule`, { scheduled_date: new Date(surveyDt).toISOString() })
       await load()
+      setSuccess('Survey scheduled.')
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to schedule survey')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function rejectSurveyRequest() {
+    setBusy(true)
+    setError('')
+    setSuccess('')
+    try {
+      await api.post(`/cases/${id}/survey/request/reject`, { note: surveyRejectNote.trim() || null })
+      setSurveyRejectNote('')
+      await load()
+      setSuccess('Survey request rejected — customer will choose again.')
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to reject survey request')
     } finally {
       setBusy(false)
     }
@@ -498,8 +550,25 @@ export default function CaseDetail() {
       })
       setInstallNotes('')
       await load()
+      setSuccess('Installation scheduled.')
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to schedule installation')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function rejectInstallationRequest() {
+    setBusy(true)
+    setError('')
+    setSuccess('')
+    try {
+      await api.post(`/cases/${id}/installation/request/reject`, { note: installRejectNote.trim() || null })
+      setInstallRejectNote('')
+      await load()
+      setSuccess('Installation request rejected — customer will choose again.')
+    } catch (e) {
+      setError(e?.response?.data?.detail || 'Failed to reject installation request')
     } finally {
       setBusy(false)
     }
@@ -716,6 +785,24 @@ export default function CaseDetail() {
                 Completed — locked to prevent mistakes.
               </div>
             ) : null}
+            {data.survey_request_status === 'pending' && data.survey_requested_date ? (
+              <div className="mt-3 rounded-xl border bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <div className="font-semibold">Customer requested survey time</div>
+                <div className="mt-1">{new Date(data.survey_requested_date).toLocaleString()}</div>
+                {data.survey_request_note ? <div className="mt-1 text-amber-800">Note: {data.survey_request_note}</div> : null}
+              </div>
+            ) : null}
+            {data.survey_request_status === 'rejected' && data.survey_request_admin_note ? (
+              <div className="mt-3 rounded-xl border bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                <div className="font-semibold">Last rejection</div>
+                <div className="mt-1">{data.survey_request_admin_note}</div>
+              </div>
+            ) : null}
+            {!data.survey_scheduled_date && !data.survey_requested_date ? (
+              <div className="mt-3 rounded-xl border bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                Waiting for customer to choose a survey time.
+              </div>
+            ) : null}
             <div className="mt-2 text-sm text-slate-700">
               Scheduled: {data.survey_scheduled_date ? new Date(data.survey_scheduled_date).toLocaleString() : '—'}
             </div>
@@ -765,18 +852,49 @@ export default function CaseDetail() {
                 type="datetime-local"
                 value={surveyDt}
                 onChange={(e) => setSurveyDt(e.target.value)}
-                disabled={busy || isAtOrAfter(data.status, 'survey_completed')}
+                disabled={
+                  busy ||
+                  isAtOrAfter(data.status, 'survey_completed') ||
+                  !(data.survey_request_status === 'pending' && data.survey_requested_date)
+                }
                 className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
               />
             </label>
-            <button
-              type="button"
-              disabled={busy || isAtOrAfter(data.status, 'survey_completed') || !surveyDt}
-              onClick={scheduleSurvey}
-              className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
-            >
-              Schedule survey
-            </button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={
+                  busy ||
+                  isAtOrAfter(data.status, 'survey_completed') ||
+                  !surveyDt ||
+                  !(data.survey_request_status === 'pending' && data.survey_requested_date)
+                }
+                onClick={scheduleSurvey}
+                className="inline-flex flex-1 items-center justify-center rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+              >
+                Confirm requested time
+              </button>
+              <button
+                type="button"
+                disabled={busy || !(data.survey_request_status === 'pending' && data.survey_requested_date)}
+                onClick={rejectSurveyRequest}
+                className="inline-flex items-center justify-center rounded-xl border bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+              >
+                Reject
+              </button>
+            </div>
+            {data.survey_request_status === 'pending' && data.survey_requested_date ? (
+              <label className="mt-2 block">
+                <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Rejection reason (sent to customer)</div>
+                <input
+                  value={surveyRejectNote}
+                  onChange={(e) => setSurveyRejectNote(e.target.value)}
+                  disabled={busy}
+                  className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-600 disabled:bg-slate-50"
+                  placeholder="Optional. If empty, a default message is used."
+                />
+              </label>
+            ) : null}
 
             <LockedSection locked={!canUploadSurveyPhotos(data.status)} reason="Survey photos unlock after the survey is completed.">
               <div className="mt-4 rounded-xl border bg-slate-50 p-3">
@@ -1097,6 +1215,24 @@ export default function CaseDetail() {
                   Installed — scheduling locked to prevent mistakes. You can still edit the report fields and photos.
                 </div>
               ) : null}
+              {installation?.request_status === 'pending' && installation?.requested_date ? (
+                <div className="mb-3 rounded-xl border bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <div className="font-semibold">Customer requested installation time</div>
+                  <div className="mt-1">{new Date(installation.requested_date).toLocaleString()}</div>
+                  {installation?.request_note ? <div className="mt-1 text-amber-800">Note: {installation.request_note}</div> : null}
+                </div>
+              ) : null}
+              {installation?.request_status === 'rejected' && installation?.admin_note ? (
+                <div className="mb-3 rounded-xl border bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                  <div className="font-semibold">Last rejection</div>
+                  <div className="mt-1">{installation.admin_note}</div>
+                </div>
+              ) : null}
+              {!isAtOrAfter(data.status, 'installed') && !installation?.scheduled_date && !installation?.requested_date ? (
+                <div className="mb-3 rounded-xl border bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                  Waiting for customer to choose an installation time.
+                </div>
+              ) : null}
               {installationDateIssue ? (
                 <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">
                   Date issue: completed time is earlier than scheduled time. You can fix the schedule to a time on/before completion.
@@ -1120,7 +1256,11 @@ export default function CaseDetail() {
                   type="datetime-local"
                   value={installDt}
                   onChange={(e) => setInstallDt(e.target.value)}
-                  disabled={busy || (isAtOrAfter(data.status, 'installed') && !installationDateIssue)}
+                  disabled={
+                    busy ||
+                    (isAtOrAfter(data.status, 'installed') && !installationDateIssue) ||
+                    (!installationDateIssue && !(installation?.request_status === 'pending' && installation?.requested_date))
+                  }
                   className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
                 />
               </label>
@@ -1133,18 +1273,41 @@ export default function CaseDetail() {
                   className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
                 />
               </label>
+              {hasPendingInstallRequest ? (
+                <div className="md:col-span-3 rounded-xl border bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                  Pending reschedule request — confirm or reject the customer’s requested time first.
+                </div>
+              ) : null}
+              {installationScheduledInFuture ? (
+                <div className="md:col-span-3 rounded-xl border bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                  Too early to mark installed — scheduled time is in the future. Wait until the scheduled time (or reschedule) before marking installed.
+                </div>
+              ) : null}
               <div className="md:col-span-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={busy || (isAtOrAfter(data.status, 'installed') && !installationDateIssue) || !installDt}
+                  disabled={
+                    busy ||
+                    (isAtOrAfter(data.status, 'installed') && !installationDateIssue) ||
+                    !installDt ||
+                    (!installationDateIssue && !(installation?.request_status === 'pending' && installation?.requested_date))
+                  }
                   onClick={scheduleInstallation}
                   className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
                 >
-                  {isAtOrAfter(data.status, 'installed') ? 'Fix schedule' : 'Schedule installation'}
+                  {isAtOrAfter(data.status, 'installed') ? 'Fix schedule' : 'Confirm requested time'}
                 </button>
                 <button
                   type="button"
-                  disabled={busy || !canMarkInstalled(data.status)}
+                  disabled={busy || !(installation?.request_status === 'pending' && installation?.requested_date)}
+                  onClick={rejectInstallationRequest}
+                  className="rounded-xl border bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+                >
+                  Reject
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || !canMarkInstalled(data.status) || installationScheduledInFuture || hasPendingInstallRequest}
                   onClick={completeInstallation}
                   className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
                 >
@@ -1168,6 +1331,18 @@ export default function CaseDetail() {
                   Send completion email
                 </button>
               </div>
+              {installation?.request_status === 'pending' && installation?.requested_date ? (
+                <label className="md:col-span-3 block">
+                  <div className="text-xs font-medium uppercase tracking-wider text-slate-500">Rejection reason (sent to customer)</div>
+                  <input
+                    value={installRejectNote}
+                    onChange={(e) => setInstallRejectNote(e.target.value)}
+                    disabled={busy}
+                    className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-amber-600 disabled:bg-slate-50"
+                    placeholder="Optional. If empty, a default message is used."
+                  />
+                </label>
+              ) : null}
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-6">

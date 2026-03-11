@@ -1,10 +1,13 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.database import get_db
-from app.models.models import Case, CaseStatusHistory, Quote, Survey
+from app.models.models import Case, CaseStatus, CaseStatusHistory, Installation, Quote, Survey
 from app.schemas.schemas import CaseCreate, CaseStatusOut, CaseSubmittedOut
 from app.services.case_service import create_case
 from app.services.notification_service import (
@@ -17,6 +20,11 @@ from app.utils.url_utils import public_base_url
 
 
 router = APIRouter()
+
+
+class AppointmentRequestIn(BaseModel):
+    requested_date: datetime = Field(description="ISO datetime (timezone required)")
+    note: str | None = None
 
 
 @router.post("/cases", response_model=CaseSubmittedOut)
@@ -76,6 +84,7 @@ def get_case_status(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Invalid token")
 
     survey = db.execute(select(Survey).where(Survey.case_id == case.id)).scalar_one_or_none()
+    inst = db.execute(select(Installation).where(Installation.case_id == case.id)).scalar_one_or_none()
     active_quote = (
         db.execute(select(Quote.id).where(Quote.case_id == case.id, Quote.is_active.is_(True)).limit(1))
         .scalar_one_or_none()
@@ -89,7 +98,14 @@ def get_case_status(token: str, db: Session = Depends(get_db)):
         survey_scheduled_date=survey.scheduled_date if survey else None,
         survey_deposit_paid=survey.deposit_paid if survey else None,
         survey_deposit_amount=survey.deposit_amount if survey else None,
+        survey_requested_date=getattr(survey, "requested_date", None) if survey else None,
+        survey_request_status=getattr(survey, "request_status", None) if survey else None,
+        survey_request_admin_note=getattr(survey, "admin_note", None) if survey else None,
         quote_active_id=active_quote,
+        installation_scheduled_date=inst.scheduled_date if inst else None,
+        installation_requested_date=getattr(inst, "requested_date", None) if inst else None,
+        installation_request_status=getattr(inst, "request_status", None) if inst else None,
+        installation_request_admin_note=getattr(inst, "admin_note", None) if inst else None,
     )
 
 
@@ -116,4 +132,90 @@ def public_timeline(token: str, db: Session = Depends(get_db)):
         }
         for r in rows
     ]
+
+
+@router.post("/cases/survey/request/{token}")
+def request_survey_time(token: str, payload: AppointmentRequestIn, db: Session = Depends(get_db)):
+    case = db.execute(select(Case).where(Case.access_token == token)).scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Invalid token")
+    if case.status not in {CaseStatus.pending, CaseStatus.survey_scheduled}:
+        raise HTTPException(
+            status_code=400,
+            detail="Survey time can only be requested before the survey is completed",
+        )
+
+    if payload.requested_date.tzinfo is None:
+        raise HTTPException(status_code=400, detail="requested_date must include timezone")
+    now = datetime.now(timezone.utc)
+    if payload.requested_date <= now:
+        raise HTTPException(status_code=400, detail="requested_date must be in the future")
+
+    survey = db.execute(select(Survey).where(Survey.case_id == case.id)).scalar_one_or_none()
+    if not survey:
+        survey = Survey(case_id=case.id)
+        db.add(survey)
+        db.flush()
+
+    survey.requested_date = payload.requested_date
+    survey.request_status = "pending"
+    survey.request_note = (payload.note or "").strip() or None
+    survey.admin_note = None
+    db.add(survey)
+
+    db.add(
+        CaseStatusHistory(
+            case_id=case.id,
+            from_status=case.status.value if case.status else None,
+            to_status=case.status.value if case.status else "pending",
+            changed_by=None,
+            note=f"Customer requested survey time: {payload.requested_date.isoformat()}",
+        )
+    )
+
+    db.commit()
+    return {"ok": True, "requested_date": payload.requested_date}
+
+
+@router.post("/cases/installation/request/{token}")
+def request_installation_time(token: str, payload: AppointmentRequestIn, db: Session = Depends(get_db)):
+    case = db.execute(select(Case).where(Case.access_token == token)).scalar_one_or_none()
+    if not case:
+        raise HTTPException(status_code=404, detail="Invalid token")
+    if case.status not in {CaseStatus.permit_approved, CaseStatus.installation_scheduled}:
+        raise HTTPException(
+            status_code=400,
+            detail="Installation time can only be requested before installation is completed",
+        )
+
+    if payload.requested_date.tzinfo is None:
+        raise HTTPException(status_code=400, detail="requested_date must include timezone")
+    now = datetime.now(timezone.utc)
+    if payload.requested_date <= now:
+        raise HTTPException(status_code=400, detail="requested_date must be in the future")
+
+    inst = db.execute(select(Installation).where(Installation.case_id == case.id)).scalar_one_or_none()
+    if not inst:
+        inst = Installation(case_id=case.id, completion_email_sent=False)
+        db.add(inst)
+        db.flush()
+
+    inst.requested_date = payload.requested_date
+    inst.request_status = "pending"
+    inst.request_note = (payload.note or "").strip() or None
+    inst.admin_note = None
+    db.add(inst)
+
+    db.add(
+        CaseStatusHistory(
+            case_id=case.id,
+            from_status=case.status.value if case.status else None,
+            to_status=case.status.value if case.status else "pending",
+            changed_by=None,
+            note=f"Customer requested installation time: {payload.requested_date.isoformat()}",
+        )
+    )
+
+    db.commit()
+    return {"ok": True, "requested_date": payload.requested_date}
 

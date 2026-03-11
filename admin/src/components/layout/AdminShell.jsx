@@ -2,6 +2,7 @@ import { Link, NavLink, useNavigate } from 'react-router-dom'
 
 export function AdminShell({ children }) {
   const nav = useNavigate()
+  const logoSrc = `${import.meta.env.BASE_URL || '/'}brand-logo.png`
 
   function logout() {
     localStorage.removeItem('adminToken')
@@ -14,7 +15,15 @@ export function AdminShell({ children }) {
         <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
           <div className="flex items-center gap-4">
             <Link to="/admin" className="flex items-center gap-2 text-sm font-semibold tracking-wide text-slate-900">
-              <img src="/brand-logo.png" alt="FFT" className="h-6 w-6 rounded-md bg-slate-900/5 object-contain" />
+              <img
+                src={logoSrc}
+                alt="FFT"
+                className="h-6 w-6 rounded-md bg-slate-900/5 object-contain"
+                onError={(e) => {
+                  // Avoid noisy 404s in console if logo is missing
+                  e.currentTarget.style.display = 'none'
+                }}
+              />
               <span>FFT Admin</span>
             </Link>
             <nav className="hidden items-center gap-2 md:flex">

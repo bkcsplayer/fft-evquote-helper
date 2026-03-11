@@ -43,6 +43,10 @@ class InstallationReportIn(BaseModel):
     test_notes: str | None = None
 
 
+class InstallationRequestRejectIn(BaseModel):
+    note: str | None = None
+
+
 @router.get("/cases/{case_id}/installation", response_model=InstallationOut | None)
 def get_installation_by_case(
     case_id: str,
@@ -317,6 +321,26 @@ def schedule_installation(
         db.add(inst)
         db.flush()
 
+    # Handshake guard: before completion, admin can only schedule by confirming
+    # the customer's pending requested time.
+    if not inst.completed_at:
+        if not inst.requested_date or (inst.request_status or "").strip() != "pending":
+            raise HTTPException(
+                status_code=400,
+                detail="Customer must request an installation time before admin can confirm it",
+            )
+        try:
+            diff = abs((payload.scheduled_date - inst.requested_date).total_seconds())
+        except Exception:
+            diff = 999999
+        if diff > 60:
+            raise HTTPException(
+                status_code=400,
+                detail="Scheduled time must match the customer's requested time. Reject the request and ask the customer to choose again.",
+            )
+        inst.request_status = "accepted"
+        inst.admin_note = None
+
     # Prevent illogical states:
     # - After completion, allow only "backdating" schedule (fixing a wrong future appointment)
     if inst.completed_at:
@@ -411,6 +435,79 @@ def schedule_installation(
 
     db.refresh(inst)
     return inst
+
+
+@router.post("/cases/{case_id}/installation/request/reject")
+def reject_installation_request(
+    case_id: str,
+    request: Request,
+    payload: InstallationRequestRejectIn,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    _ = admin
+    case = db.get(Case, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    if case.status != CaseStatus.permit_approved:
+        raise HTTPException(
+            status_code=400,
+            detail="Installation request can only be rejected before installation is scheduled",
+        )
+
+    inst = db.execute(select(Installation).where(Installation.case_id == case.id)).scalar_one_or_none()
+    if not inst or not inst.requested_date or (inst.request_status or "").strip() != "pending":
+        raise HTTPException(status_code=400, detail="No pending installation request to reject")
+
+    note = (payload.note or "").strip() or "Requested time not available. Please choose another time."
+    inst.request_status = "rejected"
+    inst.admin_note = note
+    db.add(inst)
+    db.add(
+        CaseStatusHistory(
+            case_id=case.id,
+            from_status=case.status.value if case.status else None,
+            to_status=case.status.value if case.status else "pending",
+            changed_by=admin.id,
+            note=f"Installation time rejected: {note}",
+        )
+    )
+    db.commit()
+
+    customer = db.get(Customer, case.customer_id)
+    if customer and customer.phone:
+        settings = get_settings()
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        status_url = f"{public_base}/quote/status/{case.access_token}"
+        ctx = {
+            "title": "Installation time update needed",
+            "nickname": customer.nickname,
+            "reference_number": case.reference_number,
+            "status_url": status_url,
+            "note": note,
+        }
+        sms = render_sms_from_db_or_fallback(
+            db,
+            template_key="installation_time_action_required",
+            ctx=ctx,
+            fallback=(
+                "{{ brand_name }}\n"
+                "ACTION REQUIRED: Please choose a new installation time.\n"
+                "Case: {{ reference_number }}\n"
+                "{% if note %}Reason: {{ note }}\n{% endif %}"
+                "Track: {{ status_url }}"
+            ),
+        )
+        notify_sms(
+            db,
+            case_id=str(case.id),
+            to_phone=customer.phone,
+            template_name="installation_time_action_required",
+            body=sms,
+        )
+        db.commit()
+
+    return {"ok": True}
 
 
 @router.patch("/cases/{case_id}/installation/complete", response_model=InstallationOut)

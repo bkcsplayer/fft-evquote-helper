@@ -19,6 +19,7 @@ from app.services.notification_service import (
     render_sms_from_db_or_fallback,
 )
 from app.utils.url_utils import public_base_url
+from app.services.status_machine import assert_transition_allowed
 
 
 router = APIRouter(prefix="/admin")
@@ -36,6 +37,10 @@ class SurveyDepositPaidIn(BaseModel):
     note: str | None = None
 
 
+class SurveyRequestRejectIn(BaseModel):
+    note: str | None = None
+
+
 @router.post("/cases/{case_id}/survey/schedule")
 def schedule_survey(
     case_id: str,
@@ -47,6 +52,8 @@ def schedule_survey(
     case = db.get(Case, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+    if case.status not in {CaseStatus.pending, CaseStatus.survey_scheduled}:
+        raise HTTPException(status_code=400, detail="Survey can only be scheduled before it is completed")
 
     survey = db.execute(select(Survey).where(Survey.case_id == case.id)).scalar_one_or_none()
     if not survey:
@@ -54,21 +61,48 @@ def schedule_survey(
         db.add(survey)
         db.flush()
 
+    # Handshake guard: must have a pending customer-requested time to confirm
+    if not survey.requested_date or (survey.request_status or "").strip() != "pending":
+        raise HTTPException(status_code=400, detail="Customer must request a survey time before admin can confirm it")
+    try:
+        diff = abs((payload.scheduled_date - survey.requested_date).total_seconds())
+    except Exception:
+        diff = 999999
+    if diff > 60:
+        raise HTTPException(
+            status_code=400,
+            detail="Scheduled time must match the customer's requested time. Reject the request and ask the customer to choose again.",
+        )
+
     survey.scheduled_date = payload.scheduled_date
+    survey.request_status = "accepted"
+    survey.admin_note = None
     db.add(survey)
 
-    from_status = case.status.value
-    case.status = CaseStatus.survey_scheduled
-    db.add(case)
-    db.add(
-        CaseStatusHistory(
-            case_id=case.id,
-            from_status=from_status,
-            to_status=CaseStatus.survey_scheduled.value,
-            changed_by=admin.id,
-            note="Survey scheduled",
+    if case.status == CaseStatus.pending:
+        assert_transition_allowed(from_status=case.status, to_status=CaseStatus.survey_scheduled)
+        from_status = case.status.value
+        case.status = CaseStatus.survey_scheduled
+        db.add(case)
+        db.add(
+            CaseStatusHistory(
+                case_id=case.id,
+                from_status=from_status,
+                to_status=CaseStatus.survey_scheduled.value,
+                changed_by=admin.id,
+                note="Survey scheduled (customer confirmed time)",
+            )
         )
-    )
+    else:
+        db.add(
+            CaseStatusHistory(
+                case_id=case.id,
+                from_status=case.status.value if case.status else None,
+                to_status=case.status.value if case.status else "pending",
+                changed_by=admin.id,
+                note="Survey re-scheduled (customer confirmed time)",
+            )
+        )
     db.commit()
     settings = get_settings()
     customer = db.get(Customer, case.customer_id)
@@ -116,6 +150,75 @@ def schedule_survey(
     return {"ok": True}
 
 
+@router.post("/cases/{case_id}/survey/request/reject")
+def reject_survey_request(
+    case_id: str,
+    request: Request,
+    payload: SurveyRequestRejectIn,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    case = db.get(Case, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    if case.status != CaseStatus.pending:
+        raise HTTPException(status_code=400, detail="Survey request can only be rejected before the survey is scheduled")
+
+    survey = db.execute(select(Survey).where(Survey.case_id == case.id)).scalar_one_or_none()
+    if not survey or not survey.requested_date or (survey.request_status or "").strip() != "pending":
+        raise HTTPException(status_code=400, detail="No pending survey request to reject")
+
+    note = (payload.note or "").strip() or "Requested time not available. Please choose another time."
+    survey.request_status = "rejected"
+    survey.admin_note = note
+    db.add(survey)
+    db.add(
+        CaseStatusHistory(
+            case_id=case.id,
+            from_status=case.status.value if case.status else None,
+            to_status=case.status.value if case.status else "pending",
+            changed_by=admin.id,
+            note=f"Survey time rejected: {note}",
+        )
+    )
+    db.commit()
+
+    customer = db.get(Customer, case.customer_id)
+    if customer and customer.phone:
+        settings = get_settings()
+        public_base = public_base_url(request=request, configured_url=settings.frontend_url)
+        status_url = f"{public_base}/quote/status/{case.access_token}"
+        ctx = {
+            "title": "Survey time update needed",
+            "nickname": customer.nickname,
+            "reference_number": case.reference_number,
+            "status_url": status_url,
+            "note": note,
+        }
+        sms = render_sms_from_db_or_fallback(
+            db,
+            template_key="survey_time_action_required",
+            ctx=ctx,
+            fallback=(
+                "{{ brand_name }}\n"
+                "ACTION REQUIRED: Please choose a new site survey time.\n"
+                "Case: {{ reference_number }}\n"
+                "{% if note %}Reason: {{ note }}\n{% endif %}"
+                "Track: {{ status_url }}"
+            ),
+        )
+        notify_sms(
+            db,
+            case_id=str(case.id),
+            to_phone=customer.phone,
+            template_name="survey_time_action_required",
+            body=sms,
+        )
+        db.commit()
+
+    return {"ok": True}
+
+
 @router.patch("/cases/{case_id}/survey/complete")
 def complete_survey(
     case_id: str,
@@ -127,9 +230,13 @@ def complete_survey(
     case = db.get(Case, case_id)
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
+    if case.status != CaseStatus.survey_scheduled:
+        raise HTTPException(status_code=400, detail="Survey can only be completed after it is scheduled")
 
     survey = db.execute(select(Survey).where(Survey.case_id == case.id)).scalar_one_or_none()
     if not survey:
+        raise HTTPException(status_code=400, detail="Survey not scheduled")
+    if not survey.scheduled_date:
         raise HTTPException(status_code=400, detail="Survey not scheduled")
 
     survey.completed_at = datetime.now(timezone.utc)
@@ -137,6 +244,7 @@ def complete_survey(
         survey.survey_notes = payload.survey_notes
     db.add(survey)
 
+    assert_transition_allowed(from_status=case.status, to_status=CaseStatus.survey_completed)
     from_status = case.status.value
     case.status = CaseStatus.survey_completed
     db.add(case)

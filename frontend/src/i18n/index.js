@@ -47,7 +47,7 @@ const dictionaries = {
     'slots.evening': 'Evening (3-6)',
 
     'submitted.title': 'Submitted',
-    'submitted.subtitle': 'Thanks! We will contact you to confirm a Site Survey time.',
+    'submitted.subtitle': 'Thanks! Please choose a preferred Site Survey time using the status link.',
     'submitted.case_ref': 'Case reference',
     'submitted.track': 'Track status',
     'submitted.note': 'Save the link from email/SMS for future access.',
@@ -197,7 +197,7 @@ const dictionaries = {
     'slots.evening': '下午（3-6）',
 
     'submitted.title': '已提交',
-    'submitted.subtitle': '感谢提交！我们会联系你确认上门勘查时间。',
+    'submitted.subtitle': '感谢提交！请在进度页面选择一个上门勘查时间（我们确认后才会安排上门）。',
     'submitted.case_ref': '案件编号',
     'submitted.track': '查看进度',
     'submitted.note': '请保存邮件/短信中的链接，方便后续访问。',
