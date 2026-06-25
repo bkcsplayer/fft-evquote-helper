@@ -79,9 +79,10 @@ async def upload_brand_logo(
     logo_url = f"{base}/{rel_path.lstrip('/')}"
 
     row = db.execute(select(SystemSetting).where(SystemSetting.key == "brand_profile")).scalar_one_or_none()
-    profile = (row.value if row else {}) or {}
-    if not isinstance(profile, dict):
-        profile = {}
+    # IMPORTANT: copy into a NEW dict. Mutating row.value in place and reassigning the same object
+    # is not detected by SQLAlchemy's JSONB change tracking, so the UPDATE would never be emitted.
+    existing = (row.value if row and isinstance(row.value, dict) else {})
+    profile = dict(existing)
     profile["logo_url"] = logo_url
 
     if not row:

@@ -149,14 +149,14 @@ export default function Step2() {
             />
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block">
               <div className="text-sm font-medium text-slate-800">{t('step2.pickup_date')}</div>
               <input
                 type="date"
                 value={pickupDate}
                 onChange={(e) => setPickupDate(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-600"
               />
             </label>
             <label className="block">
@@ -165,7 +165,7 @@ export default function Step2() {
                 type="date"
                 value={preferredInstallDate}
                 onChange={(e) => setPreferredInstallDate(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-600"
               />
             </label>
           </div>
@@ -182,22 +182,28 @@ export default function Step2() {
 
           <div className="block">
             <div className="text-sm font-medium text-slate-800">{t('step2.slots')}</div>
-            <div className="mt-2 grid grid-cols-1 gap-2">
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
               {[
                 { id: 'morning', label: t('slots.morning') },
                 { id: 'afternoon', label: t('slots.afternoon') },
                 { id: 'evening', label: t('slots.evening') },
-              ].map((opt) => (
-                <label key={opt.id} className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={slots.includes(opt.id)}
-                    onChange={() => toggleSlot(opt.id)}
-                    className="h-4 w-4 accent-teal-700"
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              ))}
+              ].map((opt) => {
+                const active = slots.includes(opt.id)
+                return (
+                  <label
+                    key={opt.id}
+                    className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition-colors ${active ? 'border-teal-500 bg-teal-50 font-semibold text-teal-800' : 'border-slate-200 hover:bg-slate-50'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      onChange={() => toggleSlot(opt.id)}
+                      className="h-4 w-4 accent-teal-700"
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                )
+              })}
             </div>
           </div>
 

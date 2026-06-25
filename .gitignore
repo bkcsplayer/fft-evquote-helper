@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# ===== local deploy script (holds VPS credentials — never commit) =====
+deploy.sh
+deploy.local.*
+
 # ===== runtime / data =====
 uploads/**
 !uploads/.gitkeep

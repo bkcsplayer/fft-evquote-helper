@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -67,8 +68,16 @@ def test_full_business_flow():
     assert isinstance(data, list) and data and data[0]["id"]
     case_id = data[0]["id"]
 
-    # Admin: schedule survey
+    # Public: customer requests a survey time (handshake required before admin can confirm)
     survey_dt = datetime.now(timezone.utc) + timedelta(days=2)
+    survey_req = httpx.post(
+        _url(f"/api/v1/cases/survey/request/{token}"),
+        json={"requested_date": _iso(survey_dt), "note": ""},
+        timeout=20,
+    )
+    assert survey_req.status_code == 200
+
+    # Admin: schedule survey at the customer's requested time
     scheduled = httpx.post(
         _url(f"/api/v1/admin/cases/{case_id}/survey/schedule"),
         headers=headers,
@@ -163,8 +172,18 @@ def test_full_business_flow():
     p2 = httpx.post(_url(f"/api/v1/admin/cases/{case_id}/permit"), headers=headers, json=permit_approved, timeout=20)
     assert p2.status_code == 200
 
+    # Public: customer requests an installation time (handshake required before admin can confirm).
+    # Use a near-now time: completion is blocked until the scheduled time passes, so schedule a few
+    # seconds out and wait it out rather than scheduling days ahead (which can never be completed).
+    install_dt = datetime.now(timezone.utc) + timedelta(seconds=5)
+    install_req = httpx.post(
+        _url(f"/api/v1/cases/installation/request/{token}"),
+        json={"requested_date": _iso(install_dt), "note": ""},
+        timeout=20,
+    )
+    assert install_req.status_code == 200
+
     # Admin: installation schedule -> complete -> completion email (case completed)
-    install_dt = datetime.now(timezone.utc) + timedelta(days=10)
     i1 = httpx.post(
         _url(f"/api/v1/admin/cases/{case_id}/installation/schedule"),
         headers=headers,
@@ -173,6 +192,8 @@ def test_full_business_flow():
     )
     assert i1.status_code == 200
 
+    # Wait until the scheduled time has passed before marking installed.
+    time.sleep(8)
     i2 = httpx.patch(
         _url(f"/api/v1/admin/cases/{case_id}/installation/complete"),
         headers=headers,

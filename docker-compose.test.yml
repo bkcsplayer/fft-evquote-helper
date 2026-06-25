@@ -32,14 +32,21 @@ services:
       SECRET_KEY: ${SECRET_KEY:-dev_secret_key}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:7220}
       ADMIN_URL: ${ADMIN_URL:-http://localhost:7221}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-}
-      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
-      SMTP_STARTTLS: ${SMTP_STARTTLS:-}
-      SMTP_USE_SSL: ${SMTP_USE_SSL:-}
+      ADMIN_NOTIFY_EMAIL: ${ADMIN_NOTIFY_EMAIL:-ops@example.com}
+      # Tests must NOT dial a real SMTP/Twilio (would hang on a slow server). Force them disabled
+      # regardless of the developer's .env — notification rows are still recorded as "failed",
+      # which is what the tests assert. Hardcoded empty (do NOT inherit ${SMTP_HOST} from .env).
+      SMTP_HOST: ""
+      SMTP_PORT: ""
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_NAME: "FFT Test"
+      SMTP_FROM_EMAIL: ""
+      SMTP_STARTTLS: "0"
+      SMTP_USE_SSL: "0"
+      TWILIO_ACCOUNT_SID: ""
+      TWILIO_AUTH_TOKEN: ""
+      TWILIO_PHONE_NUMBER: ""
     volumes:
       - ./uploads:/app/uploads
     healthcheck:

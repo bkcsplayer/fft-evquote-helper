@@ -5,9 +5,9 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -105,7 +105,7 @@ def update_installation_report(
 @router.post("/cases/{case_id}/installation/photos", response_model=InstallationPhotoOut)
 async def upload_installation_photo(
     case_id: str,
-    caption: str | None = None,
+    caption: str | None = Form(default=None),  # read from multipart body (matches the frontend)
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
@@ -676,16 +676,27 @@ def installations_calendar(
     admin: AdminUser = Depends(get_current_admin),
 ):
     _ = admin
+    # Include confirmed installs AND pending customer time-requests awaiting admin confirmation.
     rows = db.execute(
         select(Installation, Case, Customer)
         .join(Case, Case.id == Installation.case_id)
         .join(Customer, Customer.id == Case.customer_id)
         .where(
-            Installation.scheduled_date.is_not(None),
-            Installation.scheduled_date >= start,
-            Installation.scheduled_date <= end,
+            or_(
+                and_(
+                    Installation.scheduled_date.is_not(None),
+                    Installation.scheduled_date >= start,
+                    Installation.scheduled_date <= end,
+                ),
+                and_(
+                    Installation.request_status == "pending",
+                    Installation.requested_date.is_not(None),
+                    Installation.requested_date >= start,
+                    Installation.requested_date <= end,
+                ),
+            )
         )
-        .order_by(Installation.scheduled_date.asc())
+        .order_by(func.coalesce(Installation.scheduled_date, Installation.requested_date).asc())
     ).all()
     out = []
     for inst, case, customer in rows:
@@ -697,6 +708,8 @@ def installations_calendar(
                 "customer_nickname": customer.nickname,
                 "install_address": case.install_address,
                 "scheduled_date": inst.scheduled_date,
+                "requested_date": inst.requested_date,
+                "request_status": inst.request_status,
                 "completed_at": inst.completed_at,
                 "completion_email_sent": inst.completion_email_sent,
                 "notes": inst.notes,

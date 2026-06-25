@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AdminShell } from '../components/layout/AdminShell.jsx'
 import { api } from '../services/api.js'
+import MaterialsManager from '../components/MaterialsManager.jsx'
 
 export default function Settings() {
   const [allSettings, setAllSettings] = useState([])
@@ -215,6 +216,9 @@ export default function Settings() {
             Save sms_templates
           </button>
         </div>
+
+        {/* Material catalog */}
+        <MaterialsManager />
 
         {/* Raw settings */}
         <div className="mt-5 rounded-2xl border bg-white p-5 shadow-sm">

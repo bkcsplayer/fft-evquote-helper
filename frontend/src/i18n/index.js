@@ -22,6 +22,10 @@ const dictionaries = {
     'step1.err.nickname': 'Please enter a nickname.',
     'step1.err.phone': 'Please enter a Canadian phone number.',
     'common.next': 'Next',
+    'common.open': 'Open',
+    'common.close': 'Close',
+    'common.preview': 'Preview',
+    'common.no_preview': 'No preview.',
 
     'step2.title': 'Installation details',
     'step2.charger_brand': 'Charger brand',
@@ -69,6 +73,57 @@ const dictionaries = {
     'status.no_timeline': 'No timeline yet.',
     'status.deposit_reported_title': 'E-transfer reported',
     'status.deposit_reported_body': 'We received your e-transfer notice and will verify it shortly.',
+
+    'status.autorefresh': 'Auto refresh:',
+    'status.autorefresh.on': 'on',
+    'status.autorefresh.off': 'off',
+    'status.last_updated': 'Last updated: {{time}}',
+    'status.refresh_now': 'Refresh now',
+    'status.err.submit_request': 'Unable to submit request.',
+
+    'status.survey.choose_prompt': 'Choose a site survey time (we will confirm before scheduling)',
+    'status.request.waiting': 'Requested (waiting for confirmation): ',
+    'status.request.rejected': 'That time is not available. Please choose another.',
+    'status.request.preferred_time': 'Preferred time (local)',
+    'status.request.note': 'Note (optional)',
+    'status.survey.note_ph': 'e.g. weekend works, gate code…',
+    'status.request.submit': 'Submit time',
+    'status.request.submit_hint': 'After you submit, we’ll confirm it. If unavailable, we’ll ask you to choose again.',
+
+    'status.installation': 'Installation',
+    'status.installation.scheduled': 'Scheduled: ',
+    'status.installation.choose_prompt': 'Choose an installation time (we will confirm before scheduling)',
+    'status.installation.note_ph': 'e.g. evenings are better…',
+
+    'stage.request': 'Request',
+    'stage.survey': 'Survey',
+    'stage.quote': 'Quote',
+    'stage.permit': 'Permit',
+    'stage.install': 'Install',
+    'stage.done': 'Done',
+    'stage.state.done': 'Done',
+    'stage.state.current': 'In progress',
+    'stage.state.upcoming': 'Upcoming',
+    'stage.stopped': 'This project is {{state}} — the process has stopped.',
+    'stage.flow_title': 'Your project progress',
+
+    'permit.applied': 'Permit applied — under review',
+    'permit.approved': 'Permit approved',
+    'permit.pending': 'Permit not started yet',
+
+    'install.locked.title': 'Installation scheduling — not open yet',
+    'install.locked.body': 'You can choose an installation time after the electrical permit is approved. We will notify you once it is approved.',
+    'request.submitted_banner': 'Time submitted — we will confirm shortly.',
+
+    'status.summary': 'Summary',
+    'status.summary.deposit': 'Deposit',
+    'status.summary.deposit.confirmed': 'Confirmed',
+    'status.summary.deposit.reported': 'Reported',
+    'status.summary.deposit.not_confirmed': 'Not confirmed',
+    'status.summary.signature': 'Quote signature',
+    'status.summary.signed': 'Signed',
+    'status.summary.not_signed': 'Not signed',
+    'status.summary.status': 'Status',
 
     'status.label.pending': 'Submitted',
     'status.label.survey_scheduled': 'Survey scheduled',
@@ -119,6 +174,11 @@ const dictionaries = {
     'quoteView.approved': 'Approved',
     'quoteView.signed_by': 'Signed by {{name}}',
     'quoteView.signed_at': 'Signed at: {{dt}}',
+    'quoteView.view_status': 'View status',
+    'quoteView.photos.title': 'Site survey photos',
+    'quoteView.photos.body': 'Photos taken during the site survey to confirm the install plan.',
+    'quoteView.photos.preview_hint': 'Click to preview',
+    'quoteView.photos.empty': 'No photos yet.',
 
     'quoteApprove.title': 'Approve quote',
     'quoteApprove.subtitle': 'Please review the key terms and sign to approve.',
@@ -172,6 +232,10 @@ const dictionaries = {
     'step1.err.nickname': '请输入称呼。',
     'step1.err.phone': '请输入加拿大手机号。',
     'common.next': '下一步',
+    'common.open': '打开',
+    'common.close': '关闭',
+    'common.preview': '预览',
+    'common.no_preview': '暂无预览。',
 
     'step2.title': '安装信息',
     'step2.charger_brand': '充电桩品牌',
@@ -219,6 +283,57 @@ const dictionaries = {
     'status.no_timeline': '暂无记录。',
     'status.deposit_reported_title': '已提交转账',
     'status.deposit_reported_body': '我们已收到你的 e-transfer 提交，会尽快核对确认。',
+
+    'status.autorefresh': '自动刷新：',
+    'status.autorefresh.on': '开',
+    'status.autorefresh.off': '关',
+    'status.last_updated': '最近更新：{{time}}',
+    'status.refresh_now': '立即刷新',
+    'status.err.submit_request': '提交失败，请稍后再试。',
+
+    'status.survey.choose_prompt': '请选择上门勘查时间（我们确认后才会安排上门）',
+    'status.request.waiting': '你已提交时间，等待确认：',
+    'status.request.rejected': '该时间无法安排，请重新选择',
+    'status.request.preferred_time': '预约时间（本地）',
+    'status.request.note': '备注（可选）',
+    'status.survey.note_ph': '例如：周末可，或门禁说明…',
+    'status.request.submit': '提交时间',
+    'status.request.submit_hint': '提交后，我们会确认该时间；如不合适会退回让你重新选择。',
+
+    'status.installation': '安装',
+    'status.installation.scheduled': '已安排：',
+    'status.installation.choose_prompt': '请选择安装时间（我们确认后才会安排施工）',
+    'status.installation.note_ph': '例如：工作日晚上更方便…',
+
+    'stage.request': '提交申请',
+    'stage.survey': '上门勘测',
+    'stage.quote': '报价',
+    'stage.permit': '许可',
+    'stage.install': '安装',
+    'stage.done': '完成',
+    'stage.state.done': '已完成',
+    'stage.state.current': '进行中',
+    'stage.state.upcoming': '待进行',
+    'stage.stopped': '该项目已{{state}}，流程已停止。',
+    'stage.flow_title': '你的项目进度',
+
+    'permit.applied': '许可申请中 — 审核中',
+    'permit.approved': '许可已批准',
+    'permit.pending': '尚未开始申请许可',
+
+    'install.locked.title': '安装预约 — 暂未开放',
+    'install.locked.body': '电气许可(permit)批准后才能预约安装时间。许可批准后我们会通知你。',
+    'request.submitted_banner': '已提交时间，我们会尽快确认。',
+
+    'status.summary': '当前摘要',
+    'status.summary.deposit': '定金',
+    'status.summary.deposit.confirmed': '已确认',
+    'status.summary.deposit.reported': '已提交，待确认',
+    'status.summary.deposit.not_confirmed': '未确认',
+    'status.summary.signature': '报价签字',
+    'status.summary.signed': '已签字',
+    'status.summary.not_signed': '未签字',
+    'status.summary.status': '状态',
 
     'status.label.pending': '已提交',
     'status.label.survey_scheduled': '勘查已安排',
@@ -269,6 +384,11 @@ const dictionaries = {
     'quoteView.approved': '已确认',
     'quoteView.signed_by': '签名：{{name}}',
     'quoteView.signed_at': '签署时间：{{dt}}',
+    'quoteView.view_status': '查看状态',
+    'quoteView.photos.title': '现场勘测照片',
+    'quoteView.photos.body': '以下为现场勘测拍摄的照片，用于确认安装方案。',
+    'quoteView.photos.preview_hint': '点击放大预览',
+    'quoteView.photos.empty': '暂无照片。',
 
     'quoteApprove.title': '确认报价',
     'quoteApprove.subtitle': '请阅读条款并签名确认。',
@@ -339,7 +459,9 @@ export function I18nProvider({ children }) {
     function toggle() {
       setLang((prev) => (prev === 'zh' ? 'en' : 'zh'))
     }
-    return { lang, setLang, t, toggle }
+    // BCP-47 locale for Intl date/number formatting (not text — safe to derive from lang).
+    const locale = lang === 'zh' ? 'zh-CN' : 'en-CA'
+    return { lang, setLang, t, toggle, locale }
   }, [lang])
 
   return createElement(I18nContext.Provider, { value: api }, children)

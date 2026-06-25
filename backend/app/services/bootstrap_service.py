@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models.models import AdminRole, AdminUser, ChargerBrand, SystemSetting
 from app.services.security import hash_password
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_BRANDS = [
@@ -319,6 +323,9 @@ def _ensure_bootstrap_super_admin(db: Session) -> None:
 
 def _ensure_dev_super_admin(db: Session) -> None:
     settings = get_settings()
+    # Hard guard: the well-known dev credential must NEVER be created outside development.
+    # Production safety relies on APP_ENV being set explicitly to "production" (do not infer
+    # dev/prod from SMTP/Twilio presence — dev boxes legitimately configure those for testing).
     if settings.app_env != "development":
         return
 
@@ -336,4 +343,8 @@ def _ensure_dev_super_admin(db: Session) -> None:
         )
     )
     db.commit()
+    logger.warning(
+        "Created DEVELOPMENT super-admin 'admin' with a well-known password. "
+        "This only happens when APP_ENV=development and no admin exists. NEVER use this in production."
+    )
 

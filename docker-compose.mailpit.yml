@@ -18,4 +18,6 @@ services:
       SMTP_FROM_EMAIL: noreply@fft.local
       SMTP_STARTTLS: "0"
       SMTP_USE_SSL: "0"
+      # Recipient for "customer did something" admin notifications (lands in mailpit too).
+      ADMIN_NOTIFY_EMAIL: ${ADMIN_NOTIFY_EMAIL:-ops@fft.local}
 

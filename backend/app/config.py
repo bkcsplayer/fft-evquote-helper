@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     brand_support_phone: str = Field(default="+14030000000", validation_alias="BRAND_SUPPORT_PHONE")
     brand_logo_url: str | None = Field(default=None, validation_alias="BRAND_LOGO_URL")
 
+    # Internal recipient for "customer did something" notifications.
+    # Falls back to bootstrap_admin_email at send time if unset; if neither is set, admin emails are skipped.
+    admin_notify_email: str | None = Field(default=None, validation_alias="ADMIN_NOTIFY_EMAIL")
+
     stripe_secret_key: str | None = Field(default=None, validation_alias="STRIPE_SECRET_KEY")
     stripe_webhook_secret: str | None = Field(default=None, validation_alias="STRIPE_WEBHOOK_SECRET")
 
@@ -61,7 +65,7 @@ class Settings(BaseSettings):
 
     @field_validator("smtp_port", mode="before")
     @classmethod
-    def _blank_to_none(cls, v):
+    def _blank_to_none(cls, v: object) -> object:
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -70,6 +74,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "brand_support_email",
+        "admin_notify_email",
         "smtp_from_email",
         "smtp_host",
         "smtp_user",
@@ -78,7 +83,7 @@ class Settings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def _blank_str_to_none(cls, v):
+    def _blank_str_to_none(cls, v: object) -> object:
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -87,7 +92,7 @@ class Settings(BaseSettings):
 
     @field_validator("bootstrap_admin_username", "bootstrap_admin_email", "bootstrap_admin_password", mode="before")
     @classmethod
-    def _blank_str_to_none2(cls, v):
+    def _blank_str_to_none2(cls, v: object) -> object:
         if v is None:
             return None
         if isinstance(v, str) and v.strip() == "":
@@ -96,7 +101,7 @@ class Settings(BaseSettings):
 
     @field_validator("smtp_starttls", "smtp_use_ssl", mode="before")
     @classmethod
-    def _parse_bool(cls, v, info: ValidationInfo):
+    def _parse_bool(cls, v: object, info: ValidationInfo) -> object:
         if v is None:
             # Use default value
             return True if info.field_name == "smtp_starttls" else False

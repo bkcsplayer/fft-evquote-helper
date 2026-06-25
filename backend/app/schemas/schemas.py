@@ -47,6 +47,7 @@ class CaseStatusOut(BaseModel):
     updated_at: datetime
     survey_scheduled_date: datetime | None = None
     survey_deposit_paid: bool | None = None
+    survey_deposit_reported: bool | None = None
     survey_deposit_amount: Decimal | None = None
     quote_active_id: UUID | None = None
     # Survey appointment request (customer -> admin)
@@ -92,6 +93,8 @@ class QuoteSignatureOut(BaseModel):
     signed_at: datetime
     signature_data: str
     ip_address: str | None = None
+    signed_language: str | None = None
+    terms_snapshot: str | None = None
 
 
 class QuoteOut(BaseModel):
@@ -118,8 +121,11 @@ class QuoteOut(BaseModel):
 
 class QuoteApproveIn(BaseModel):
     agreed: bool
-    signed_name: str
-    signature_data: str
+    signed_name: str = Field(min_length=1, max_length=200)
+    signature_data: str = Field(max_length=600_000)  # base64 PNG; ~450 KB decoded
+    # Audit: language the customer signed under and the exact terms text shown at signing.
+    language: str | None = Field(default=None, max_length=8)
+    terms_text: str | None = Field(default=None, max_length=50_000)
 
 
 class AdminLoginIn(BaseModel):

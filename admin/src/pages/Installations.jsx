@@ -4,6 +4,7 @@ import { AdminShell } from '../components/layout/AdminShell.jsx'
 import { api } from '../services/api.js'
 import { Pill, PillButton } from '../components/ui/Pill.jsx'
 import { CalendarGrid } from '../components/ui/CalendarGrid.jsx'
+import { PendingRequestList } from '../components/ui/PendingRequestList.jsx'
 import { downloadCsv } from '../components/ui/csv.js'
 import { toneForCaseStatus } from '../utils/caseStatus.js'
 
@@ -51,11 +52,19 @@ export default function Installations() {
     if (filter === 'pending') filtered = filtered.filter((x) => !x.completed_at)
     else if (filter === 'completed') filtered = filtered.filter((x) => !!x.completed_at)
     else if (filter === 'completed_email_pending') filtered = filtered.filter((x) => !!x.completed_at && !x.completion_email_sent)
-    return filtered.sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))
+    // Pending requests (no scheduled_date) are shown in PendingRequestList, not this table.
+    return filtered
+      .filter((s) => !!s.scheduled_date)
+      .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))
   }, [items, filter])
 
+  const pending = useMemo(
+    () => items.filter((s) => s.request_status === 'pending' && s.requested_date && !s.scheduled_date),
+    [items],
+  )
+
   const events = useMemo(() => {
-    return sorted
+    const scheduled = sorted
       .filter((s) => !!s.scheduled_date)
       .map((s) => {
         const dt = new Date(s.scheduled_date)
@@ -74,7 +83,17 @@ export default function Installations() {
           pill,
         }
       })
-  }, [sorted])
+    const requested = pending.map((s) => ({
+      id: `pending-${s.case_id}`,
+      start: new Date(s.requested_date),
+      href: `/admin/cases/${s.case_id}#installation`,
+      tone: 'amber',
+      title: <div className="flex flex-wrap items-center gap-1.5"><span>{[s.reference_number, s.customer_nickname].filter(Boolean).join(' · ') || 'Installation'}</span></div>,
+      subtitle: s.install_address || s.case_id,
+      pill: <Pill tone="amber">requested</Pill>,
+    }))
+    return [...scheduled, ...requested]
+  }, [sorted, pending])
 
   function exportCsv() {
     const rows = [
@@ -132,6 +151,8 @@ export default function Installations() {
 
           {loading && <div className="mt-4"><div className="h-64 animate-pulse rounded-xl bg-slate-100" /></div>}
           {error && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-700">{error}</div>}
+
+          <PendingRequestList items={pending} anchor="installation" title="Installation requests awaiting confirmation" />
 
           {view === 'calendar' ? (
             <div className="mt-4">

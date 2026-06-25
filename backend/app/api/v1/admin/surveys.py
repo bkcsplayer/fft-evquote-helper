@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -263,7 +263,7 @@ def complete_survey(
     # Notify customer about status update (helps reduce confusion / refresh needs)
     settings = get_settings()
     customer = db.get(Customer, case.customer_id)
-    if customer:
+    if customer and customer.phone:
         public_base = public_base_url(request=request, configured_url=settings.frontend_url)
         status_url = f"{public_base}/quote/status/{case.access_token}"
         notify_case_status_sms(
@@ -366,29 +366,26 @@ def surveys_calendar(
     admin: AdminUser = Depends(get_current_admin),
 ):
     _ = admin
+    # Include both confirmed (scheduled_date) AND pending customer requests (requested_date),
+    # so the calendar surfaces requests that still need admin confirmation.
     rows = db.execute(
         select(Survey, Case, Customer)
         .join(Case, Case.id == Survey.case_id)
         .join(Customer, Customer.id == Case.customer_id)
-        .where(Survey.scheduled_date.is_not(None), Survey.scheduled_date >= start, Survey.scheduled_date <= end)
-        .order_by(Survey.scheduled_date.asc())
+        .where(
+            or_(
+                and_(Survey.scheduled_date.is_not(None), Survey.scheduled_date >= start, Survey.scheduled_date <= end),
+                and_(
+                    Survey.request_status == "pending",
+                    Survey.requested_date.is_not(None),
+                    Survey.requested_date >= start,
+                    Survey.requested_date <= end,
+                ),
+            )
+        )
+        .order_by(func.coalesce(Survey.scheduled_date, Survey.requested_date).asc())
     ).all()
 
-    case_ids = [case.id for _, case, _ in rows]
-    reported_map: dict[str, datetime] = {}
-    if case_ids:
-        rep_rows = (
-            db.execute(
-                select(CaseStatusHistory.case_id, func.max(CaseStatusHistory.created_at))
-                .where(
-                    CaseStatusHistory.case_id.in_(case_ids),
-                    CaseStatusHistory.note == "Customer reported e-transfer sent",
-                )
-                .group_by(CaseStatusHistory.case_id)
-            )
-            .all()
-        )
-        reported_map = {str(cid): dt for cid, dt in rep_rows if dt is not None}
     out = []
     for survey, case, customer in rows:
         out.append(
@@ -399,9 +396,12 @@ def surveys_calendar(
                 "customer_nickname": customer.nickname,
                 "install_address": case.install_address,
                 "scheduled_date": survey.scheduled_date,
+                "requested_date": survey.requested_date,
+                "request_status": survey.request_status,
                 "completed_at": survey.completed_at,
                 "deposit_paid": survey.deposit_paid,
-                "deposit_reported_at": reported_map.get(str(case.id)),
+                # Structured column (single source of truth); no fragile note-string subquery.
+                "deposit_reported_at": survey.deposit_reported_at,
             }
         )
     return out

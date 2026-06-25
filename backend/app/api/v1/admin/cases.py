@@ -6,10 +6,11 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.middleware.auth import get_current_admin
+from app.middleware.auth import get_current_admin, require_super_admin
 from app.models.models import AdminUser, Case, CaseStatus, CaseStatusHistory, Customer, Quote, Survey
 from app.schemas.schemas import CaseDetailOut, CaseListItemOut, CaseStatusPatchIn, QuoteOut
 from app.config import get_settings
+from app.services.case_service import delete_case_cascade
 from app.services.notification_service import notify_case_status_sms
 from app.services.security import verify_password
 from app.services.status_machine import assert_transition_allowed
@@ -23,6 +24,21 @@ class CaseOverrideStatusIn(BaseModel):
     admin_password: str
     to_status: CaseStatus
     note: str | None = None
+
+
+@router.delete("/cases/{case_id}")
+def delete_case(
+    case_id: str,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(require_super_admin),
+):
+    """Permanently delete a case and all its data. Super-admin only (irreversible)."""
+    _ = admin
+    case = db.get(Case, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    delete_case_cascade(db, case)
+    return {"ok": True}
 
 
 @router.get("/cases", response_model=list[CaseListItemOut])

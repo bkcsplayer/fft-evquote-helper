@@ -1,33 +1,29 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { AdminShell } from '../components/layout/AdminShell.jsx'
 import { api } from '../services/api.js'
-import { Pill } from '../components/ui/Pill.jsx'
+import { StatusTag } from '../components/ui/StatusTag.jsx'
 import { SkeletonTable } from '../components/ui/Skeleton.jsx'
-import { toneForCaseStatus } from '../utils/caseStatus.js'
-
-function rowBgForStatus(status) {
-  switch (toneForCaseStatus(status)) {
-    case 'teal': return 'bg-teal-50/30'
-    case 'amber': return 'bg-amber-50/30'
-    case 'emerald': return 'bg-emerald-50/20'
-    case 'rose': return 'bg-rose-50/20'
-    default: return ''
-  }
-}
+import { CASE_STATUS_ORDER, statusLabel, toneForCaseStatus } from '../utils/caseStatus.js'
+import { borderLeftClass, rowTintClass } from '../utils/tone.js'
 
 export default function Cases() {
+  const [searchParams] = useSearchParams()
   const [items, setItems] = useState([])
   const [q, setQ] = useState('')
   const [status, setStatus] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  async function load() {
+  // Accept explicit overrides so callers (Clear button, URL drill-through) never read stale
+  // closure state from a render that happened before setState batched.
+  async function load(overrides) {
+    const qVal = overrides?.q ?? q
+    const statusVal = overrides?.status ?? status
     setLoading(true)
     setError('')
     try {
-      const res = await api.get('/cases', { params: { q: q || undefined, status: status || undefined } })
+      const res = await api.get('/cases', { params: { q: qVal || undefined, status: statusVal || undefined } })
       setItems(res.data || [])
     } catch (e) {
       setError(e?.response?.data?.detail || 'Failed to load cases')
@@ -36,7 +32,17 @@ export default function Cases() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    // Drill-through: honor ?status= / ?q= from Dashboard links on first load.
+    const st = searchParams.get('status')
+    const qq = searchParams.get('q')
+    const initStatus = st && CASE_STATUS_ORDER.includes(st) ? st : ''
+    const initQ = qq || ''
+    if (initStatus) setStatus(initStatus)
+    if (initQ) setQ(initQ)
+    load({ q: initQ, status: initStatus })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <AdminShell>
@@ -49,20 +55,21 @@ export default function Cases() {
           <button
             type="button"
             onClick={load}
-            className="rounded-lg border bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-95"
+            className="cursor-pointer rounded-lg border bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
           >
             Refresh
           </button>
         </div>
 
         {/* Filters */}
-        <div className="mt-5 rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <label className="block">
               <span className="text-sm font-medium text-slate-700">Search</span>
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') load() }}
                 className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
                 placeholder="Name / phone / address / reference"
               />
@@ -72,35 +79,26 @@ export default function Cases() {
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
-                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
+                className="mt-1.5 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
               >
-                <option value="">All</option>
-                <option value="pending">pending</option>
-                <option value="survey_scheduled">survey_scheduled</option>
-                <option value="survey_completed">survey_completed</option>
-                <option value="quoting">quoting</option>
-                <option value="quoted">quoted</option>
-                <option value="customer_approved">customer_approved</option>
-                <option value="permit_applied">permit_applied</option>
-                <option value="permit_approved">permit_approved</option>
-                <option value="installation_scheduled">installation_scheduled</option>
-                <option value="installed">installed</option>
-                <option value="completed">completed</option>
-                <option value="cancelled">cancelled</option>
+                <option value="">All statuses</option>
+                {CASE_STATUS_ORDER.map((s) => (
+                  <option key={s} value={s}>{statusLabel(s)}</option>
+                ))}
               </select>
             </label>
             <div className="flex items-end gap-2">
               <button
                 type="button"
                 onClick={load}
-                className="inline-flex flex-1 items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-800 active:scale-95"
+                className="inline-flex flex-1 cursor-pointer items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
               >
                 Apply
               </button>
               <button
                 type="button"
-                onClick={() => { setQ(''); setStatus(''); setTimeout(load, 0) }}
-                className="inline-flex items-center justify-center rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-95"
+                onClick={() => { setQ(''); setStatus(''); load({ q: '', status: '' }) }}
+                className="inline-flex cursor-pointer items-center justify-center rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
               >
                 Clear
               </button>
@@ -114,7 +112,7 @@ export default function Cases() {
         ) : null}
 
         {/* Table */}
-        <div className="mt-4 overflow-hidden rounded-2xl border bg-white shadow-sm">
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {loading ? (
             <SkeletonTable rows={8} cols={5} />
           ) : (
@@ -130,25 +128,28 @@ export default function Cases() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {items.map((it) => (
-                    <tr key={it.id} className={`transition-colors hover:bg-slate-50 ${rowBgForStatus(it.status)}`}>
-                      <td className="px-4 py-3 font-semibold">
-                        <Link className="text-sky-600 transition-colors hover:text-sky-700 hover:underline" to={`/admin/cases/${it.id}`}>
-                          {it.reference_number}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-slate-900">{it.customer_nickname}</div>
-                        <div className="text-xs text-slate-500">{it.phone}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Pill tone={toneForCaseStatus(it.status)}>{it.status}</Pill>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{it.install_address}</td>
-                      <td className="px-4 py-3 text-slate-500">{new Date(it.created_at).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                  {!loading && items.length === 0 && (
+                  {items.map((it) => {
+                    const tone = toneForCaseStatus(it.status)
+                    return (
+                      <tr key={it.id} className={`group transition-colors hover:bg-slate-50/80 ${rowTintClass(tone)}`}>
+                        <td className={`border-l-4 ${borderLeftClass(tone)} px-4 py-3 font-semibold`}>
+                          <Link className="text-sky-600 transition-colors hover:text-sky-700 hover:underline" to={`/admin/cases/${it.id}`}>
+                            {it.reference_number}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-slate-900">{it.customer_nickname}</div>
+                          <div className="text-xs text-slate-500">{it.phone}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusTag status={it.status} />
+                        </td>
+                        <td className="max-w-[220px] truncate px-4 py-3 text-slate-600">{it.install_address}</td>
+                        <td className="whitespace-nowrap px-4 py-3 text-slate-500">{new Date(it.created_at).toLocaleString()}</td>
+                      </tr>
+                    )
+                  })}
+                  {items.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-4 py-12 text-center">
                         <p className="text-sm font-medium text-slate-500">No cases found.</p>

@@ -32,6 +32,8 @@ services:
       SECRET_KEY: ${SECRET_KEY:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:7220}
       ADMIN_URL: ${ADMIN_URL:-http://localhost:7221}
+      # Recipient for "customer did something" admin-alert emails.
+      ADMIN_NOTIFY_EMAIL: ${ADMIN_NOTIFY_EMAIL:-}
       # Stripe disabled (kept only for compatibility)
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}

@@ -11,6 +11,7 @@ from app.models.models import Case, CaseStatus, CaseStatusHistory, Installation,
 from app.schemas.schemas import CaseCreate, CaseStatusOut, CaseSubmittedOut
 from app.services.case_service import create_case
 from app.services.notification_service import (
+    notify_admin_event,
     notify_email,
     notify_sms,
     render_email_from_db_or_files,
@@ -68,6 +69,21 @@ def submit_case(payload: CaseCreate, request: Request, db: Session = Depends(get
         template_name="submission_confirm",
         body=sms,
     )
+    notify_admin_event(
+        db,
+        case_id=str(created.case.id),
+        reference_number=created.case.reference_number,
+        event_key="admin_new_request",
+        heading="New quote request",
+        summary="A customer submitted a new EV charger quote request.",
+        customer_nickname=created.case.customer.nickname,
+        customer_phone=created.case.customer.phone,
+        customer_email=created.case.customer.email,
+        extra_lines=[
+            f"Charger: {created.case.charger_brand}",
+            f"Address: {created.case.install_address}",
+        ],
+    )
     db.commit()
 
     return CaseSubmittedOut(
@@ -97,6 +113,7 @@ def get_case_status(token: str, db: Session = Depends(get_db)):
         updated_at=case.updated_at,
         survey_scheduled_date=survey.scheduled_date if survey else None,
         survey_deposit_paid=survey.deposit_paid if survey else None,
+        survey_deposit_reported=survey.deposit_reported if survey else None,
         survey_deposit_amount=survey.deposit_amount if survey else None,
         survey_requested_date=getattr(survey, "requested_date", None) if survey else None,
         survey_request_status=getattr(survey, "request_status", None) if survey else None,
@@ -173,6 +190,22 @@ def request_survey_time(token: str, payload: AppointmentRequestIn, db: Session =
         )
     )
 
+    notify_admin_event(
+        db,
+        case_id=str(case.id),
+        reference_number=case.reference_number,
+        event_key="admin_survey_requested",
+        heading="Customer requested a survey time",
+        summary="A customer proposed a preferred site-survey appointment time.",
+        customer_nickname=case.customer.nickname if case.customer else None,
+        customer_phone=case.customer.phone if case.customer else None,
+        customer_email=case.customer.email if case.customer else None,
+        extra_lines=[
+            f"Requested time: {payload.requested_date.isoformat()}",
+            *( [f"Note: {survey.request_note}"] if survey.request_note else [] ),
+        ],
+    )
+
     db.commit()
     return {"ok": True, "requested_date": payload.requested_date}
 
@@ -214,6 +247,22 @@ def request_installation_time(token: str, payload: AppointmentRequestIn, db: Ses
             changed_by=None,
             note=f"Customer requested installation time: {payload.requested_date.isoformat()}",
         )
+    )
+
+    notify_admin_event(
+        db,
+        case_id=str(case.id),
+        reference_number=case.reference_number,
+        event_key="admin_install_requested",
+        heading="Customer requested an installation time",
+        summary="A customer proposed a preferred installation appointment time.",
+        customer_nickname=case.customer.nickname if case.customer else None,
+        customer_phone=case.customer.phone if case.customer else None,
+        customer_email=case.customer.email if case.customer else None,
+        extra_lines=[
+            f"Requested time: {payload.requested_date.isoformat()}",
+            *( [f"Note: {inst.request_note}"] if inst.request_note else [] ),
+        ],
     )
 
     db.commit()

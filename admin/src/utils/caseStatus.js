@@ -28,9 +28,73 @@ export const CASE_STATUS_ORDER = [
   'cancelled',
 ]
 
+// Human-readable labels (single source so list/dashboard/timeline never drift).
+export const CASE_STATUS_LABELS = {
+  pending: 'Pending',
+  survey_scheduled: 'Survey scheduled',
+  survey_completed: 'Survey completed',
+  quoting: 'Quoting',
+  quoted: 'Quoted',
+  customer_approved: 'Approved',
+  permit_applied: 'Permit applied',
+  permit_approved: 'Permit approved',
+  installation_scheduled: 'Install scheduled',
+  installed: 'Installed',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+}
+
+export function statusLabel(status) {
+  const s = String(status || '')
+  return CASE_STATUS_LABELS[s] || s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || '—'
+}
+
 export function toneForCaseStatus(status) {
   const s = String(status || '')
   return CASE_STATUS_TONES[s] || 'slate'
+}
+
+// Permit status -> tone (single source; previously hardcoded inline in Permits.jsx).
+export const PERMIT_STATUS_TONES = {
+  applied: 'teal',
+  approved: 'emerald',
+  revision_required: 'amber',
+}
+
+export function toneForPermitStatus(status) {
+  return PERMIT_STATUS_TONES[String(status || '')] || 'slate'
+}
+
+// Turn a status-history row into a human-readable action + tone for the activity timeline.
+// Single source replacing the old per-page `toneForActivityRow`.
+export function describeActivity(row) {
+  const note = String(row?.note || '')
+  const to = String(row?.to_status || '')
+  const lowerNote = note.toLowerCase()
+
+  if (lowerNote.includes('reported e-transfer')) {
+    return { label: 'Customer reported e-transfer', tone: 'amber' }
+  }
+  if (lowerNote.includes('requested survey')) {
+    return { label: 'Customer requested a survey time', tone: 'amber' }
+  }
+  if (lowerNote.includes('requested installation')) {
+    return { label: 'Customer requested an install time', tone: 'amber' }
+  }
+  if (lowerNote.includes('deposit')) {
+    return { label: 'Deposit marked paid', tone: 'emerald' }
+  }
+  if (lowerNote.includes('completion email')) {
+    return { label: 'Completion email sent', tone: 'emerald' }
+  }
+  if (to === 'customer_approved') {
+    return { label: 'Customer approved & signed the quote', tone: 'emerald' }
+  }
+  if (to === 'cancelled') {
+    return { label: 'Case cancelled', tone: 'rose' }
+  }
+  // Default: a status transition to its label, tone from the destination status.
+  return { label: `Moved to ${statusLabel(to)}`, tone: toneForCaseStatus(to) }
 }
 
 export function isAtOrAfter(status, target) {

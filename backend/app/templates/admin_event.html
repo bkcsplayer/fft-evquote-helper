@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+  <h2 style="margin:0 0 8px 0;">{{ heading }}</h2>
+  <p class="muted" style="margin:0 0 14px 0;">{{ summary }}</p>
+
+  <div style="margin:0 0 14px 0; font-size: 14px;">
+    {% if customer_nickname %}<div><strong>Customer:</strong> {{ customer_nickname }}</div>{% endif %}
+    {% if customer_phone %}<div><strong>Phone:</strong> <a href="tel:{{ customer_phone }}">{{ customer_phone }}</a></div>{% endif %}
+    {% if customer_email %}<div><strong>Email:</strong> <a href="mailto:{{ customer_email }}">{{ customer_email }}</a></div>{% endif %}
+    <div><strong>Case:</strong> {{ reference_number }}</div>
+    {% for line in extra_lines %}
+      <div>{{ line }}</div>
+    {% endfor %}
+  </div>
+
+  <p style="margin:0 0 4px 0;">
+    <a class="btn" href="{{ admin_case_url }}">Open case in admin</a>
+  </p>
+{% endblock %}

@@ -2,24 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AdminShell } from '../components/layout/AdminShell.jsx'
 import { api } from '../services/api.js'
-import { Pill } from '../components/ui/Pill.jsx'
+import { Card, SectionHeader } from '../components/ui/Card.jsx'
+import { StatusTag } from '../components/ui/StatusTag.jsx'
 import { SkeletonKpi } from '../components/ui/Skeleton.jsx'
-import { toneForCaseStatus } from '../utils/caseStatus.js'
-
-function toneForActivityRow(a) {
-  const note = String(a?.note || '')
-  const to = String(a?.to_status || '')
-  if (note.includes('Deposit marked paid')) return 'emerald'
-  if (note.includes('Customer reported e-transfer')) return 'amber'
-  if (note.includes('Completion email sent')) return 'emerald'
-  if (note.includes('Permit approved')) return 'emerald'
-  if (note.toLowerCase().includes('revision')) return 'amber'
-  if (to === 'cancelled') return 'rose'
-  if (to === 'customer_approved') return 'emerald'
-  if (to === 'quoted') return 'teal'
-  if (to === 'installation_scheduled') return 'teal'
-  return 'slate'
-}
+import { describeActivity, statusLabel, toneForCaseStatus } from '../utils/caseStatus.js'
+import { accentClass, barClass, dotClass } from '../utils/tone.js'
 
 function moneyCAD(amount) {
   if (amount === null || amount === undefined) return '—'
@@ -28,6 +15,28 @@ function moneyCAD(amount) {
   return new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n)
 }
 
+function relativeTime(iso) {
+  const d = new Date(iso)
+  const diff = (Date.now() - d.getTime()) / 1000
+  if (!Number.isFinite(diff)) return ''
+  if (diff < 60) return 'just now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`
+  return d.toLocaleDateString('en-CA')
+}
+
+// Pipeline stages map to one or more raw statuses. `primary` drives the deep-link + tone.
+const PIPELINE = [
+  { label: 'Request', statuses: ['pending'], primary: 'pending' },
+  { label: 'Survey', statuses: ['survey_scheduled', 'survey_completed'], primary: 'survey_scheduled' },
+  { label: 'Quote', statuses: ['quoting', 'quoted'], primary: 'quoted' },
+  { label: 'Approved', statuses: ['customer_approved'], primary: 'customer_approved' },
+  { label: 'Permit', statuses: ['permit_applied', 'permit_approved'], primary: 'permit_applied' },
+  { label: 'Install', statuses: ['installation_scheduled', 'installed'], primary: 'installation_scheduled' },
+  { label: 'Done', statuses: ['completed'], primary: 'completed' },
+]
+
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [activity, setActivity] = useState([])
@@ -35,8 +44,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     let alive = true
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setError('')
     Promise.all([api.get('/dashboard/stats'), api.get('/dashboard/recent-activity')])
       .then(([s, a]) => {
         if (!alive) return
@@ -48,43 +55,27 @@ export default function Dashboard() {
   }, [])
 
   const loading = !stats
+  const counts = stats?.status_counts || {}
 
   return (
     <AdminShell>
       <div className="space-y-6 animate-fade-in">
-        {/* Hero header */}
+        {/* Hero */}
         <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-sky-950 shadow-lg">
-          <div className="px-6 py-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-sky-400">Operations Dashboard</p>
-                <h1 className="mt-1 text-2xl font-bold tracking-tight text-white">FFT SOP Control Center</h1>
-                <p className="mt-1 text-sm text-slate-400">One screen. One flow. Fewer mistakes.</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Link to="/admin/cases" className="rounded-lg bg-white/10 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20">
-                  Cases
-                </Link>
-                <Link to="/admin/surveys" className="rounded-lg bg-white/10 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20">
-                  Surveys
-                </Link>
-                <Link to="/admin/permits" className="rounded-lg bg-white/10 px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/20">
-                  Permits
-                </Link>
-                <button
-                  type="button"
-                  onClick={() => window.location.reload()}
-                  className="rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-slate-900 shadow-sm transition-all hover:bg-slate-100 active:scale-95"
-                >
-                  Refresh
-                </button>
-              </div>
+          <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-6">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-sky-400">Operations Dashboard</p>
+              <h1 className="mt-1 text-2xl font-bold tracking-tight text-white">FFT Control Center</h1>
+              <p className="mt-1 text-sm text-slate-400">Live pipeline, queues, and money — one screen.</p>
             </div>
-            <div className="mt-5">
-              <SopFlow />
-            </div>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="cursor-pointer rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-slate-900 shadow-sm transition-colors hover:bg-slate-100"
+            >
+              Refresh
+            </button>
           </div>
-
           {error ? (
             <div className="mx-4 mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-700">
               {error}
@@ -92,124 +83,100 @@ export default function Dashboard() {
           ) : null}
         </div>
 
-        {/* KPI + Queue section */}
-        <div className="grid gap-5 lg:grid-cols-12">
-          {/* KPI snapshot */}
-          <div className="rounded-2xl border bg-white p-5 shadow-sm lg:col-span-7">
-            <div className="mb-4 flex items-end justify-between gap-2">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">KPI Snapshot</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">What needs attention now</p>
-              </div>
-              <span className="text-xs text-slate-400">Live</span>
-            </div>
+        {/* Live pipeline */}
+        <Card className="p-5">
+          <SectionHeader eyebrow="Live Pipeline" title="Cases at each stage — click to drill in" />
+          <div className="mt-4">
             {loading ? (
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="flex gap-2 overflow-hidden">
+                {Array.from({ length: 7 }).map((_, i) => <div key={i} className="h-20 flex-1 animate-pulse rounded-xl bg-slate-100" />)}
+              </div>
+            ) : (
+              <LivePipeline counts={counts} />
+            )}
+          </div>
+        </Card>
+
+        {/* KPI + Queue */}
+        <div className="grid gap-5 lg:grid-cols-12">
+          <Card className="p-5 lg:col-span-7">
+            <SectionHeader eyebrow="KPI Snapshot" title="What needs attention now" action={<span className="text-xs text-slate-400">Live</span>} />
+            {loading ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
                 {Array.from({ length: 9 }).map((_, i) => <SkeletonKpi key={i} />)}
               </div>
             ) : (
               <>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <Kpi label="Pending" value={stats.pending_cases} tone="slate" />
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <Kpi label="Pending" value={stats.pending_cases} tone="slate" to="/admin/cases?status=pending" />
                   <Kpi label="To quote" value={stats.cases_to_quote} tone="amber" />
-                  <Kpi label="Waiting approval" value={stats.quoted_waiting_approval} tone="amber" />
-                  <Kpi label="Installs scheduled" value={stats.installations_scheduled} tone="teal" />
+                  <Kpi label="Waiting approval" value={stats.quoted_waiting_approval} tone="amber" to="/admin/cases?status=quoted" />
+                  <Kpi label="Installs scheduled" value={stats.installations_scheduled} tone="teal" to="/admin/cases?status=installation_scheduled" />
                   <Kpi label="Surveys next 7d" value={stats.surveys_next_7_days} tone="teal" />
                   <Kpi label="Permits: revision" value={stats.permits_revision_required} tone="amber" to="/admin/permits?quick=needs_action" />
                 </div>
-                <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-3">
+                <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Kpi label="Pipeline value" value={moneyCAD(stats.pipeline_value)} tone="teal" />
                   <Kpi label="Revenue (month)" value={moneyCAD(stats.revenue_month)} tone="emerald" />
                   <Kpi label="Revenue (quarter)" value={moneyCAD(stats.revenue_quarter)} tone="emerald" />
                   <Kpi label="Completed (month)" value={stats.completed_month_count} tone="emerald" />
                 </div>
               </>
             )}
-          </div>
+          </Card>
 
-          {/* Queue mix */}
-          <div className="rounded-2xl border bg-white p-5 shadow-sm lg:col-span-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Work Queue Mix</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900">Balance the flow</p>
-            <div className="mt-4">
-              {loading ? (
-                <div className="space-y-3">
-                  <div className="h-3 animate-pulse rounded-full bg-slate-200" />
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {Array.from({ length: 4 }).map((_, i) => <SkeletonKpi key={i} />)}
-                  </div>
-                </div>
-              ) : (
-                <QueueMix
-                  pending={stats.pending_cases || 0}
-                  toQuote={stats.cases_to_quote || 0}
-                  waitingApproval={stats.quoted_waiting_approval || 0}
-                  installsScheduled={stats.installations_scheduled || 0}
-                />
-              )}
-            </div>
-            {!loading && (
+          <Card className="p-5 lg:col-span-5">
+            <SectionHeader eyebrow="Action Queue" title="Things waiting on you" />
+            {loading ? (
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <QuickLink to="/admin/surveys?filter=reported_unpaid" label="Reported & unpaid deposits" value={stats.surveys_reported_unpaid} />
-                <QuickLink to="/admin/installations?filter=completed_email_pending" label="Completion email pending" value={stats.installations_completed_email_pending} />
+                {Array.from({ length: 2 }).map((_, i) => <SkeletonKpi key={i} />)}
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-2">
+                <QuickLink to="/admin/surveys?filter=reported_unpaid" label="Reported & unpaid deposits" value={stats.surveys_reported_unpaid} tone="amber" />
+                <QuickLink to="/admin/installations?filter=completed_email_pending" label="Completion email pending" value={stats.installations_completed_email_pending} tone="teal" />
+                <QuickLink to="/admin/permits?quick=needs_action" label="Permits needing revision" value={stats.permits_revision_required} tone="rose" />
               </div>
             )}
-          </div>
+          </Card>
 
-          {/* Status bars */}
-          <div className="rounded-2xl border bg-white p-5 shadow-sm lg:col-span-7">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Cases by Status</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900">Pipeline distribution</p>
+          {/* Cases by status (grouped) */}
+          <Card className="p-5 lg:col-span-7">
+            <SectionHeader eyebrow="Cases by Status" title="Pipeline distribution" />
             <div className="mt-4">
               {loading ? (
                 <div className="space-y-3">
-                  {Array.from({ length: 11 }).map((_, i) => (
+                  {Array.from({ length: 7 }).map((_, i) => (
                     <div key={i} className="flex items-center gap-3">
-                      <div className="h-3 w-36 animate-pulse rounded bg-slate-200" />
+                      <div className="h-3 w-24 animate-pulse rounded bg-slate-200" />
                       <div className="h-3 flex-1 animate-pulse rounded-full bg-slate-200" />
-                      <div className="h-3 w-10 animate-pulse rounded bg-slate-200" />
+                      <div className="h-3 w-16 animate-pulse rounded bg-slate-200" />
                     </div>
                   ))}
                 </div>
               ) : (
-                <StatusBars statusCounts={stats?.status_counts || {}} />
+                <StatusGroups counts={counts} />
               )}
             </div>
-          </div>
+          </Card>
 
-          {/* Recent activity */}
-          <div className="rounded-2xl border bg-white p-5 shadow-sm lg:col-span-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Recent Activity</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900">Latest status changes</p>
-            <div className="mt-4 space-y-2">
+          {/* Recent activity timeline */}
+          <Card className="p-5 lg:col-span-5">
+            <SectionHeader eyebrow="Recent Activity" title="Who did what, just now" />
+            <div className="mt-4">
               {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="rounded-xl border p-3">
-                    <div className="h-3 w-32 animate-pulse rounded bg-slate-200" />
-                    <div className="mt-2 h-3 w-full animate-pulse rounded bg-slate-200" />
-                  </div>
-                ))
+                <div className="space-y-3">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="h-12 animate-pulse rounded-xl bg-slate-100" />
+                  ))}
+                </div>
               ) : activity.length === 0 ? (
                 <p className="py-8 text-center text-sm text-slate-400">No activity yet.</p>
               ) : (
-                activity.slice(0, 8).map((a) => (
-                  <div key={a.created_at + a.case_id} className="rounded-xl border border-slate-100 bg-slate-50/50 p-3 text-sm transition-colors hover:bg-slate-100/70">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">
-                        {new Date(a.created_at).toLocaleString()}
-                      </span>
-                      <Pill tone={toneForActivityRow(a)}>{a.to_status}</Pill>
-                    </div>
-                    <div className="mt-1.5 text-slate-700">
-                      <span className="text-slate-400">{a.from_status || '—'}</span>
-                      <span className="mx-1 text-slate-300">→</span>
-                      <span className="font-semibold">{a.to_status}</span>
-                    </div>
-                    {a.note ? <div className="mt-1 text-xs text-slate-500">{a.note}</div> : null}
-                  </div>
-                ))
+                <ActivityTimeline rows={activity.slice(0, 8)} />
               )}
             </div>
-          </div>
+          </Card>
         </div>
       </div>
     </AdminShell>
@@ -218,95 +185,41 @@ export default function Dashboard() {
 
 /* ── Sub-components ── */
 
-function Kpi({ label, value, tone = 'slate', to }) {
-  const borders = { teal: 'border-l-teal-500', amber: 'border-l-amber-500', emerald: 'border-l-emerald-500', rose: 'border-l-rose-500', slate: 'border-l-slate-400' }
-  const inner = (
-    <div className={`rounded-xl border border-l-2 bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md ${borders[tone] || borders.slate}`}>
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</div>
-      <div className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{value ?? '—'}</div>
-    </div>
-  )
-  if (to) return <Link to={to}>{inner}</Link>
-  return inner
+function sumStatuses(counts, statuses) {
+  return statuses.reduce((a, s) => a + Number(counts?.[s] || 0), 0)
 }
 
-function QuickLink({ to, label, value }) {
-  return (
-    <Link to={to} className="group rounded-xl border bg-white px-4 py-3 shadow-sm transition-all hover:bg-slate-50 hover:shadow-md">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 group-hover:text-slate-700">{label}</div>
-      <div className="mt-1 text-xl font-bold text-slate-900">{value ?? '—'}</div>
-    </Link>
-  )
-}
+function LivePipeline({ counts }) {
+  const steps = PIPELINE.map((s) => ({ ...s, count: sumStatuses(counts, s.statuses) }))
+  // Highlight the busiest active (non-done) stage as the backlog needing attention.
+  const active = steps.filter((s) => s.primary !== 'completed')
+  const maxCount = Math.max(0, ...active.map((s) => s.count))
 
-function SopFlow() {
-  const steps = [
-    { label: 'Request', status: 'pending', note: 'Customer submits request' },
-    { label: 'Schedule survey', status: 'survey_scheduled', note: 'Pick a date/time' },
-    { label: 'Complete survey', status: 'survey_completed', note: 'Upload photos & notes' },
-    { label: 'Quote', status: 'quoted', note: 'Create, preview, send' },
-    { label: 'Customer approve', status: 'customer_approved', note: 'Signature unlocks next steps' },
-    { label: 'Permit', status: 'permit_applied', note: 'Apply/track approval' },
-    { label: 'Installation', status: 'installation_scheduled', note: 'Schedule & mark installed' },
-    { label: 'Done', status: 'completed', note: 'Completion email' },
-  ]
   return (
     <div className="flex flex-wrap items-stretch gap-2">
-      {steps.map((s, idx) => (
-        <div key={s.label} className="flex items-stretch gap-2">
-          <div className="min-w-[150px] rounded-xl border border-white/10 bg-white/5 p-3 transition-colors hover:bg-white/10">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-white/70">{s.label}</span>
-              <Pill tone={toneForCaseStatus(s.status)}>{s.status}</Pill>
-            </div>
-            <div className="mt-1 text-xs text-slate-400">{s.note}</div>
-          </div>
-          {idx < steps.length - 1 ? (
-            <div className="hidden items-center md:flex">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="text-white/40">
-                <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function StatusBars({ statusCounts }) {
-  const items = [
-    { status: 'pending', label: 'Pending' },
-    { status: 'survey_scheduled', label: 'Survey scheduled' },
-    { status: 'survey_completed', label: 'Survey completed' },
-    { status: 'quoted', label: 'Quoted' },
-    { status: 'customer_approved', label: 'Approved' },
-    { status: 'permit_applied', label: 'Permit applied' },
-    { status: 'permit_approved', label: 'Permit approved' },
-    { status: 'installation_scheduled', label: 'Install scheduled' },
-    { status: 'installed', label: 'Installed' },
-    { status: 'completed', label: 'Completed' },
-    { status: 'cancelled', label: 'Cancelled' },
-  ]
-  const values = items.map((i) => Number(statusCounts?.[i.status] || 0))
-  const max = Math.max(1, ...values)
-  return (
-    <div className="space-y-2.5">
-      {items.map((i) => {
-        const v = Number(statusCounts?.[i.status] || 0)
-        const pct = Math.round((v / max) * 100)
+      {steps.map((s, idx) => {
+        const tone = toneForCaseStatus(s.primary)
+        const isHot = s.count > 0 && s.count === maxCount && s.primary !== 'completed'
         return (
-          <div key={i.status} className="flex items-center gap-3">
-            <div className="w-36 truncate text-[11px] font-semibold uppercase tracking-wider text-slate-600">{i.label}</div>
-            <div className="flex-1">
-              <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
-                <div
-                  className={`h-2.5 rounded-full transition-all duration-500 ${barClass(toneForCaseStatus(i.status))}`}
-                  style={{ width: `${pct}%` }}
-                />
+          <div key={s.label} className="flex flex-1 items-stretch gap-2">
+            <Link
+              to={`/admin/cases?status=${s.primary}`}
+              className={`group relative flex-1 cursor-pointer overflow-hidden rounded-xl border bg-white p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${isHot ? 'ring-2 ring-amber-400' : 'border-slate-200'}`}
+            >
+              <span className={`absolute inset-x-0 top-0 h-1 ${accentClass(tone)}`} />
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{s.label}</div>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-2xl font-bold tabular-nums text-slate-900">{s.count}</span>
+                {isHot ? <span className="text-[10px] font-semibold uppercase text-amber-600">busiest</span> : null}
               </div>
-            </div>
-            <div className="w-9 text-right text-xs font-bold tabular-nums text-slate-700">{v}</div>
+            </Link>
+            {idx < steps.length - 1 ? (
+              <div className="hidden items-center text-slate-300 md:flex">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            ) : null}
           </div>
         )
       })}
@@ -314,59 +227,107 @@ function StatusBars({ statusCounts }) {
   )
 }
 
-function QueueMix({ pending, toQuote, waitingApproval, installsScheduled }) {
-  const items = [
-    { label: 'Pending', v: pending, tone: 'slate' },
-    { label: 'To quote', v: toQuote, tone: 'amber' },
-    { label: 'Waiting approval', v: waitingApproval, tone: 'amber' },
-    { label: 'Installs scheduled', v: installsScheduled, tone: 'teal' },
-  ]
-  const total = items.reduce((a, b) => a + (Number(b.v) || 0), 0) || 1
+const STATUS_GROUPS = [
+  { label: 'Intake', statuses: ['pending'] },
+  { label: 'Survey', statuses: ['survey_scheduled', 'survey_completed'] },
+  { label: 'Quote', statuses: ['quoting', 'quoted'] },
+  { label: 'Approved', statuses: ['customer_approved'] },
+  { label: 'Permit', statuses: ['permit_applied', 'permit_approved'] },
+  { label: 'Install', statuses: ['installation_scheduled', 'installed'] },
+  { label: 'Closed', statuses: ['completed', 'cancelled'] },
+]
+
+function StatusGroups({ counts }) {
+  const grand = Object.values(counts).reduce((a, b) => a + Number(b || 0), 0) || 1
+
   return (
-    <div>
-      <div className="flex h-3 overflow-hidden rounded-full bg-slate-100">
-        {items.map((i) => (
-          <div
-            key={i.label}
-            className={barClass(i.tone)}
-            style={{ width: `${Math.round(((Number(i.v) || 0) / total) * 100)}%` }}
-            title={`${i.label}: ${i.v}`}
-          />
-        ))}
+    <div className="space-y-3">
+      <div className="flex items-center justify-between text-xs text-slate-500">
+        <span className="font-semibold uppercase tracking-wider">Stage</span>
+        <span className="font-semibold uppercase tracking-wider">{grand} total</span>
       </div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2">
-        {items.map((i) => (
-          <div key={i.label} className="flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm">
-            <div className="flex items-center gap-2">
-              <span className={`h-2.5 w-2.5 rounded-full ${dotClass(i.tone)}`} />
-              <span className="text-slate-600">{i.label}</span>
+      {STATUS_GROUPS.map((g) => {
+        const subs = g.statuses
+          .map((s) => ({ s, v: Number(counts?.[s] || 0), tone: toneForCaseStatus(s) }))
+          .filter((x) => x.v > 0)
+        const total = g.statuses.reduce((a, s) => a + Number(counts?.[s] || 0), 0)
+        const widthPct = Math.round((total / grand) * 100)
+        const sumPositive = subs.reduce((a, b) => a + b.v, 0) || 1
+        const title = g.statuses.map((s) => `${statusLabel(s)}: ${Number(counts?.[s] || 0)}`).join('  •  ')
+        return (
+          <div key={g.label} className="flex items-center gap-3" title={title}>
+            <div className="w-20 shrink-0 text-xs font-semibold uppercase tracking-wider text-slate-600">{g.label}</div>
+            <div className="h-3 flex-1 overflow-hidden rounded-full bg-slate-100">
+              <div className="flex h-3" style={{ width: `${widthPct}%` }}>
+                {subs.map((sub) => (
+                  // flexGrow weights avoid per-segment rounding gaps (segments always fill exactly).
+                  <div
+                    key={sub.s}
+                    className={`${barClass(sub.tone)} transition-all duration-500`}
+                    style={{ flexGrow: sub.v / sumPositive }}
+                  />
+                ))}
+              </div>
             </div>
-            <span className="font-bold tabular-nums text-slate-900">{i.v}</span>
+            <div className="w-20 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">
+              {total}
+              <span className="ml-1 font-medium text-slate-400">{Math.round((total / grand) * 100)}%</span>
+            </div>
           </div>
-        ))}
-      </div>
+        )
+      })}
     </div>
   )
 }
 
-function barClass(tone) {
-  switch (tone) {
-    case 'teal': return 'bg-teal-500'
-    case 'amber': return 'bg-amber-500'
-    case 'emerald': return 'bg-emerald-500'
-    case 'rose': return 'bg-rose-500'
-    case 'indigo': return 'bg-indigo-500'
-    default: return 'bg-slate-500'
-  }
+function ActivityTimeline({ rows }) {
+  return (
+    <ol className="relative space-y-4 border-l border-slate-200 pl-4">
+      {rows.map((a, i) => {
+        const { label, tone } = describeActivity(a)
+        return (
+          <li key={`${a.case_id || 'x'}|${a.created_at || ''}|${i}`} className="relative">
+            <span className={`absolute -left-[1.30rem] top-1 h-2.5 w-2.5 rounded-full ring-4 ring-white ${dotClass(tone)}`} />
+            <div className="flex items-start justify-between gap-2">
+              <Link to={`/admin/cases/${a.case_id}`} className="text-sm font-semibold text-slate-900 hover:text-sky-700 hover:underline">
+                {a.customer_nickname || a.reference_number || 'Case'}
+              </Link>
+              <span className="shrink-0 text-[11px] font-medium text-slate-400">{relativeTime(a.created_at)}</span>
+            </div>
+            <div className="mt-0.5 text-sm text-slate-600">{label}</div>
+            <div className="mt-1.5 flex items-center gap-2">
+              <StatusTag status={a.to_status} />
+              {a.phone ? <span className="text-xs text-slate-400">{a.phone}</span> : null}
+            </div>
+          </li>
+        )
+      })}
+    </ol>
+  )
 }
 
-function dotClass(tone) {
-  switch (tone) {
-    case 'teal': return 'bg-teal-500'
-    case 'amber': return 'bg-amber-500'
-    case 'emerald': return 'bg-emerald-500'
-    case 'rose': return 'bg-rose-500'
-    case 'indigo': return 'bg-indigo-500'
-    default: return 'bg-slate-500'
-  }
+function Kpi({ label, value, tone = 'slate', to }) {
+  const inner = (
+    <div className={`h-full rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition-shadow hover:shadow-md ${to ? 'cursor-pointer' : ''}`}>
+      <div className="flex items-center gap-2">
+        <span className={`h-2.5 w-2.5 rounded-full ${dotClass(tone)}`} />
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</div>
+      </div>
+      <div className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{value ?? '—'}</div>
+    </div>
+  )
+  if (to) return <Link to={to}>{inner}</Link>
+  return inner
+}
+
+function QuickLink({ to, label, value, tone = 'slate' }) {
+  return (
+    <Link to={to} className="group flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition-colors hover:bg-slate-50">
+      <div className="flex items-center gap-2">
+        <span className={`h-2.5 w-2.5 rounded-full ${dotClass(tone)}`} />
+        <div className="text-sm font-medium text-slate-600 group-hover:text-slate-900">{label}</div>
+      </div>
+      <div className="text-xl font-bold tabular-nums text-slate-900">{value ?? '—'}</div>
+    </Link>
+  )
 }

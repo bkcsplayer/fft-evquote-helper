@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { QuoteShell } from '../components/layout/QuoteShell.jsx'
+import { StageFlow } from '../components/StageFlow.jsx'
 import { api } from '../services/api.js'
 import { useI18n } from '../i18n/index.js'
 
@@ -20,7 +21,7 @@ const ORDER = [
 
 export default function StatusPage() {
   const { token } = useParams()
-  const { t, lang } = useI18n()
+  const { t, locale } = useI18n()
   const [data, setData] = useState(null)
   const [timeline, setTimeline] = useState([])
   const [error, setError] = useState('')
@@ -43,7 +44,7 @@ export default function StatusPage() {
 
   function dt(v) {
     try {
-      return new Date(v).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-CA')
+      return new Date(v).toLocaleString(locale)
     } catch {
       return String(v || '')
     }
@@ -106,7 +107,7 @@ export default function StatusPage() {
       setSurveyReqNote('')
       await load()
     } catch (e) {
-      setError(e?.response?.data?.detail || 'Unable to submit request')
+      setError(e?.response?.data?.detail || t('status.err.submit_request'))
     } finally {
       setSurveyReqBusy(false)
     }
@@ -126,27 +127,46 @@ export default function StatusPage() {
       setInstallReqNote('')
       await load()
     } catch (e) {
-      setError(e?.response?.data?.detail || 'Unable to submit request')
+      setError(e?.response?.data?.detail || t('status.err.submit_request'))
     } finally {
       setInstallReqBusy(false)
     }
   }
 
-  const progress = useMemo(() => {
-    const status = data?.status
-    if (!status) return 0
-    const idx = ORDER.indexOf(status)
-    return idx >= 0 ? Math.round(((idx + 1) / ORDER.length) * 100) : 0
-  }, [data])
+  // Permit sub-status shown to the customer in the stage flow (derived from the case status —
+  // permit_applied / permit_approved are case statuses, so no extra backend field is needed).
+  const permitDetail = useMemo(() => {
+    const st = String(data?.status || '')
+    const i = ORDER.indexOf(st)
+    if (i < 0) return undefined
+    if (i >= ORDER.indexOf('permit_approved')) return t('permit.approved')
+    if (st === 'permit_applied') return t('permit.applied')
+    if (i >= ORDER.indexOf('customer_approved')) return t('permit.pending')
+    return undefined
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.status])
+
+  // Install scheduling is gated on permit approval; show an explanatory card before then.
+  const installLockedByPermit = useMemo(() => {
+    const i = ORDER.indexOf(String(data?.status || ''))
+    return i >= ORDER.indexOf('customer_approved') && i < ORDER.indexOf('permit_approved')
+  }, [data?.status])
 
   const depositReported = useMemo(() => {
     if (data?.survey_deposit_paid) return false
+    // Prefer the structured backend flag; fall back to timeline scan for older cases.
+    if (data?.survey_deposit_reported) return true
     return (timeline || []).some((x) => String(x?.note || '').toLowerCase().includes('e-transfer'))
   }, [data, timeline])
 
   const quoteApproved = useMemo(() => {
     const st = String(data?.status || '')
     return ORDER.indexOf(st) >= ORDER.indexOf('customer_approved')
+  }, [data])
+
+  // The quote is only customer-visible once admin has sent it (status reaches "quoted").
+  const hasSentQuote = useMemo(() => {
+    return ORDER.indexOf(String(data?.status || '')) >= ORDER.indexOf('quoted')
   }, [data])
 
   const showInstallScheduling = useMemo(() => {
@@ -160,14 +180,12 @@ export default function StatusPage() {
     if (surveyReqDt) return surveyReqDt
     if (data?.survey_requested_date) return toLocalInputValue(data.survey_requested_date)
     return ''
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [surveyReqDt, data?.survey_requested_date])
 
   const installReqDtValue = useMemo(() => {
     if (installReqDt) return installReqDt
     if (data?.installation_requested_date) return toLocalInputValue(data.installation_requested_date)
     return ''
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [installReqDt, data?.installation_requested_date])
 
   return (
@@ -183,22 +201,22 @@ export default function StatusPage() {
           <>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
               <div>
-                Auto refresh:{' '}
+                {t('status.autorefresh')}{' '}
                 <button
                   type="button"
                   onClick={() => setAutoRefresh((v) => !v)}
                   className="font-semibold text-slate-800 underline"
                 >
-                  {autoRefresh ? 'on' : 'off'}
+                  {autoRefresh ? t('status.autorefresh.on') : t('status.autorefresh.off')}
                 </button>
-                {lastUpdatedAt ? <span className="ml-2">Last updated: {lastUpdatedAt.toLocaleTimeString()}</span> : null}
+                {lastUpdatedAt ? <span className="ml-2">{t('status.last_updated', { time: lastUpdatedAt.toLocaleTimeString(locale) })}</span> : null}
               </div>
               <button
                 type="button"
                 onClick={() => load().catch((e) => setError(e?.response?.data?.detail || t('status.not_found')))}
                 className="rounded-lg border bg-white px-2 py-1 text-xs font-semibold text-slate-800 hover:bg-slate-100"
               >
-                Refresh now
+                {t('status.refresh_now')}
               </button>
             </div>
             <div className="mt-4">
@@ -207,12 +225,9 @@ export default function StatusPage() {
             </div>
 
             <div className="mt-4">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>{t('status.progress')}</span>
-                <span>{progress}%</span>
-              </div>
-              <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
-                <div className="h-2 rounded-full bg-teal-700" style={{ width: `${progress}%` }} />
+              <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('stage.flow_title')}</div>
+              <div className="mt-2">
+                <StageFlow status={data.status} details={{ permit: permitDetail }} />
               </div>
             </div>
 
@@ -242,29 +257,29 @@ export default function StatusPage() {
               <div className="mt-4 rounded-xl border bg-white p-3 text-sm">
                 <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('status.survey')}</div>
                 <div className="mt-1 text-slate-800">
-                  {lang === 'zh' ? '请选择上门勘查时间（我们确认后才会安排上门）' : 'Choose a site survey time (we will confirm before scheduling)'}
+                  {t('status.survey.choose_prompt')}
                 </div>
 
                 {data.survey_request_status === 'pending' && data.survey_requested_date ? (
                   <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                    {lang === 'zh' ? '你已提交时间，等待确认：' : 'Requested (waiting for confirmation): '}
+                    {t('status.request.waiting')}
                     <span className="font-semibold">{dt(data.survey_requested_date)}</span>
                   </div>
                 ) : null}
 
                 {data.survey_request_status === 'rejected' ? (
                   <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    <div className="font-semibold">{lang === 'zh' ? '该时间无法安排，请重新选择' : 'That time is not available. Please choose another.'}</div>
+                    <div className="font-semibold">{t('status.request.rejected')}</div>
                     {data.survey_request_admin_note ? (
                       <div className="mt-1 text-amber-800">{data.survey_request_admin_note}</div>
                     ) : null}
                   </div>
                 ) : null}
 
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                  <label className="block sm:col-span-1">
+                <div className="mt-3 grid grid-cols-1 gap-3">
+                  <label className="block">
                     <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                      {lang === 'zh' ? '预约时间（本地）' : 'Preferred time (local)'}
+                      {t('status.request.preferred_time')}
                     </div>
                     <input
                       type="datetime-local"
@@ -274,31 +289,29 @@ export default function StatusPage() {
                       className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
                     />
                   </label>
-                  <label className="block sm:col-span-2">
+                  <label className="block">
                     <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                      {lang === 'zh' ? '备注（可选）' : 'Note (optional)'}
+                      {t('status.request.note')}
                     </div>
                     <input
                       value={surveyReqNote}
                       onChange={(e) => setSurveyReqNote(e.target.value)}
                       disabled={surveyReqBusy}
                       className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
-                      placeholder={lang === 'zh' ? '例如：周末可，或门禁说明…' : 'e.g. weekend works, gate code…'}
+                      placeholder={t('status.survey.note_ph')}
                     />
                   </label>
-                  <div className="sm:col-span-3 flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
                       disabled={surveyReqBusy || !surveyReqDt}
                       onClick={submitSurveyRequest}
                       className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
                     >
-                      {lang === 'zh' ? '提交时间' : 'Submit time'}
+                      {t('status.request.submit')}
                     </button>
                     <div className="text-xs text-slate-500 self-center">
-                      {lang === 'zh'
-                        ? '提交后，我们会确认该时间；如不合适会退回让你重新选择。'
-                        : 'After you submit, we’ll confirm it. If unavailable, we’ll ask you to choose again.'}
+                      {t('status.request.submit_hint')}
                     </div>
                   </div>
                 </div>
@@ -309,41 +322,41 @@ export default function StatusPage() {
               data.installation_scheduled_date ? (
                 <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm">
                   <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                    {lang === 'zh' ? '安装' : 'Installation'}
+                    {t('status.installation')}
                   </div>
                   <div className="mt-1 text-slate-800">
-                    {lang === 'zh' ? '已安排：' : 'Scheduled: '} <span className="font-semibold">{dt(data.installation_scheduled_date)}</span>
+                    {t('status.installation.scheduled')} <span className="font-semibold">{dt(data.installation_scheduled_date)}</span>
                   </div>
                 </div>
               ) : (
                 <div className="mt-4 rounded-xl border bg-white p-3 text-sm">
                   <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                    {lang === 'zh' ? '安装' : 'Installation'}
+                    {t('status.installation')}
                   </div>
                   <div className="mt-1 text-slate-800">
-                    {lang === 'zh' ? '请选择安装时间（我们确认后才会安排施工）' : 'Choose an installation time (we will confirm before scheduling)'}
+                    {t('status.installation.choose_prompt')}
                   </div>
 
                   {data.installation_request_status === 'pending' && data.installation_requested_date ? (
                     <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                      {lang === 'zh' ? '你已提交时间，等待确认：' : 'Requested (waiting for confirmation): '}
+                      {t('status.request.waiting')}
                       <span className="font-semibold">{dt(data.installation_requested_date)}</span>
                     </div>
                   ) : null}
 
                   {data.installation_request_status === 'rejected' ? (
                     <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                      <div className="font-semibold">{lang === 'zh' ? '该时间无法安排，请重新选择' : 'That time is not available. Please choose another.'}</div>
+                      <div className="font-semibold">{t('status.request.rejected')}</div>
                       {data.installation_request_admin_note ? (
                         <div className="mt-1 text-amber-800">{data.installation_request_admin_note}</div>
                       ) : null}
                     </div>
                   ) : null}
 
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <label className="block sm:col-span-1">
+                  <div className="mt-3 grid grid-cols-1 gap-3">
+                    <label className="block">
                       <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                        {lang === 'zh' ? '预约时间（本地）' : 'Preferred time (local)'}
+                        {t('status.request.preferred_time')}
                       </div>
                       <input
                         type="datetime-local"
@@ -353,36 +366,41 @@ export default function StatusPage() {
                         className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
                       />
                     </label>
-                    <label className="block sm:col-span-2">
+                    <label className="block">
                       <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                        {lang === 'zh' ? '备注（可选）' : 'Note (optional)'}
+                        {t('status.request.note')}
                       </div>
                       <input
                         value={installReqNote}
                         onChange={(e) => setInstallReqNote(e.target.value)}
                         disabled={installReqBusy}
                         className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
-                        placeholder={lang === 'zh' ? '例如：工作日晚上更方便…' : 'e.g. evenings are better…'}
+                        placeholder={t('status.installation.note_ph')}
                       />
                     </label>
-                    <div className="sm:col-span-3 flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         disabled={installReqBusy || !installReqDt}
                         onClick={submitInstallRequest}
                         className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
                       >
-                        {lang === 'zh' ? '提交时间' : 'Submit time'}
+                        {t('status.request.submit')}
                       </button>
                       <div className="text-xs text-slate-500 self-center">
-                        {lang === 'zh'
-                          ? '提交后，我们会确认该时间；如不合适会退回让你重新选择。'
-                          : 'After you submit, we’ll confirm it. If unavailable, we’ll ask you to choose again.'}
+                        {t('status.request.submit_hint')}
                       </div>
                     </div>
                   </div>
                 </div>
               )
+            ) : installLockedByPermit ? (
+              <div className="mt-4 rounded-xl border bg-white p-3 text-sm">
+                <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('stage.install')}</div>
+                <div className="mt-1 font-semibold text-slate-800">{t('install.locked.title')}</div>
+                <div className="mt-1 text-slate-600">{t('install.locked.body')}</div>
+                {permitDetail ? <div className="mt-2 inline-flex rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">{permitDetail}</div> : null}
+              </div>
             ) : null}
 
             {depositReported ? (
@@ -393,41 +411,47 @@ export default function StatusPage() {
             ) : null}
 
             <div className="mt-4 rounded-2xl border bg-slate-50 p-4 text-sm">
-              <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{lang === 'zh' ? '当前摘要' : 'Summary'}</div>
+              <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('status.summary')}</div>
               <div className="mt-2 grid gap-2">
                 <div className="flex items-center justify-between">
-                  <div className="text-slate-600">{lang === 'zh' ? '定金' : 'Deposit'}</div>
+                  <div className="text-slate-600">{t('status.summary.deposit')}</div>
                   <div className="font-semibold text-slate-900">
-                    {data.survey_deposit_paid ? (lang === 'zh' ? '已确认' : 'Confirmed') : depositReported ? (lang === 'zh' ? '已提交，待确认' : 'Reported') : (lang === 'zh' ? '未确认' : 'Not confirmed')}
+                    {data.survey_deposit_paid
+                      ? t('status.summary.deposit.confirmed')
+                      : depositReported
+                        ? t('status.summary.deposit.reported')
+                        : t('status.summary.deposit.not_confirmed')}
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="text-slate-600">{lang === 'zh' ? '报价签字' : 'Quote signature'}</div>
-                  <div className="font-semibold text-slate-900">{quoteApproved ? (lang === 'zh' ? '已签字' : 'Signed') : (lang === 'zh' ? '未签字' : 'Not signed')}</div>
+                  <div className="text-slate-600">{t('status.summary.signature')}</div>
+                  <div className="font-semibold text-slate-900">{quoteApproved ? t('status.summary.signed') : t('status.summary.not_signed')}</div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="text-slate-600">{lang === 'zh' ? '状态' : 'Status'}</div>
+                  <div className="text-slate-600">{t('status.summary.status')}</div>
                   <div className="font-semibold text-slate-900">{statusLabel(data.status)}</div>
                 </div>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-2">
-              <Link
-                to={`/quote/view/${token}`}
-                className="inline-flex w-full items-center justify-center rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                {t('status.view_quote')}
-              </Link>
-              {!quoteApproved ? (
+            {hasSentQuote ? (
+              <div className="mt-4 grid gap-2">
                 <Link
-                  to={`/quote/approve/${token}`}
-                  className="inline-flex w-full items-center justify-center rounded-xl border bg-white px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                  to={`/quote/view/${token}`}
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
                 >
-                  {t('status.approve_quote')}
+                  {t('status.view_quote')}
                 </Link>
-              ) : null}
-            </div>
+                {!quoteApproved ? (
+                  <Link
+                    to={`/quote/approve/${token}`}
+                    className="inline-flex w-full items-center justify-center rounded-xl border bg-white px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                  >
+                    {t('status.approve_quote')}
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="mt-5">
               <div className="text-sm font-medium text-slate-800">{t('status.timeline')}</div>

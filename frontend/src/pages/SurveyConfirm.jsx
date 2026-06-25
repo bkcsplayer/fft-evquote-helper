@@ -17,8 +17,6 @@ export default function SurveyConfirm() {
 
   useEffect(() => {
     let alive = true
-    setLoading(true)
-    setError('')
     Promise.all([api.get(`/cases/status/${token}`), api.get(`/payments/etransfer-info/${token}`)])
       .then(([s, i]) => {
         if (!alive) return

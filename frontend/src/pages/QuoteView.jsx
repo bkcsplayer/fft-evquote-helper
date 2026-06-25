@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { QuoteShell } from '../components/layout/QuoteShell.jsx'
 import { api } from '../services/api.js'
@@ -12,7 +12,7 @@ function money(v, locale) {
 
 export default function QuoteView() {
   const { token } = useParams()
-  const { t, lang } = useI18n()
+  const { t, locale } = useI18n()
   const [quote, setQuote] = useState(null)
   const [surveyPhotos, setSurveyPhotos] = useState([])
   const [error, setError] = useState('')
@@ -21,8 +21,6 @@ export default function QuoteView() {
 
   useEffect(() => {
     let alive = true
-    setLoading(true)
-    setError('')
     Promise.all([api.get(`/quotes/view/${token}`), api.get(`/cases/survey/photos/${token}`)])
       .then(([q, photos]) => {
         if (!alive) return
@@ -70,7 +68,7 @@ export default function QuoteView() {
                   {t('quoteView.signed_by', { name: quote.signature.signed_name })}
                 </div>
                 <div className="mt-1 text-xs text-emerald-700">
-                  {t('quoteView.signed_at', { dt: new Date(quote.signature.signed_at).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-CA') })}
+                  {t('quoteView.signed_at', { dt: new Date(quote.signature.signed_at).toLocaleString(locale) })}
                 </div>
                 {String(quote.signature.signature_data || '').startsWith('data:image') ? (
                   <img
@@ -84,35 +82,32 @@ export default function QuoteView() {
 
             <div className="mt-4 divide-y rounded-xl border">
               <Row label={t('quoteView.install_type')} value={quote.install_type} />
-              <Row label={t('quoteView.base_price')} value={money(quote.base_price, lang === 'zh' ? 'zh-CN' : 'en-CA')} />
+              <Row label={t('quoteView.base_price')} value={money(quote.base_price, locale)} />
               <Row
                 label={t('quoteView.extra_distance')}
-                value={`${quote.extra_distance_meters} m × ${money(quote.extra_distance_rate, lang === 'zh' ? 'zh-CN' : 'en-CA')} = ${money(
-                  quote.extra_distance_cost,
-                  lang === 'zh' ? 'zh-CN' : 'en-CA',
-                )}`}
+                value={`${quote.extra_distance_meters} m × ${money(quote.extra_distance_rate, locale)} = ${money(quote.extra_distance_cost, locale)}`}
               />
-              <Row label={t('quoteView.permit_fee')} value={money(quote.permit_fee, lang === 'zh' ? 'zh-CN' : 'en-CA')} />
+              <Row label={t('quoteView.permit_fee')} value={money(quote.permit_fee, locale)} />
               {Number(quote.survey_credit) > 0 ? (
                 <Row
                   label={t('quoteView.survey_credit')}
-                  value={`- ${money(quote.survey_credit, lang === 'zh' ? 'zh-CN' : 'en-CA')}`}
+                  value={`- ${money(quote.survey_credit, locale)}`}
                 />
               ) : null}
               {(quote.addons || []).map((a) => (
-                <Row key={a.id} label={a.name} value={money(a.price, lang === 'zh' ? 'zh-CN' : 'en-CA')} />
+                <Row key={a.id} label={a.name} value={money(a.price, locale)} />
               ))}
-              <Row label={t('quoteView.subtotal')} value={money(quote.subtotal, lang === 'zh' ? 'zh-CN' : 'en-CA')} bold />
-              <Row label={`GST (${quote.gst_rate}%)`} value={money(quote.gst_amount, lang === 'zh' ? 'zh-CN' : 'en-CA')} />
-              <Row label={t('quoteView.total')} value={money(quote.total, lang === 'zh' ? 'zh-CN' : 'en-CA')} bold />
+              <Row label={t('quoteView.subtotal')} value={money(quote.subtotal, locale)} bold />
+              <Row label={`GST (${quote.gst_rate}%)`} value={money(quote.gst_amount, locale)} />
+              <Row label={t('quoteView.total')} value={money(quote.total, locale)} bold />
             </div>
 
             <div className="mt-4 rounded-2xl border bg-slate-50 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-slate-900">{lang === 'zh' ? 'Site survey 照片' : 'Site survey photos'}</div>
+                  <div className="text-sm font-semibold text-slate-900">{t('quoteView.photos.title')}</div>
                   <div className="mt-1 text-sm text-slate-600">
-                    {lang === 'zh' ? '以下为现场勘测拍摄的照片，用于确认安装方案。' : 'Photos taken during the site survey to confirm the install plan.'}
+                    {t('quoteView.photos.body')}
                   </div>
                 </div>
               </div>
@@ -125,12 +120,12 @@ export default function QuoteView() {
                       onClick={() =>
                         setPreview({
                           src: `/${p.file_path}`,
-                          title: p.file_name || 'Survey photo',
+                          title: p.file_name || t('quoteView.photos.title'),
                           subtitle: p.caption || p.category,
                         })
                       }
                       className="overflow-hidden rounded-xl border bg-white"
-                      title={lang === 'zh' ? '点击放大预览' : 'Click to preview'}
+                      title={t('quoteView.photos.preview_hint')}
                     >
                       <img src={`/${p.file_path}`} alt={p.file_name} className="h-28 w-full object-cover" />
                       <div className="px-2 py-1 text-left text-xs text-slate-600">
@@ -141,7 +136,7 @@ export default function QuoteView() {
                   ))}
                 </div>
               ) : (
-                <div className="mt-3 text-sm text-slate-600">{lang === 'zh' ? '暂无照片。' : 'No photos yet.'}</div>
+                <div className="mt-3 text-sm text-slate-600">{t('quoteView.photos.empty')}</div>
               )}
             </div>
 
@@ -160,7 +155,7 @@ export default function QuoteView() {
                   quote.signature ? 'bg-slate-900 text-white hover:bg-slate-800' : 'border bg-white text-slate-800 hover:bg-slate-50'
                 }`}
               >
-                {quote.signature ? (lang === 'zh' ? '查看状态' : 'View status') : t('quoteView.back_status')}
+                {quote.signature ? t('quoteView.view_status') : t('quoteView.back_status')}
               </Link>
             </div>
           </>
@@ -180,15 +175,26 @@ function Row({ label, value, bold }) {
 }
 
 function ImageModal({ open, onClose, src, title, subtitle }) {
+  const { t } = useI18n()
+  const closeRef = useRef(null)
+  useEffect(() => {
+    if (open && closeRef.current) closeRef.current.focus()
+  }, [open])
   if (!open) return null
+  const heading = title || t('common.preview')
   return (
     <div className="fixed inset-0 z-50">
-      <button type="button" className="absolute inset-0 bg-black/60" aria-label="Close preview" onClick={onClose} />
+      <button type="button" className="absolute inset-0 bg-black/60" aria-label={t('common.close')} onClick={onClose} />
       <div className="relative mx-auto flex h-full max-w-2xl items-center justify-center p-4">
-        <div className="w-full overflow-hidden rounded-2xl border bg-white shadow-xl">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="image-modal-title"
+          className="w-full overflow-hidden rounded-2xl border bg-white shadow-xl"
+        >
           <div className="flex items-start justify-between gap-3 border-b bg-slate-50 px-4 py-3">
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-slate-900">{title || 'Preview'}</div>
+              <div id="image-modal-title" className="truncate text-sm font-semibold text-slate-900">{heading}</div>
               {subtitle ? <div className="truncate text-xs text-slate-600">{subtitle}</div> : null}
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -199,25 +205,26 @@ function ImageModal({ open, onClose, src, title, subtitle }) {
                   rel="noreferrer"
                   className="rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
                 >
-                  Open
+                  {t('common.open')}
                 </a>
               ) : null}
               <button
+                ref={closeRef}
                 type="button"
                 onClick={onClose}
                 className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800"
               >
-                Close
+                {t('common.close')}
               </button>
             </div>
           </div>
           <div className="bg-slate-900/5 p-3">
             {src ? (
               <div className="flex max-h-[75vh] items-center justify-center overflow-auto rounded-xl border bg-white p-2">
-                <img src={src} alt={title || 'Preview'} className="max-h-[70vh] w-auto max-w-full object-contain" />
+                <img src={src} alt={heading} className="max-h-[70vh] w-auto max-w-full object-contain" />
               </div>
             ) : (
-              <div className="rounded-xl border bg-white p-6 text-sm text-slate-600">No preview.</div>
+              <div className="rounded-xl border bg-white p-6 text-sm text-slate-600">{t('common.no_preview')}</div>
             )}
           </div>
         </div>

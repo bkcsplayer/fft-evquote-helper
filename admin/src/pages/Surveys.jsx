@@ -4,6 +4,7 @@ import { AdminShell } from '../components/layout/AdminShell.jsx'
 import { api } from '../services/api.js'
 import { Pill, PillButton } from '../components/ui/Pill.jsx'
 import { CalendarGrid } from '../components/ui/CalendarGrid.jsx'
+import { PendingRequestList } from '../components/ui/PendingRequestList.jsx'
 import { downloadCsv } from '../components/ui/csv.js'
 import { toneForCaseStatus } from '../utils/caseStatus.js'
 
@@ -42,11 +43,20 @@ export default function Surveys() {
     if (filter === 'reported_unpaid') filtered = filtered.filter((x) => !!x.deposit_reported_at && !x.deposit_paid)
     else if (filter === 'unpaid') filtered = filtered.filter((x) => !x.deposit_paid)
     else if (filter === 'paid') filtered = filtered.filter((x) => !!x.deposit_paid)
-    return filtered.sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))
+    // Pending requests (no scheduled_date) are shown in PendingRequestList, not this table.
+    return filtered
+      .filter((s) => !!s.scheduled_date)
+      .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))
   }, [items, filter])
 
+  // Pending customer requests (no scheduled time yet) — always shown regardless of deposit filter.
+  const pending = useMemo(
+    () => items.filter((s) => s.request_status === 'pending' && s.requested_date && !s.scheduled_date),
+    [items],
+  )
+
   const events = useMemo(() => {
-    return sorted
+    const scheduled = sorted
       .filter((s) => !!s.scheduled_date)
       .map((s) => {
         const dt = new Date(s.scheduled_date)
@@ -65,7 +75,18 @@ export default function Surveys() {
           pill: depositPill,
         }
       })
-  }, [sorted])
+    // Pending requests appear on the calendar in amber, awaiting confirmation.
+    const requested = pending.map((s) => ({
+      id: `pending-${s.case_id}`,
+      start: new Date(s.requested_date),
+      href: `/admin/cases/${s.case_id}#survey`,
+      tone: 'amber',
+      title: <div className="flex flex-wrap items-center gap-1.5"><span>{[s.reference_number, s.customer_nickname].filter(Boolean).join(' · ') || 'Survey'}</span></div>,
+      subtitle: s.install_address || s.case_id,
+      pill: <Pill tone="amber">requested</Pill>,
+    }))
+    return [...scheduled, ...requested]
+  }, [sorted, pending])
 
   function exportCsv() {
     const rows = [
@@ -125,6 +146,8 @@ export default function Surveys() {
 
           {loading && <div className="mt-4"><div className="h-64 animate-pulse rounded-xl bg-slate-100" /></div>}
           {error && <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-700">{error}</div>}
+
+          <PendingRequestList items={pending} anchor="survey" title="Survey requests awaiting confirmation" />
 
           {view === 'calendar' ? (
             <div className="mt-4">

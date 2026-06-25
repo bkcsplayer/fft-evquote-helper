@@ -89,7 +89,14 @@ def mark_quote_sent(db: Session, *, quote_id: str, changed_by: str | None) -> Qu
 
 
 def approve_quote_by_token(
-    db: Session, *, case_token: str, signed_name: str, signature_data: str, ip_address: str | None
+    db: Session,
+    *,
+    case_token: str,
+    signed_name: str,
+    signature_data: str,
+    ip_address: str | None,
+    signed_language: str | None = None,
+    terms_snapshot: str | None = None,
 ) -> Quote:
     case = db.execute(select(Case).where(Case.access_token == case_token)).scalar_one_or_none()
     if not case:
@@ -112,6 +119,8 @@ def approve_quote_by_token(
             signed_name=signed_name,
             signature_data=signature_data,
             ip_address=ip_address,
+            signed_language=(signed_language or None),
+            terms_snapshot=(terms_snapshot or None),
         )
     )
 

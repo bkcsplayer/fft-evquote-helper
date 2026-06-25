@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.models import Case, CaseNote, CaseStatusHistory, Survey, SystemSetting
+from app.services.notification_service import notify_admin_event
 
 
 router = APIRouter()
@@ -20,6 +23,9 @@ class CreateCheckoutOut(BaseModel):
     url: str
 
 
+# NOTE: Stripe is intentionally disabled — payments are manual e-transfer only.
+# These endpoints are kept as explicit 410s (the frontend may still reference them) until
+# the Payment ledger (Phase 5) supersedes them. See docs/CLEANUP-REPORT.md.
 @router.post("/payments/create-checkout", response_model=CreateCheckoutOut)
 def create_checkout(payload: CreateCheckoutIn, db: Session = Depends(get_db)):
     _ = payload
@@ -59,9 +65,9 @@ def etransfer_info(token: str, db: Session = Depends(get_db)):
 
 
 class ETransferNotifyIn(BaseModel):
-    token: str
-    sender_name: str | None = None
-    note: str | None = None
+    token: str = Field(max_length=64)
+    sender_name: str | None = Field(default=None, max_length=200)
+    note: str | None = Field(default=None, max_length=1000)
 
 
 @router.post("/payments/etransfer-notify")
@@ -75,6 +81,14 @@ def etransfer_notify(payload: ETransferNotifyIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Survey not scheduled yet")
     if survey.deposit_paid:
         return {"ok": True, "already_paid": True}
+    # Idempotent: once reported, don't duplicate the audit trail or re-spam the admin inbox.
+    if survey.deposit_reported:
+        return {"ok": True, "already_reported": True}
+
+    # Structured marker (replaces fragile timeline string-matching on the frontend).
+    survey.deposit_reported = True
+    survey.deposit_reported_at = datetime.now(timezone.utc)
+    db.add(survey)
 
     content = "Customer reported e-transfer sent."
     if payload.sender_name:
@@ -92,6 +106,24 @@ def etransfer_notify(payload: ETransferNotifyIn, db: Session = Depends(get_db)):
             note="Customer reported e-transfer sent",
         )
     )
+
+    notify_admin_event(
+        db,
+        case_id=str(case.id),
+        reference_number=case.reference_number,
+        event_key="admin_etransfer_reported",
+        heading="Customer reported an e-transfer",
+        summary="A customer reported they sent the survey deposit by e-transfer. Please confirm receipt.",
+        customer_nickname=case.customer.nickname if case.customer else None,
+        customer_phone=case.customer.phone if case.customer else None,
+        customer_email=case.customer.email if case.customer else None,
+        extra_lines=[
+            f"Amount: ${float(survey.deposit_amount):.2f}",
+            *( [f"Sender: {payload.sender_name.strip()}"] if payload.sender_name else [] ),
+            *( [f"Note: {payload.note.strip()}"] if payload.note else [] ),
+        ],
+    )
+
     db.commit()
     return {"ok": True}
 

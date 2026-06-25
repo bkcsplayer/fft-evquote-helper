@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
+from functools import lru_cache
 from typing import Any
-from urllib.parse import urlparse
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.orm import Session
@@ -11,17 +12,9 @@ from app.config import get_settings
 from app.models.models import Notification, NotificationChannel, NotificationStatus, SystemSetting
 from app.services.email_service import send_email
 from app.services.sms_service import send_sms
+from app.utils.url_utils import is_local_url
 
-
-def _is_local_url(url: str | None) -> bool:
-    if not url:
-        return False
-    try:
-        u = urlparse(str(url))
-        host = (u.hostname or "").lower()
-        return host in {"localhost", "127.0.0.1", "0.0.0.0"} or host.endswith(".local")
-    except Exception:
-        return False
+logger = logging.getLogger(__name__)
 
 
 def _with_branding(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -40,7 +33,11 @@ def _with_branding(ctx: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+@lru_cache(maxsize=1)
 def _templates_env() -> Environment:
+    # Shared by file templates and DB-stored template strings. DB templates may use
+    # `{% extends "base.html" %}` or include file templates, so the loader points at app/templates.
+    # Cached: a single Environment is reused across renders instead of rebuilt each call.
     return Environment(
         loader=FileSystemLoader("app/templates"),
         autoescape=select_autoescape(["html", "xml"]),
@@ -51,12 +48,6 @@ def render_template(template_name: str, ctx: dict[str, Any]) -> str:
     env = _templates_env()
     tpl = env.get_template(template_name)
     return tpl.render(**_with_branding(ctx))
-
-
-def _string_env() -> Environment:
-    # For DB-stored template strings. Keep autoescape consistent with file templates.
-    # Important: DB templates may use `{% extends "base.html" %}` or include file templates.
-    return Environment(loader=FileSystemLoader("app/templates"), autoescape=select_autoescape(["html", "xml"]))
 
 
 def _get_system_setting(db: Session, key: str) -> dict | None:
@@ -86,7 +77,7 @@ def _with_brand_profile(db: Session, ctx: dict[str, Any]) -> dict[str, Any]:
         out["support_phone"] = support_phone
     if logo_url:
         # Avoid defaulting to a localhost asset in production emails (won't load externally; can hurt deliverability).
-        if _is_local_url(logo_url) and get_settings().app_env == "production":
+        if is_local_url(logo_url) and get_settings().app_env == "production":
             out["logo_url"] = None
         else:
             out["logo_url"] = logo_url
@@ -110,7 +101,7 @@ def render_email_from_db_or_files(
     if isinstance(tpl, dict) and tpl.get("html"):
         subject = str(tpl.get("subject") or fallback_subject)
         html_src = str(tpl["html"])
-        html = _string_env().from_string(html_src).render(**ctx)
+        html = _templates_env().from_string(html_src).render(**ctx)
         return subject, html
 
     return fallback_subject, render_template(fallback_file, ctx)
@@ -122,8 +113,8 @@ def render_sms_from_db_or_fallback(db: Session, *, template_key: str, ctx: dict[
     tpl = templates.get(template_key)
     if isinstance(tpl, dict) and tpl.get("body"):
         body_src = str(tpl["body"])
-        return _string_env().from_string(body_src).render(**ctx)
-    return _string_env().from_string(fallback).render(**ctx)
+        return _templates_env().from_string(body_src).render(**ctx)
+    return _templates_env().from_string(fallback).render(**ctx)
 
 
 def notify_email(
@@ -146,8 +137,6 @@ def notify_email(
         sent_at=None,
         error_message=None,
     )
-    db.add(n)
-    db.flush()
 
     try:
         send_email(to_email=to_email, subject=subject, html=html)
@@ -156,10 +145,10 @@ def notify_email(
     except Exception as e:
         n.status = NotificationStatus.failed
         n.error_message = str(e)
+        logger.warning("Email send failed for case %s (template=%s): %s", case_id, template_name, e)
 
-    db.add(n)
-    db.flush()
-    return n
+    # Record in a SAVEPOINT so a DB failure here can never roll back the caller's business transaction.
+    return _record_notification(db, n)
 
 
 def notify_sms(
@@ -181,8 +170,6 @@ def notify_sms(
         sent_at=None,
         error_message=None,
     )
-    db.add(n)
-    db.flush()
 
     try:
         send_sms(to_phone=to_phone, body=body)
@@ -191,10 +178,100 @@ def notify_sms(
     except Exception as e:
         n.status = NotificationStatus.failed
         n.error_message = str(e)
+        logger.warning("SMS send failed for case %s (template=%s): %s", case_id, template_name, e)
 
-    db.add(n)
-    db.flush()
-    return n
+    # Record in a SAVEPOINT so a DB failure here can never roll back the caller's business transaction.
+    return _record_notification(db, n)
+
+
+def _record_notification(db: Session, n: Notification) -> Notification | None:
+    """
+    Persist a Notification row inside a SAVEPOINT.
+
+    Isolating the insert means a DB error while recording an (already-attempted) notification
+    cannot poison the surrounding business transaction — the caller's commit still succeeds.
+    Returns None if the row could not be recorded.
+    """
+    try:
+        with db.begin_nested():
+            db.add(n)
+            db.flush()
+        return n
+    except Exception:
+        logger.exception("Failed to record %s notification for case %s", n.channel.value, n.case_id)
+        return None
+
+
+def admin_notify_recipient() -> str | None:
+    """Resolve the internal recipient for customer-action notifications, or None to skip."""
+    s = get_settings()
+    return (s.admin_notify_email or s.bootstrap_admin_email or "").strip() or None
+
+
+def admin_case_url(case_id: str) -> str:
+    """Build a link to the admin case detail page."""
+    base = str(get_settings().admin_url or "").rstrip("/")
+    return f"{base}/admin/cases/{case_id}"
+
+
+def notify_admin_event(
+    db: Session,
+    *,
+    case_id: str,
+    reference_number: str,
+    event_key: str,
+    heading: str,
+    summary: str,
+    customer_nickname: str | None = None,
+    customer_phone: str | None = None,
+    customer_email: str | None = None,
+    extra_lines: list[str] | None = None,
+) -> Notification | None:
+    """
+    Email the internal admin recipient when a customer takes an action.
+
+    Reuses the email channel; rows are tagged with template_name=event_key (admin_*) for audit.
+    Renders from DB-overridable `email_templates[event_key]` else the generic `admin_event.html`.
+    Silently skips (returns None) when no recipient is configured — consistent with "no creds = disabled".
+    """
+    to_email = admin_notify_recipient()
+    if not to_email:
+        return None
+
+    # Admin notifications must never break the customer's request. A malformed DB-stored admin
+    # template (TemplateSyntaxError/UndefinedError) or a send/record failure is logged and skipped.
+    try:
+        ctx = {
+            "title": f"{heading} — {reference_number}",
+            "top_chip": "ADMIN",
+            "heading": heading,
+            "summary": summary,
+            "reference_number": reference_number,
+            "customer_nickname": customer_nickname or "",
+            "customer_phone": customer_phone or "",
+            "customer_email": customer_email or "",
+            "admin_case_url": admin_case_url(case_id),
+            "extra_lines": [str(x) for x in (extra_lines or []) if str(x).strip()],
+        }
+        subject, html = render_email_from_db_or_files(
+            db,
+            template_key=event_key,
+            ctx=ctx,
+            fallback_file="admin_event.html",
+            fallback_subject=f"[{get_settings().brand_short}] {heading} — {reference_number}",
+        )
+    except Exception:
+        logger.exception("notify_admin_event render failed for case %s (event=%s)", case_id, event_key)
+        return None
+
+    return notify_email(
+        db,
+        case_id=case_id,
+        to_email=to_email,
+        template_name=event_key,
+        subject=subject,
+        html=html,
+    )
 
 
 def notify_case_status_sms(

@@ -6,7 +6,7 @@ import { useI18n } from '../i18n/index.js'
 
 export default function QuoteApprove() {
   const { token } = useParams()
-  const { t, lang } = useI18n()
+  const { t, lang, locale } = useI18n()
   const [agreed, setAgreed] = useState(false)
   const [signedName, setSignedName] = useState('')
   const canvasRef = useRef(null)
@@ -173,10 +173,14 @@ export default function QuoteApprove() {
     try {
       const canvas = canvasRef.current
       const signatureDataUrl = canvas ? canvas.toDataURL('image/png') : ''
+      // Snapshot the exact terms the customer read, in the language they chose (audit trail).
+      const termsText = TERMS.map((term) => `${term.title}\n${term.body}`).join('\n\n')
       const res = await api.post(`/quotes/approve/${token}`, {
         agreed: true,
         signed_name: name,
         signature_data: signatureDataUrl,
+        language: lang,
+        terms_text: termsText,
       })
       setQuote(res.data)
       setDone(true)
@@ -207,7 +211,7 @@ export default function QuoteApprove() {
                 <div className="mt-1 text-slate-700">{t('quoteView.signed_by', { name: quote.signature.signed_name })}</div>
                 <div className="mt-1 text-xs text-slate-500">
                   {t('quoteView.signed_at', {
-                    dt: new Date(quote.signature.signed_at).toLocaleString(lang === 'zh' ? 'zh-CN' : 'en-CA'),
+                    dt: new Date(quote.signature.signed_at).toLocaleString(locale),
                   })}
                 </div>
                 {String(quote.signature.signature_data || '').startsWith('data:image') ? (
@@ -236,10 +240,10 @@ export default function QuoteApprove() {
         ) : (
           <>
             <div className="mt-4 space-y-3">
-              {TERMS.map((t) => (
-                <div key={t.title} className="rounded-xl border bg-slate-50 p-3">
-                  <div className="text-sm font-semibold text-slate-900">{t.title}</div>
-                  <div className="mt-1 text-sm leading-relaxed text-slate-700">{t.body}</div>
+              {TERMS.map((term) => (
+                <div key={term.title} className="rounded-xl border bg-slate-50 p-3">
+                  <div className="text-sm font-semibold text-slate-900">{term.title}</div>
+                  <div className="mt-1 text-sm leading-relaxed text-slate-700">{term.body}</div>
                 </div>
               ))}
             </div>

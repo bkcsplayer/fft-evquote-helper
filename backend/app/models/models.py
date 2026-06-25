@@ -35,6 +35,7 @@ class CaseStatus(str, enum.Enum):
     installed = "installed"
     completed = "completed"
     cancelled = "cancelled"
+    lost = "lost"  # customer declined / went elsewhere — distinct from admin-cancelled, for funnel win/loss
 
 
 class AdminRole(str, enum.Enum):
@@ -118,6 +119,9 @@ class Case(Base, TimestampMixin):
     installation: Mapped["Installation | None"] = relationship(back_populates="case")
     notifications: Mapped[list["Notification"]] = relationship(back_populates="case")
     notes_internal: Mapped[list["CaseNote"]] = relationship(back_populates="case")
+    attachments: Mapped[list["CaseAttachment"]] = relationship(back_populates="case")
+    payments: Mapped[list["Payment"]] = relationship(back_populates="case")
+    bom_lines: Mapped[list["CaseBomLine"]] = relationship(back_populates="case")
 
 
 class AdminUser(Base, TimestampMixin):
@@ -163,6 +167,9 @@ class Survey(Base, TimestampMixin):
 
     deposit_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=99.00)
     deposit_paid: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Customer reported they sent the e-transfer (structured flag; replaces fragile timeline string-matching).
+    deposit_reported: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    deposit_reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     stripe_payment_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     survey_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -243,6 +250,9 @@ class QuoteSignature(Base):
     signed_name: Mapped[str] = mapped_column(String(255), nullable=False)
     signed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    # Audit: the language the customer signed under and the exact terms text shown at signing.
+    signed_language: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    terms_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     quote: Mapped["Quote"] = relationship(back_populates="signature")
 
@@ -371,4 +381,131 @@ class ChargerBrand(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+# ── Phase 5: Case aggregate-root extensions (attachments / payments / BOM) ──
+
+
+class AttachmentCategory(str, enum.Enum):
+    survey_photo = "survey_photo"
+    permit_doc = "permit_doc"
+    installation_photo = "installation_photo"
+    signed_quote = "signed_quote"
+    contract = "contract"
+    invoice = "invoice"
+    other = "other"
+
+
+class CaseAttachment(Base, TimestampMixin):
+    """Unified file store for a case — survey photos, permit docs, signed quotes, invoices, etc."""
+
+    __tablename__ = "case_attachments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id"), index=True)
+    category: Mapped[AttachmentCategory] = mapped_column(
+        Enum(AttachmentCategory, name="attachment_category"), nullable=False
+    )
+    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    caption: Mapped[str | None] = mapped_column(Text, nullable=True)
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True
+    )
+    # Provenance for backfilled rows: 'survey_photos' | 'permit_attachments' | 'installation_photos'.
+    source_table: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    case: Mapped["Case"] = relationship(back_populates="attachments")
+
+
+class PaymentKind(str, enum.Enum):
+    deposit = "deposit"
+    balance = "balance"
+    refund = "refund"
+
+
+class PaymentMethod(str, enum.Enum):
+    etransfer = "etransfer"
+    stripe = "stripe"
+    cash = "cash"
+    other = "other"
+
+
+class PaymentStatus(str, enum.Enum):
+    pending = "pending"
+    received = "received"
+    refunded = "refunded"
+
+
+class Payment(Base, TimestampMixin):
+    """Money ledger for a case (deposits, balance, refunds). Replaces fragile note-string tracking."""
+
+    __tablename__ = "payments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id"), index=True)
+    kind: Mapped[PaymentKind] = mapped_column(Enum(PaymentKind, name="payment_kind"), nullable=False)
+    method: Mapped[PaymentMethod] = mapped_column(
+        Enum(PaymentMethod, name="payment_method"), nullable=False, default=PaymentMethod.etransfer
+    )
+    amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    status: Mapped[PaymentStatus] = mapped_column(
+        Enum(PaymentStatus, name="payment_status"), nullable=False, default=PaymentStatus.pending
+    )
+    reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    recorded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=True
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    case: Mapped["Case"] = relationship(back_populates="payments")
+
+
+class MaterialCategory(str, enum.Enum):
+    charger = "charger"
+    cable = "cable"
+    breaker = "breaker"
+    conduit = "conduit"
+    labor = "labor"
+    misc = "misc"
+
+
+class MaterialCatalog(Base, TimestampMixin):
+    """Reusable master list of materials/labor with default cost + sell price (Settings-managed)."""
+
+    __tablename__ = "material_catalog"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sku: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[MaterialCategory] = mapped_column(
+        Enum(MaterialCategory, name="material_category"), nullable=False, default=MaterialCategory.misc
+    )
+    unit: Mapped[str] = mapped_column(String(50), nullable=False, default="each")
+    default_unit_cost: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    default_sell_price: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class CaseBomLine(Base, TimestampMixin):
+    """A line on a case's bill of materials. unit_cost feeds financials; unit_price feeds the quote."""
+
+    __tablename__ = "case_bom_lines"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id"), index=True)
+    material_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("material_catalog.id"), nullable=True
+    )
+    description: Mapped[str] = mapped_column(String(255), nullable=False)
+    qty: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=1)
+    unit_cost: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    unit_price: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    line_total: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    case: Mapped["Case"] = relationship(back_populates="bom_lines")
 

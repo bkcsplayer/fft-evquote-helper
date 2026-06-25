@@ -13,6 +13,7 @@ from app.models.models import (
     Case,
     CaseStatus,
     CaseStatusHistory,
+    Customer,
     Installation,
     Permit,
     PermitStatus,
@@ -46,12 +47,11 @@ def stats(db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_
         .where(Survey.scheduled_date.is_not(None), Survey.scheduled_date >= now, Survey.scheduled_date <= week_end)
     ).scalar_one()
 
-    # Operational counters
+    # Operational counters — uses the structured deposit_reported flag (no fragile note matching).
     reported_unpaid = db.execute(
-        select(func.count(func.distinct(CaseStatusHistory.case_id)))
-        .select_from(CaseStatusHistory)
-        .join(Survey, Survey.case_id == CaseStatusHistory.case_id)
-        .where(CaseStatusHistory.note == "Customer reported e-transfer sent", Survey.deposit_paid.is_(False))
+        select(func.count())
+        .select_from(Survey)
+        .where(Survey.deposit_reported.is_(True), Survey.deposit_paid.is_(False))
     ).scalar_one()
 
     completion_email_pending = db.execute(
@@ -109,6 +109,17 @@ def stats(db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_
     completed_month_count, revenue_month = _completed_in_range(month_start, month_end)
     completed_quarter_count, revenue_quarter = _completed_in_range(quarter_start, quarter_end)
 
+    # Pipeline value: active-quote totals for cases still in progress (not completed/cancelled/lost).
+    pipeline_value = db.execute(
+        select(func.coalesce(func.sum(Quote.total), 0))
+        .select_from(Quote)
+        .join(Case, Case.id == Quote.case_id)
+        .where(
+            Quote.is_active.is_(True),
+            Case.status.notin_([CaseStatus.completed, CaseStatus.cancelled, CaseStatus.lost]),
+        )
+    ).scalar_one()
+
     status_rows = (
         db.execute(select(Case.status, func.count()).select_from(Case).group_by(Case.status).order_by(Case.status.asc()))
         .all()
@@ -128,6 +139,7 @@ def stats(db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_
         "surveys_reported_unpaid": reported_unpaid,
         "installations_completed_email_pending": completion_email_pending,
         "permits_revision_required": permits_revision_required,
+        "pipeline_value": float(pipeline_value or 0),
         "revenue_month": revenue_month,
         "revenue_quarter": revenue_quarter,
         "completed_month_count": completed_month_count,
@@ -140,19 +152,27 @@ def stats(db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_
 def recent_activity(db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_admin), limit: int = 25):
     _ = admin
     rows = (
-        db.execute(select(CaseStatusHistory).order_by(CaseStatusHistory.created_at.desc()).limit(min(limit, 100)))
-        .scalars()
+        db.execute(
+            select(CaseStatusHistory, Case.reference_number, Customer.nickname, Customer.phone)
+            .join(Case, Case.id == CaseStatusHistory.case_id)
+            .join(Customer, Customer.id == Case.customer_id)
+            .order_by(CaseStatusHistory.created_at.desc())
+            .limit(min(limit, 100))
+        )
         .all()
     )
     return [
         {
             "case_id": r.case_id,
+            "reference_number": reference_number,
+            "customer_nickname": nickname,
+            "phone": phone,
             "from_status": r.from_status,
             "to_status": r.to_status,
             "note": r.note,
             "changed_by": r.changed_by,
             "created_at": r.created_at,
         }
-        for r in rows
+        for r, reference_number, nickname, phone in rows
     ]
 

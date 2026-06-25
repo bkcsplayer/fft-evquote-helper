@@ -1,19 +1,97 @@
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models.models import Case, CaseStatus, CaseStatusHistory, Customer
+from app.models.models import (
+    Case,
+    CaseAttachment,
+    CaseBomLine,
+    CaseNote,
+    CaseStatus,
+    CaseStatusHistory,
+    Customer,
+    Installation,
+    InstallationPhoto,
+    Notification,
+    Payment,
+    Permit,
+    PermitAttachment,
+    Quote,
+    QuoteAddon,
+    QuoteSignature,
+    Survey,
+    SurveyPhoto,
+)
 from app.utils.reference import build_reference_number, current_year
 from app.utils.token import generate_access_token
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class CaseCreated:
     case: Case
+
+
+def _remove_files(paths: list[str | None]) -> None:
+    for p in paths:
+        try:
+            if p and os.path.exists(p):
+                os.remove(p)
+        except OSError as exc:
+            logger.warning("Could not remove file %s: %s", p, exc)
+
+
+def delete_case_cascade(db: Session, case: Case) -> None:
+    """Hard-delete a case and every dependent record (and its uploaded files), in FK-safe order."""
+    cid = case.id
+    customer_id = case.customer_id
+
+    survey_ids = [s for (s,) in db.execute(select(Survey.id).where(Survey.case_id == cid))]
+    quote_ids = [q for (q,) in db.execute(select(Quote.id).where(Quote.case_id == cid))]
+    permit = db.execute(select(Permit).where(Permit.case_id == cid)).scalar_one_or_none()
+    inst = db.execute(select(Installation).where(Installation.case_id == cid)).scalar_one_or_none()
+
+    # Collect file paths to remove from disk after the DB rows are gone.
+    file_paths: list[str | None] = []
+    if survey_ids:
+        file_paths += [p for (p,) in db.execute(select(SurveyPhoto.file_path).where(SurveyPhoto.survey_id.in_(survey_ids)))]
+    if permit:
+        file_paths += [p for (p,) in db.execute(select(PermitAttachment.file_path).where(PermitAttachment.permit_id == permit.id))]
+    if inst:
+        file_paths += [p for (p,) in db.execute(select(InstallationPhoto.file_path).where(InstallationPhoto.installation_id == inst.id))]
+    file_paths += [p for (p,) in db.execute(select(CaseAttachment.file_path).where(CaseAttachment.case_id == cid))]
+
+    # Grandchildren first
+    if survey_ids:
+        db.execute(delete(SurveyPhoto).where(SurveyPhoto.survey_id.in_(survey_ids)))
+    if quote_ids:
+        db.execute(delete(QuoteAddon).where(QuoteAddon.quote_id.in_(quote_ids)))
+        db.execute(delete(QuoteSignature).where(QuoteSignature.quote_id.in_(quote_ids)))
+    if permit:
+        db.execute(delete(PermitAttachment).where(PermitAttachment.permit_id == permit.id))
+    if inst:
+        db.execute(delete(InstallationPhoto).where(InstallationPhoto.installation_id == inst.id))
+
+    # Direct children of the case
+    for model in (Survey, Quote, Permit, Installation, Notification, CaseNote, CaseStatusHistory, CaseAttachment, Payment, CaseBomLine):
+        db.execute(delete(model).where(model.case_id == cid))
+
+    db.execute(delete(Case).where(Case.id == cid))
+
+    # Remove the customer if they have no other cases.
+    other = db.execute(select(Case.id).where(Case.customer_id == customer_id).limit(1)).first()
+    if not other:
+        db.execute(delete(Customer).where(Customer.id == customer_id))
+
+    db.commit()
+    _remove_files(file_paths)
 
 
 def create_case(db: Session, payload: dict[str, Any]) -> CaseCreated:
