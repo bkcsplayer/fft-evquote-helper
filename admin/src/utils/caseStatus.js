@@ -208,6 +208,58 @@ export function nextAction(data, installation) {
   }
 }
 
+// Sub-steps shown inside a workflow tab. Returns [{ label, state }] where state is
+// 'done' | 'current' | 'upcoming'. Derived from reliable case status + a few stable fields.
+function _step(done, isCurrent) { return done ? 'done' : isCurrent ? 'current' : 'upcoming' }
+
+export function tabSubSteps(tab, { data, permit, installation } = {}) {
+  if (!data) return []
+  const st = String(data.status || '')
+  if (tab === 'survey') {
+    const a = !!data.survey_scheduled_date
+    const b = !!data.survey_deposit_paid
+    const c = isAtOrAfter(st, 'survey_completed')
+    const cur = !a ? 0 : !b ? 1 : !c ? 2 : 3
+    return [
+      { label: 'Schedule', state: _step(a, cur === 0) },
+      { label: 'Deposit', state: _step(b, cur === 1) },
+      { label: 'Complete', state: _step(c, cur === 2) },
+    ]
+  }
+  if (tab === 'quote') {
+    const a = !!data.active_quote
+    const b = isAtOrAfter(st, 'quoted') || !!data.active_quote?.sent_at
+    const c = isAtOrAfter(st, 'customer_approved')
+    const cur = !a ? 0 : !b ? 1 : !c ? 2 : 3
+    return [
+      { label: 'Create', state: _step(a, cur === 0) },
+      { label: 'Send', state: _step(b, cur === 1) },
+      { label: 'Signed', state: _step(c, cur === 2) },
+    ]
+  }
+  if (tab === 'permit') {
+    const a = isAtOrAfter(st, 'permit_applied') || !!permit
+    const b = isAtOrAfter(st, 'permit_approved') || permit?.status === 'approved'
+    const cur = !a ? 0 : !b ? 1 : 2
+    return [
+      { label: 'Apply', state: _step(a, cur === 0) },
+      { label: 'Approve', state: _step(b, cur === 1) },
+    ]
+  }
+  if (tab === 'install') {
+    const a = isAtOrAfter(st, 'installation_scheduled') || !!installation?.scheduled_date
+    const b = isAtOrAfter(st, 'installed') || !!installation?.completed_at
+    const c = isAtOrAfter(st, 'completed')
+    const cur = !a ? 0 : !b ? 1 : !c ? 2 : 3
+    return [
+      { label: 'Schedule', state: _step(a, cur === 0) },
+      { label: 'Install', state: _step(b, cur === 1) },
+      { label: 'Complete', state: _step(c, cur === 2) },
+    ]
+  }
+  return []
+}
+
 // Who the case is waiting on right now. { who, tone }
 export function ballInCourt(data, installation) {
   if (!data) return { who: '—', tone: 'slate' }

@@ -6,7 +6,8 @@ import { Pill } from '../components/ui/Pill.jsx'
 import { StatusTag } from '../components/ui/StatusTag.jsx'
 import { StageFlow } from '../components/ui/StageFlow.jsx'
 import { CaseFlowHeader } from '../components/ui/CaseFlowHeader.jsx'
-import { CASE_STATUS_ORDER, statusLabel, CASE_STAGES } from '../utils/caseStatus.js'
+import { SubStepper } from '../components/ui/SubStepper.jsx'
+import { CASE_STATUS_ORDER, statusLabel, CASE_STAGES, tabSubSteps } from '../utils/caseStatus.js'
 import AttachmentsTab from './case/AttachmentsTab.jsx'
 import FinanceTab from './case/FinanceTab.jsx'
 import BomTab from './case/BomTab.jsx'
@@ -487,6 +488,7 @@ export default function CaseDetail() {
               {/* Survey */}
               {tab === 'survey' && (
                 <SectionCard tone="teal" title="Survey" subtitle="Step 1 — Schedule & complete site survey">
+                  <SubStepper steps={tabSubSteps('survey', { data })} />
                   {isAtOrAfter(data.status, 'survey_completed') && (
                     <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 px-3.5 py-2.5 text-xs font-semibold text-teal-800">Completed — locked to prevent mistakes.</div>
                   )}
@@ -503,23 +505,35 @@ export default function CaseDetail() {
                   {!data.survey_scheduled_date && !data.survey_requested_date && (
                     <div className="mb-3 rounded-xl border bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-600">Waiting for customer to choose a survey time.</div>
                   )}
-                  <div className="text-sm text-slate-700">Scheduled: <span className="font-semibold">{data.survey_scheduled_date ? new Date(data.survey_scheduled_date).toLocaleString() : '—'}</span></div>
-                  <div className="mt-1 text-sm text-slate-700">Deposit: <Pill tone={data.survey_deposit_paid ? 'emerald' : 'slate'}>{data.survey_deposit_paid ? 'Paid' : 'Not paid'}</Pill> {data.survey_deposit_amount ? <span className="text-slate-500">({money(data.survey_deposit_amount)})</span> : null}</div>
-                  {depositReportedAt && <div className="mt-1 text-xs text-amber-700">Customer reported e-transfer: {new Date(depositReportedAt).toLocaleString()}</div>}
-
-                  <button type="button" disabled={busy || isAtOrAfter(data.status, 'survey_completed') || !data.survey_scheduled_date || data.survey_deposit_paid} onClick={markDepositPaid} className={`mt-4 w-full ${btnPrimary}`}>Mark deposit paid (e-transfer)</button>
-
-                  <label className="mt-4 block"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Survey notes (internal)</span><textarea value={surveyNotes} onChange={(e) => setSurveyNotes(e.target.value)} disabled={busy || isAtOrAfter(data.status, 'survey_completed')} className={textareaCls} rows={3} placeholder="What you found on site…" /></label>
-                  <button type="button" disabled={busy || isAtOrAfter(data.status, 'survey_completed') || !data.survey_scheduled_date} onClick={completeSurvey} className={`mt-3 w-full ${btnCTA}`}>Complete survey (unlock quote)</button>
-
-                  <label className="mt-4 block"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Schedule (local time)</span><input type="datetime-local" value={surveyDt} onChange={(e) => setSurveyDt(e.target.value)} disabled={busy || isAtOrAfter(data.status, 'survey_completed') || !(data.survey_request_status === 'pending' && data.survey_requested_date)} className={inputCls} /></label>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button type="button" disabled={busy || isAtOrAfter(data.status, 'survey_completed') || !surveyDt || !(data.survey_request_status === 'pending' && data.survey_requested_date)} onClick={scheduleSurvey} className={`flex-1 ${btnCTA}`}>Confirm requested time</button>
-                    <button type="button" disabled={busy || !(data.survey_request_status === 'pending' && data.survey_requested_date)} onClick={rejectSurveyRequest} className={btnOutline}>Reject</button>
+                  {/* Status summary */}
+                  <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/60 p-4 sm:grid-cols-2">
+                    <div className="text-sm text-slate-700">Scheduled: <span className="font-semibold">{data.survey_scheduled_date ? new Date(data.survey_scheduled_date).toLocaleString() : '—'}</span></div>
+                    <div className="text-sm text-slate-700">Deposit: <Pill tone={data.survey_deposit_paid ? 'emerald' : 'slate'}>{data.survey_deposit_paid ? 'Paid' : 'Not paid'}</Pill> {data.survey_deposit_amount ? <span className="text-slate-500">({money(data.survey_deposit_amount)})</span> : null}</div>
+                    {depositReportedAt && <div className="text-xs text-amber-700 sm:col-span-2">Customer reported e-transfer: {new Date(depositReportedAt).toLocaleString()}</div>}
                   </div>
+
+                  {/* Confirm requested time (only when the customer has a pending request) */}
                   {data.survey_request_status === 'pending' && data.survey_requested_date && (
-                    <label className="mt-3 block"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Rejection reason (sent to customer)</span><input value={surveyRejectNote} onChange={(e) => setSurveyRejectNote(e.target.value)} disabled={busy} className={inputCls} placeholder="Optional." /></label>
+                    <div className="mt-4 rounded-xl border border-slate-200 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Confirm survey time</div>
+                      <input type="datetime-local" value={surveyDt} onChange={(e) => setSurveyDt(e.target.value)} disabled={busy || isAtOrAfter(data.status, 'survey_completed')} className={inputCls} />
+                      <input value={surveyRejectNote} onChange={(e) => setSurveyRejectNote(e.target.value)} disabled={busy} className={inputCls} placeholder="Rejection reason (optional, sent to customer)" />
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button type="button" disabled={busy || isAtOrAfter(data.status, 'survey_completed') || !surveyDt} onClick={scheduleSurvey} className={btnCTA}>Confirm requested time</button>
+                        <button type="button" disabled={busy} onClick={rejectSurveyRequest} className={btnOutline}>Reject</button>
+                      </div>
+                    </div>
                   )}
+
+                  {/* On-site notes + deposit / complete */}
+                  <div className="mt-4 rounded-xl border border-slate-200 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">On-site & deposit</div>
+                    <textarea value={surveyNotes} onChange={(e) => setSurveyNotes(e.target.value)} disabled={busy || isAtOrAfter(data.status, 'survey_completed')} className={textareaCls} rows={3} placeholder="Survey notes (internal) — what you found on site…" />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" disabled={busy || isAtOrAfter(data.status, 'survey_completed') || !data.survey_scheduled_date || data.survey_deposit_paid} onClick={markDepositPaid} className={btnPrimary}>Mark deposit paid</button>
+                      <button type="button" disabled={busy || isAtOrAfter(data.status, 'survey_completed') || !data.survey_scheduled_date} onClick={completeSurvey} className={btnCTA}>Complete survey (unlock quote)</button>
+                    </div>
+                  </div>
 
                   <LockedSection locked={!canUploadSurveyPhotos(data.status)} reason="Survey photos unlock after the survey is completed.">
                     <div className="mt-5 rounded-xl border bg-slate-50 p-4">
@@ -568,6 +582,7 @@ export default function CaseDetail() {
                       </div>
                     ) : null}
                   >
+                    <SubStepper steps={tabSubSteps('quote', { data })} />
                     {data.active_quote ? (
                       <div className="grid gap-2 rounded-xl border bg-slate-50 p-4 text-sm">
                         <div className="flex items-center justify-between"><span className="text-slate-500">Version</span><span className="font-bold text-slate-900">v{data.active_quote.version}</span></div>
@@ -597,6 +612,7 @@ export default function CaseDetail() {
               {tab === 'permit' && (
                 <LockedSection locked={!canEditPermit(data.status)} reason="Permit unlocks after customer approves the quote.">
                   <SectionCard tone="indigo" title="Permit" subtitle="Step 3 — Permit tracking">
+                    <SubStepper steps={tabSubSteps('permit', { data, permit })} />
                     {isAtOrAfter(data.status, 'permit_approved') && <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2.5 text-xs font-semibold text-indigo-800">Approved — locked to prevent mistakes.</div>}
                     <div className="grid gap-3 md:grid-cols-6">
                       <Field label="Permit number" value={permitNumber} onChange={setPermitNumber} disabled={busy || isAtOrAfter(data.status, 'permit_approved')} />
@@ -634,6 +650,7 @@ export default function CaseDetail() {
               {tab === 'install' && (
                 <LockedSection locked={!canEditInstallation(data.status)} reason="Installation unlocks after permit is approved.">
                   <SectionCard tone="emerald" title="Installation" subtitle="Step 4 — Schedule & complete install">
+                    <SubStepper steps={tabSubSteps('install', { data, installation })} />
                     {isAtOrAfter(data.status, 'installed') && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-800">Installed — scheduling locked. You can still edit the report and photos.</div>}
                     {installation?.request_status === 'pending' && installation?.requested_date && <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs"><div className="font-semibold text-amber-900">Customer requested installation time</div><div className="mt-1 text-amber-800">{new Date(installation.requested_date).toLocaleString()}</div>{installation?.request_note && <div className="mt-1 text-amber-700">Note: {installation.request_note}</div>}</div>}
                     {installation?.request_status === 'rejected' && installation?.admin_note && <div className="mb-4 rounded-xl border bg-slate-50 px-3.5 py-2.5 text-xs"><div className="font-semibold text-slate-700">Last rejection</div><div className="mt-1 text-slate-600">{installation.admin_note}</div></div>}
