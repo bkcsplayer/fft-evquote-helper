@@ -10,7 +10,7 @@ function money(v) {
 
 const EMPTY = { material_id: '', description: '', qty: '1', unit_cost: '', unit_price: '' }
 
-export default function BomTab({ caseId, onChanged }) {
+export default function BomTab({ caseId, onChanged, onSuccess, onError }) {
   const [bom, setBom] = useState({ lines: [], total_cost: 0, total_sell: 0 })
   const [materials, setMaterials] = useState([])
   const [error, setError] = useState('')
@@ -60,14 +60,15 @@ export default function BomTab({ caseId, onChanged }) {
       })
       setDraft(EMPTY)
       await load(); onChanged?.()
-    } catch (e) { setError(e?.response?.data?.detail || 'Failed to add line') }
+      onSuccess?.('BOM line added.')
+    } catch (e) { const m = e?.response?.data?.detail || 'Failed to add line'; setError(m); onError?.(m) }
     finally { setBusy(false) }
   }
 
   async function removeLine(id) {
     setBusy(true); setError('')
-    try { await api.delete(`/bom/${id}`); await load(); onChanged?.() }
-    catch (e) { setError(e?.response?.data?.detail || 'Failed to delete line') }
+    try { await api.delete(`/bom/${id}`); await load(); onChanged?.(); onSuccess?.('BOM line removed.') }
+    catch (e) { const m = e?.response?.data?.detail || 'Failed to delete line'; setError(m); onError?.(m) }
     finally { setBusy(false) }
   }
 
@@ -75,9 +76,10 @@ export default function BomTab({ caseId, onChanged }) {
     setBusy(true); setError(''); setSuccess('')
     try {
       const res = await api.post(`/cases/${caseId}/bom/generate-quote`, { install_type: 'surface_mount' })
-      setSuccess(`Quote created from BOM (base ${money(res.data.base_price)}). Review it in the Quote tab.`)
+      const msg = `Quote created from BOM (base ${money(res.data.base_price)}). Review it in the Quote tab.`
+      setSuccess(msg); onSuccess?.(msg)
       onChanged?.()
-    } catch (e) { setError(e?.response?.data?.detail || 'Failed to generate quote') }
+    } catch (e) { const m = e?.response?.data?.detail || 'Failed to generate quote'; setError(m); onError?.(m) }
     finally { setBusy(false) }
   }
 

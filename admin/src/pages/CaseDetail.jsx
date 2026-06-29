@@ -6,7 +6,7 @@ import { Pill } from '../components/ui/Pill.jsx'
 import { StatusTag } from '../components/ui/StatusTag.jsx'
 import { StageFlow } from '../components/ui/StageFlow.jsx'
 import { CaseFlowHeader } from '../components/ui/CaseFlowHeader.jsx'
-import { CASE_STATUS_ORDER, statusLabel } from '../utils/caseStatus.js'
+import { CASE_STATUS_ORDER, statusLabel, CASE_STAGES } from '../utils/caseStatus.js'
 import AttachmentsTab from './case/AttachmentsTab.jsx'
 import FinanceTab from './case/FinanceTab.jsx'
 import BomTab from './case/BomTab.jsx'
@@ -418,7 +418,7 @@ export default function CaseDetail() {
                   key={t.id}
                   type="button"
                   onClick={() => setTab(t.id)}
-                  className={`cursor-pointer whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors ${tab === t.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                  className={`cursor-pointer whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors ${tab === t.id ? 'bg-slate-900 text-white flow-glow' : 'text-slate-600 hover:bg-slate-100'}`}
                 >
                   {t.label}
                 </button>
@@ -439,6 +439,28 @@ export default function CaseDetail() {
                     }}
                   />
                 </SectionCard>
+                <details className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <summary className="cursor-pointer list-none px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-700">Full lifecycle <span className="font-normal normal-case text-slate-400">— all states (reference)</span></summary>
+                  <div className="flex gap-2 overflow-x-auto px-5 pb-5">
+                    {CASE_STAGES.map((stage) => (
+                      <div key={stage.key} className="min-w-[148px] flex-1 rounded-xl border border-slate-200 bg-slate-50 p-2.5">
+                        <div className="mb-2 border-b border-dashed border-slate-200 pb-1 text-center text-[11px] font-bold text-slate-700">{stage.label}</div>
+                        <div className="space-y-1.5">
+                          {stage.statuses.map((st) => (
+                            <div key={st} className={`relative rounded-lg border px-2 py-1.5 text-[11px] font-medium ${data.status === st ? 'border-sky-300 bg-sky-50 text-sky-800 flow-glow' : 'border-slate-200 bg-white text-slate-500'}`}>{statusLabel(st)}</div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <div className="min-w-[120px] rounded-xl border border-rose-200 bg-rose-50/40 p-2.5">
+                      <div className="mb-2 border-b border-dashed border-rose-200 pb-1 text-center text-[11px] font-bold text-rose-700">Exit</div>
+                      <div className="space-y-1.5">
+                        <div className={`relative rounded-lg border px-2 py-1.5 text-[11px] font-medium ${data.status === 'cancelled' ? 'border-rose-300 bg-rose-50 text-rose-700 flow-glow' : 'border-slate-200 bg-white text-slate-500'}`}>Cancelled</div>
+                        <div className={`relative rounded-lg border px-2 py-1.5 text-[11px] font-medium ${data.status === 'lost' ? 'border-rose-300 bg-rose-50 text-rose-700 flow-glow' : 'border-slate-200 bg-white text-slate-500'}`}>Lost</div>
+                      </div>
+                    </div>
+                  </div>
+                </details>
                 <SectionCard tone="slate" title="Customer" subtitle="People & case basics">
                   <div className="grid gap-2 text-sm">
                     <div><span className="text-slate-500">Nickname:</span> <span className="font-semibold text-slate-900">{data.customer.nickname}</span></div>
@@ -682,13 +704,13 @@ export default function CaseDetail() {
               )}
 
               {/* Files (attachment center) */}
-              {tab === 'files' && <AttachmentsTab caseId={id} onPreview={setPreview} />}
+              {tab === 'files' && <AttachmentsTab caseId={id} onPreview={setPreview} onSuccess={setSuccess} onError={setError} />}
 
               {/* BOM */}
-              {tab === 'bom' && <BomTab caseId={id} onChanged={load} />}
+              {tab === 'bom' && <BomTab caseId={id} onChanged={load} onSuccess={setSuccess} onError={setError} />}
 
               {/* Finance */}
-              {tab === 'finance' && <FinanceTab caseId={id} />}
+              {tab === 'finance' && <FinanceTab caseId={id} onSuccess={setSuccess} onError={setError} />}
 
               {/* Signature (legal record) */}
               {tab === 'signature' && (

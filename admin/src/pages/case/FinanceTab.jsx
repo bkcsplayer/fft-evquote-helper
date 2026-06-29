@@ -22,7 +22,7 @@ function Stat({ label, value, tone = 'slate' }) {
   )
 }
 
-export default function FinanceTab({ caseId }) {
+export default function FinanceTab({ caseId, onSuccess, onError }) {
   const [fin, setFin] = useState(null)
   const [payments, setPayments] = useState([])
   const [error, setError] = useState('')
@@ -57,14 +57,15 @@ export default function FinanceTab({ caseId }) {
       })
       setAmount(''); setReference('')
       await load()
-    } catch (e) { setError(e?.response?.data?.detail || 'Failed to add payment') }
+      onSuccess?.('Payment recorded.')
+    } catch (e) { const m = e?.response?.data?.detail || 'Failed to add payment'; setError(m); onError?.(m) }
     finally { setBusy(false) }
   }
 
   async function setStatus(id, status) {
     setBusy(true); setError('')
-    try { await api.patch(`/payments/${id}`, { status }); await load() }
-    catch (e) { setError(e?.response?.data?.detail || 'Failed to update payment') }
+    try { await api.patch(`/payments/${id}`, { status }); await load(); onSuccess?.('Payment status updated.') }
+    catch (e) { const m = e?.response?.data?.detail || 'Failed to update payment'; setError(m); onError?.(m) }
     finally { setBusy(false) }
   }
 

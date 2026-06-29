@@ -21,7 +21,7 @@ function isPdf(name) {
   return /\.pdf$/i.test(String(name || ''))
 }
 
-export default function AttachmentsTab({ caseId, onPreview }) {
+export default function AttachmentsTab({ caseId, onPreview, onSuccess, onError }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -55,14 +55,15 @@ export default function AttachmentsTab({ caseId, onPreview }) {
       await api.post(`/cases/${caseId}/attachments?${qp.toString()}`, form)
       setFile(null); setCaption('')
       await load()
-    } catch (e) { setError(e?.response?.data?.detail || 'Upload failed') }
+      onSuccess?.('Attachment uploaded.')
+    } catch (e) { const m = e?.response?.data?.detail || 'Upload failed'; setError(m); onError?.(m) }
     finally { setBusy(false) }
   }
 
   async function remove(id) {
     setBusy(true); setError('')
-    try { await api.delete(`/attachments/${id}`); await load() }
-    catch (e) { setError(e?.response?.data?.detail || 'Delete failed') }
+    try { await api.delete(`/attachments/${id}`); await load(); onSuccess?.('Attachment removed.') }
+    catch (e) { const m = e?.response?.data?.detail || 'Delete failed'; setError(m); onError?.(m) }
     finally { setBusy(false) }
   }
 
