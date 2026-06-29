@@ -210,6 +210,7 @@ export default function CaseDetail() {
   useEffect(() => { if (data?.status) setOverrideToStatus(String(data.status)) }, [data?.status])
   useEffect(() => { if (!preview) return; const onKey = (e) => { if (e.key === 'Escape') setPreview(null) }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [preview])
   useEffect(() => { if (!success) return; const t = setTimeout(() => setSuccess(''), 4500); return () => clearTimeout(t) }, [success])
+  useEffect(() => { if (!error) return; const t = setTimeout(() => setError(''), 7000); return () => clearTimeout(t) }, [error])
   useEffect(() => {
     // Deep links from other pages (e.g. /admin/cases/{id}#permit) open the matching tab.
     const hash = (loc.hash || '').replace('#', '').trim().toLowerCase()
@@ -276,13 +277,13 @@ export default function CaseDetail() {
   }
   async function completeSurvey() {
     setBusy(true); setError('')
-    try { await api.patch(`/cases/${id}/survey/complete`, { survey_notes: surveyNotes.trim() || null }); setSurveyNotes(''); await load(); setTab('quote') }
+    try { await api.patch(`/cases/${id}/survey/complete`, { survey_notes: surveyNotes.trim() || null }); setSurveyNotes(''); await load(); setSuccess('Survey completed.'); setTab('quote') }
     catch (e) { setError(e?.response?.data?.detail || 'Failed to complete survey') }
     finally { setBusy(false) }
   }
   async function markDepositPaid() {
     setBusy(true); setError('')
-    try { await api.patch(`/cases/${id}/survey/deposit-paid`, { note: 'Deposit marked paid (e-transfer)' }); await load() }
+    try { await api.patch(`/cases/${id}/survey/deposit-paid`, { note: 'Deposit marked paid (e-transfer)' }); await load(); setSuccess('Deposit marked paid.') }
     catch (e) { setError(e?.response?.data?.detail || 'Failed to mark deposit paid') }
     finally { setBusy(false) }
   }
@@ -297,18 +298,18 @@ export default function CaseDetail() {
         if (surveyPhotoCaption.trim()) qp.set('caption', surveyPhotoCaption.trim())
         await api.post(`/cases/${id}/survey/photos?${qp.toString()}`, form)
       }
-      setSurveyPhotoFile(null); setSurveyPhotoCaption(''); await load()
+      setSurveyPhotoFile(null); setSurveyPhotoCaption(''); await load(); setSuccess('Survey photo uploaded.')
     } catch (e) { setError(e?.response?.data?.detail || 'Failed to upload survey photo') }
     finally { setBusy(false) }
   }
   async function deleteSurveyPhoto(photoId) { setBusy(true); setError(''); try { await api.delete(`/survey/photos/${photoId}`); await load() } catch (e) { setError(e?.response?.data?.detail || 'Failed to delete photo') } finally { setBusy(false) } }
   async function createQuote() {
     setBusy(true); setError('')
-    try { const addons = []; if (addonName.trim() && addonPrice) addons.push({ name: addonName.trim(), price: addonPrice }); const res = await api.post(`/cases/${id}/quotes`, { install_type: installType, base_price: basePrice, extra_distance_meters: extraMeters, extra_distance_rate: extraRate, permit_fee: permitFee, survey_credit: surveyCredit, addons }); setData((prev) => ({ ...prev, active_quote: res.data })); setAddonName(''); setAddonPrice(''); await load() }
+    try { const addons = []; if (addonName.trim() && addonPrice) addons.push({ name: addonName.trim(), price: addonPrice }); const res = await api.post(`/cases/${id}/quotes`, { install_type: installType, base_price: basePrice, extra_distance_meters: extraMeters, extra_distance_rate: extraRate, permit_fee: permitFee, survey_credit: surveyCredit, addons }); setData((prev) => ({ ...prev, active_quote: res.data })); setAddonName(''); setAddonPrice(''); await load(); setSuccess('Quote created.') }
     catch (e) { setError(e?.response?.data?.detail || 'Failed to create quote') }
     finally { setBusy(false) }
   }
-  async function sendQuote() { const quoteId = data?.active_quote?.id; if (!quoteId) return; setBusy(true); setError(''); try { await api.post(`/quotes/${quoteId}/send`); await load() } catch (e) { setError(e?.response?.data?.detail || 'Failed to send quote') } finally { setBusy(false) } }
+  async function sendQuote() { const quoteId = data?.active_quote?.id; if (!quoteId) return; setBusy(true); setError(''); try { await api.post(`/quotes/${quoteId}/send`); await load(); setSuccess('Quote sent to customer.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to send quote') } finally { setBusy(false) } }
   async function previewQuote() {
     const quoteId = data?.active_quote?.id; if (!quoteId) return; setBusy(true); setError('')
     try { const res = await api.get(`/quotes/${quoteId}/preview`); const w = window.open('', '_blank'); if (w) w.document.write(res.data?.html || '<p>No preview</p>') }
@@ -317,15 +318,15 @@ export default function CaseDetail() {
   }
   async function savePermit() {
     setBusy(true); setError('')
-    try { const payload = { permit_number: permitNumber || null, applied_date: permitAppliedDate || null, expected_approval_date: permitExpectedDate || null, actual_approval_date: permitActualDate || null, status: permitStatus, notes: permitNotes || null }; const res = await api.post(`/cases/${id}/permit`, payload); setPermit(res.data); await load() }
+    try { const payload = { permit_number: permitNumber || null, applied_date: permitAppliedDate || null, expected_approval_date: permitExpectedDate || null, actual_approval_date: permitActualDate || null, status: permitStatus, notes: permitNotes || null }; const res = await api.post(`/cases/${id}/permit`, payload); setPermit(res.data); await load(); setSuccess('Permit saved.') }
     catch (e) { setError(e?.response?.data?.detail || 'Failed to save permit') }
     finally { setBusy(false) }
   }
-  async function uploadPermitAttachment() { if (!permit?.id || !permitFile) return; setBusy(true); setError(''); try { const form = new FormData(); form.append('file', permitFile); await api.post(`/permits/${permit.id}/attachments`, form); setPermitFile(null); await load() } catch (e) { setError(e?.response?.data?.detail || 'Failed to upload attachment') } finally { setBusy(false) } }
+  async function uploadPermitAttachment() { if (!permit?.id || !permitFile) return; setBusy(true); setError(''); try { const form = new FormData(); form.append('file', permitFile); await api.post(`/permits/${permit.id}/attachments`, form); setPermitFile(null); await load(); setSuccess('Attachment uploaded.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to upload attachment') } finally { setBusy(false) } }
   async function scheduleInstallation() { if (!installDt) return; setBusy(true); setError(''); try { await api.post(`/cases/${id}/installation/schedule`, { scheduled_date: new Date(installDt).toISOString(), notes: installNotes || null }); setInstallNotes(''); await load(); setSuccess('Installation scheduled.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to schedule installation') } finally { setBusy(false) } }
   async function rejectInstallationRequest() { setBusy(true); setError(''); setSuccess(''); try { await api.post(`/cases/${id}/installation/request/reject`, { note: installRejectNote.trim() || null }); setInstallRejectNote(''); await load(); setSuccess('Installation request rejected — customer will choose again.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to reject installation request') } finally { setBusy(false) } }
-  async function completeInstallation() { setBusy(true); setError(''); try { await api.patch(`/cases/${id}/installation/complete`, { notes: installNotes || null }); setInstallNotes(''); await load() } catch (e) { setError(e?.response?.data?.detail || 'Failed to complete installation') } finally { setBusy(false) } }
-  async function saveInstallationReport() { setBusy(true); setError(''); try { const payload = { installed_items: installReportInstalledItems || null, wire_gauge: installReportWireGauge || null, max_charging_amps: installReportMaxAmps === '' ? null : Number(installReportMaxAmps), test_passed: !!installReportTestPassed, test_notes: installReportTestNotes || null }; await api.patch(`/cases/${id}/installation/report`, payload); await load() } catch (e) { setError(e?.response?.data?.detail || 'Failed to save installation report') } finally { setBusy(false) } }
+  async function completeInstallation() { setBusy(true); setError(''); try { await api.patch(`/cases/${id}/installation/complete`, { notes: installNotes || null }); setInstallNotes(''); await load(); setSuccess('Installation marked complete.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to complete installation') } finally { setBusy(false) } }
+  async function saveInstallationReport() { setBusy(true); setError(''); try { const payload = { installed_items: installReportInstalledItems || null, wire_gauge: installReportWireGauge || null, max_charging_amps: installReportMaxAmps === '' ? null : Number(installReportMaxAmps), test_passed: !!installReportTestPassed, test_notes: installReportTestNotes || null }; await api.patch(`/cases/${id}/installation/report`, payload); await load(); setSuccess('Installation report saved.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to save installation report') } finally { setBusy(false) } }
   async function uploadInstallationPhoto() {
     const files = installPhotoFile ? Array.from(installPhotoFile) : []
     if (!files.length) return
@@ -337,16 +338,16 @@ export default function CaseDetail() {
         if (installPhotoCaption) form.append('caption', installPhotoCaption)
         await api.post(`/cases/${id}/installation/photos`, form)
       }
-      setInstallPhotoCaption(''); setInstallPhotoFile(null); await load()
+      setInstallPhotoCaption(''); setInstallPhotoFile(null); await load(); setSuccess('Installation photo uploaded.')
     } catch (e) { setError(e?.response?.data?.detail || 'Failed to upload installation photo') }
     finally { setBusy(false) }
   }
   async function deleteInstallationPhoto(photoId) { setBusy(true); setError(''); try { await api.delete(`/installation/photos/${photoId}`); await load() } catch (e) { setError(e?.response?.data?.detail || 'Failed to delete photo') } finally { setBusy(false) } }
   async function sendInstallationReport() { setBusy(true); setError(''); setSuccess(''); try { await api.post(`/cases/${id}/installation/report/send`); await load(); setSuccess('Install report sent.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to send installation report') } finally { setBusy(false) } }
   async function sendCompletionEmail() { setBusy(true); setError(''); setSuccess(''); try { await api.post(`/cases/${id}/completion-email`); await load(); setSuccess('Completion email sent. Case marked completed.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to send completion email') } finally { setBusy(false) } }
-  async function resendEmail(notificationId) { if (!notificationId) return; setBusy(true); setError(''); try { await api.post(`/notifications/${notificationId}/resend`, { to_email: resendEmailTo.trim() || null }); await load() } catch (e) { setError(e?.response?.data?.detail || 'Failed to resend email') } finally { setBusy(false) } }
-  async function overrideStatus() { if (!overridePassword.trim() || !overrideToStatus) { setError('Admin password and target status are required.'); return }; setBusy(true); setError(''); try { await api.post(`/cases/${id}/override-status`, { admin_password: overridePassword, to_status: overrideToStatus, note: overrideNote || null }); setOverridePassword(''); setOverrideNote(''); await load() } catch (e) { setError(e?.response?.data?.detail || 'Failed to override status') } finally { setBusy(false) } }
-  async function addInternalNote() { const content = newNote.trim(); if (!content) return; setBusy(true); setError(''); try { await api.post(`/cases/${id}/notes`, { content }); setNewNote(''); await load() } catch (e) { setError(e?.response?.data?.detail || 'Failed to add note') } finally { setBusy(false) } }
+  async function resendEmail(notificationId) { if (!notificationId) return; setBusy(true); setError(''); try { await api.post(`/notifications/${notificationId}/resend`, { to_email: resendEmailTo.trim() || null }); await load(); setSuccess('Email resent.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to resend email') } finally { setBusy(false) } }
+  async function overrideStatus() { if (!overridePassword.trim() || !overrideToStatus) { setError('Admin password and target status are required.'); return }; setBusy(true); setError(''); try { await api.post(`/cases/${id}/override-status`, { admin_password: overridePassword, to_status: overrideToStatus, note: overrideNote || null }); setOverridePassword(''); setOverrideNote(''); await load(); setSuccess('Status overridden.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to override status') } finally { setBusy(false) } }
+  async function addInternalNote() { const content = newNote.trim(); if (!content) return; setBusy(true); setError(''); try { await api.post(`/cases/${id}/notes`, { content }); setNewNote(''); await load(); setSuccess('Internal note added.') } catch (e) { setError(e?.response?.data?.detail || 'Failed to add note') } finally { setBusy(false) } }
   async function deleteCase() {
     if (!window.confirm(`Permanently delete case ${data?.reference_number || ''} and ALL its data (survey, quotes, permit, installation, photos, payments…)? This cannot be undone.`)) return
     setBusy(true); setError('')
@@ -388,8 +389,23 @@ export default function CaseDetail() {
             <div className="h-48 animate-pulse rounded-2xl bg-slate-200" />
           </div>
         )}
-        {error && <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-700">{error}</div>}
-        {success && <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-medium text-emerald-800">{success}</div>}
+        {/* Toasts — fixed bottom-right so action feedback is visible regardless of scroll/tab */}
+        <div className="pointer-events-none fixed bottom-5 right-5 z-50 flex w-full max-w-sm flex-col gap-2">
+          {error && (
+            <div className="toast-in pointer-events-auto flex items-start gap-2.5 rounded-xl border border-rose-200 bg-white px-4 py-3 text-sm font-medium text-rose-700 shadow-lg ring-1 ring-rose-500/5">
+              <svg className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" fill="none" viewBox="0 0 24 24" strokeWidth="2.2" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zM12 15.75h.007v.008H12v-.008z" /></svg>
+              <span className="flex-1">{error}</span>
+              <button type="button" onClick={() => setError('')} className="-mr-1 -mt-0.5 shrink-0 rounded-md px-1 text-rose-400 transition-colors hover:text-rose-600" aria-label="Dismiss">✕</button>
+            </div>
+          )}
+          {success && (
+            <div className="toast-in pointer-events-auto flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm font-medium text-emerald-800 shadow-lg ring-1 ring-emerald-500/5">
+              <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth="2.2" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <span className="flex-1">{success}</span>
+              <button type="button" onClick={() => setSuccess('')} className="-mr-1 -mt-0.5 shrink-0 rounded-md px-1 text-emerald-400 transition-colors hover:text-emerald-600" aria-label="Dismiss">✕</button>
+            </div>
+          )}
+        </div>
 
         {data && (
           <>

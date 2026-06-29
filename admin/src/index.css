@@ -34,3 +34,13 @@ body {
     @apply outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white;
   }
 }
+
+/* Toast slide-in (action feedback) */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.toast-in { animation: toast-in 0.22s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .toast-in { animation: none; }
+}
