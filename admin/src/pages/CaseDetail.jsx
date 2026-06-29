@@ -427,7 +427,15 @@ export default function CaseDetail() {
                     <div><span className="text-slate-500">Phone:</span> <span className="font-semibold text-slate-900">{data.customer.phone}</span></div>
                     <div><span className="text-slate-500">Email:</span> <span className="font-semibold text-slate-900">{data.customer.email}</span></div>
                     <div><span className="text-slate-500">Address:</span> <span className="font-semibold text-slate-900">{data.install_address}</span></div>
+                    <div><span className="text-slate-500">Charger:</span> <span className="font-semibold text-slate-900">{data.charger_brand || '—'}</span></div>
+                    <div><span className="text-slate-500">EV:</span> <span className="font-semibold text-slate-900">{data.ev_brand || '—'}</span></div>
                     <div><span className="text-slate-500">Status:</span> <StatusTag status={data.status} /></div>
+                    {data.notes && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                        <div className="text-xs font-semibold uppercase tracking-wider text-amber-700">Customer notes</div>
+                        <div className="mt-1 whitespace-pre-wrap text-sm text-amber-900">{data.notes}</div>
+                      </div>
+                    )}
                     {tokenLink && (
                       <div className="rounded-xl bg-slate-50 p-3"><div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Customer link</div><div className="mt-1 break-all text-xs text-slate-700">{tokenLink}</div></div>
                     )}

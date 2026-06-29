@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
+from urllib.parse import urlparse
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from sqlalchemy.orm import Session
@@ -17,6 +18,26 @@ from app.utils.url_utils import is_local_url
 logger = logging.getLogger(__name__)
 
 
+def _absolute_logo_url(logo_url: str | None) -> str | None:
+    """
+    Make a logo URL safe to embed in outgoing email.
+
+    Email clients cannot resolve relative URLs (e.g. "/uploads/logo.png"), so anchor
+    root-relative/relative paths to the public site URL. Returns None when no public
+    base is available, so we never ship a guaranteed-broken <img>.
+    """
+    url = (logo_url or "").strip()
+    if not url:
+        return None
+    if urlparse(url).scheme in ("http", "https"):
+        return url
+    s = get_settings()
+    base = (s.frontend_url or s.admin_url or "").rstrip("/")
+    if not base or is_local_url(base):
+        return None
+    return f"{base}/{url.lstrip('/')}"
+
+
 def _with_branding(ctx: dict[str, Any]) -> dict[str, Any]:
     s = get_settings()
     out = dict(ctx or {})
@@ -27,7 +48,7 @@ def _with_branding(ctx: dict[str, Any]) -> dict[str, Any]:
     out.setdefault("support_phone", s.brand_support_phone)
     # Use an explicit logo URL only (avoid guessing a file path that may not exist).
     if "logo_url" not in out:
-        out["logo_url"] = (s.brand_logo_url or "").strip() or None
+        out["logo_url"] = _absolute_logo_url(s.brand_logo_url)
     out.setdefault("warranty_years", 1)
     out.setdefault("year", datetime.now(timezone.utc).year)
     return out
@@ -76,11 +97,12 @@ def _with_brand_profile(db: Session, ctx: dict[str, Any]) -> dict[str, Any]:
     if support_phone:
         out["support_phone"] = support_phone
     if logo_url:
-        # Avoid defaulting to a localhost asset in production emails (won't load externally; can hurt deliverability).
-        if is_local_url(logo_url) and get_settings().app_env == "production":
+        abs_logo = _absolute_logo_url(logo_url)
+        # Avoid a localhost asset in production emails (won't load externally; can hurt deliverability).
+        if abs_logo and is_local_url(abs_logo) and get_settings().app_env == "production":
             out["logo_url"] = None
         else:
-            out["logo_url"] = logo_url
+            out["logo_url"] = abs_logo
     if isinstance(warranty_years, int) and warranty_years > 0:
         out["warranty_years"] = warranty_years
 
