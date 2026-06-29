@@ -44,3 +44,26 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .toast-in { animation: none; }
 }
+
+/* Flowing-light border marking the CURRENT state (big stage + small step). Light runs along the
+   border only, never covers content. Degrades to a static ring when reduced-motion is on. */
+@property --flow-ang { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.flow-glow { position: relative; }
+.flow-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  pointer-events: none;
+  z-index: 5;
+  background: conic-gradient(from var(--flow-ang), transparent 0deg, #22D3EE 36deg, #6366F1 94deg, transparent 150deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: flow-spin 2.6s linear infinite;
+}
+@keyframes flow-spin { to { --flow-ang: 360deg; } }
+@media (prefers-reduced-motion: reduce) {
+  .flow-glow::after { animation: none; background: #22D3EE; }
+}

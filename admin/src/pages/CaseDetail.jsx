@@ -5,6 +5,7 @@ import { api } from '../services/api.js'
 import { Pill } from '../components/ui/Pill.jsx'
 import { StatusTag } from '../components/ui/StatusTag.jsx'
 import { StageFlow } from '../components/ui/StageFlow.jsx'
+import { CaseFlowHeader } from '../components/ui/CaseFlowHeader.jsx'
 import { CASE_STATUS_ORDER, statusLabel } from '../utils/caseStatus.js'
 import AttachmentsTab from './case/AttachmentsTab.jsx'
 import FinanceTab from './case/FinanceTab.jsx'
@@ -409,6 +410,7 @@ export default function CaseDetail() {
 
         {data && (
           <>
+            <CaseFlowHeader data={data} installation={installation} onGoTo={setTab} />
             {/* Tab bar */}
             <div className="mt-5 flex gap-1 overflow-x-auto rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
               {TABS.map((t) => (

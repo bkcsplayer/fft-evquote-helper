@@ -151,3 +151,72 @@ export function canCreateOrEditQuote(caseStatus) {
   return isCaseStatusIn(caseStatus, ['survey_completed', 'quoting', 'quoted'])
 }
 
+// ── Visual pipeline: collapse the 13 statuses into 6 stages for the case header ──
+export const CASE_STAGES = [
+  { key: 'lead', label: 'Lead', statuses: ['pending'] },
+  { key: 'survey', label: 'Survey', statuses: ['survey_scheduled', 'survey_completed'] },
+  { key: 'quote', label: 'Quote', statuses: ['quoting', 'quoted', 'customer_approved'] },
+  { key: 'permit', label: 'Permit', statuses: ['permit_applied', 'permit_approved'] },
+  { key: 'install', label: 'Install', statuses: ['installation_scheduled', 'installed'] },
+  { key: 'complete', label: 'Complete', statuses: ['completed'] },
+]
+
+export const DEAD_STATUSES = ['cancelled', 'lost']
+
+// Per-stage state for the stepper: 'done' | 'current' | 'upcoming'.
+export function stageStates(status) {
+  const s = String(status || '')
+  const dead = DEAD_STATUSES.includes(s)
+  const curIdx = CASE_STATUS_ORDER.indexOf(s)
+  return CASE_STAGES.map((stage) => {
+    const idxs = stage.statuses.map((x) => CASE_STATUS_ORDER.indexOf(x)).filter((i) => i >= 0)
+    const last = Math.max(...idxs)
+    const first = Math.min(...idxs)
+    let state = 'upcoming'
+    if (!dead && curIdx >= 0) {
+      if (curIdx > last) state = 'done'
+      else if (curIdx >= first) state = 'current'
+    } else if (s === 'completed') {
+      state = 'done'
+    }
+    return { key: stage.key, label: stage.label, state }
+  })
+}
+
+// The single recommended next action. data = CaseDetailOut; installation = separately-fetched install row.
+export function nextAction(data, installation) {
+  if (!data) return null
+  const s = String(data.status || '')
+  if (s === 'completed') return { done: true, label: 'Project completed' }
+  if (s === 'cancelled') return { dead: true, label: 'Case cancelled' }
+  if (s === 'lost') return { dead: true, label: 'Case lost' }
+  // Handshake requests take priority — a customer proposed a time and is waiting on you.
+  if (data.survey_request_status === 'pending') return { label: 'Confirm requested survey time', tab: 'survey' }
+  if (installation?.request_status === 'pending') return { label: 'Confirm requested install time', tab: 'install' }
+  switch (s) {
+    case 'pending': return { label: 'Waiting for customer to pick a survey time', tab: 'survey', wait: true }
+    case 'survey_scheduled': return { label: 'Mark survey complete', tab: 'survey' }
+    case 'survey_completed': return { label: 'Create & send the quote', tab: 'quote' }
+    case 'quoting': return { label: 'Send quote to customer', tab: 'quote' }
+    case 'quoted': return { label: 'Waiting for customer to approve & sign', tab: 'quote', wait: true }
+    case 'customer_approved': return { label: 'Apply for permit', tab: 'permit' }
+    case 'permit_applied': return { label: 'Mark permit approved', tab: 'permit' }
+    case 'permit_approved': return { label: 'Schedule installation', tab: 'install' }
+    case 'installation_scheduled': return { label: 'Mark installation complete', tab: 'install' }
+    case 'installed': return { label: 'Send completion email & finish', tab: 'install' }
+    default: return { label: 'Review case', tab: 'overview' }
+  }
+}
+
+// Who the case is waiting on right now. { who, tone }
+export function ballInCourt(data, installation) {
+  if (!data) return { who: '—', tone: 'slate' }
+  const s = String(data.status || '')
+  if (s === 'completed') return { who: 'Done', tone: 'emerald' }
+  if (DEAD_STATUSES.includes(s)) return { who: '—', tone: 'rose' }
+  if (data.survey_request_status === 'pending' || installation?.request_status === 'pending') return { who: 'You', tone: 'amber' }
+  if (s === 'pending' || s === 'quoted' || s === 'permit_approved') return { who: 'Customer', tone: 'sky' }
+  if (s === 'permit_applied') return { who: 'Permit office', tone: 'amber' }
+  return { who: 'You', tone: 'amber' }
+}
+
