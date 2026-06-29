@@ -593,7 +593,8 @@ export default function CaseDetail() {
                       </div>
                     ) : <div className="py-2 text-sm text-slate-500">No active quote yet.</div>}
 
-                    <div className="mt-5 grid gap-3 md:grid-cols-6">
+                    <div className="mt-5 grid gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-6">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 md:col-span-6">Create / update quote</div>
                       <label className="block md:col-span-2"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Install type</span><select value={installType} onChange={(e) => setInstallType(e.target.value)} className={selectCls}><option value="surface_mount">surface_mount</option><option value="concealed">concealed</option></select></label>
                       <Field label="Base price" value={basePrice} onChange={setBasePrice} />
                       <Field label="Extra meters" value={extraMeters} onChange={setExtraMeters} />
@@ -614,7 +615,8 @@ export default function CaseDetail() {
                   <SectionCard tone="indigo" title="Permit" subtitle="Step 3 — Permit tracking">
                     <SubStepper steps={tabSubSteps('permit', { data, permit })} />
                     {isAtOrAfter(data.status, 'permit_approved') && <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2.5 text-xs font-semibold text-indigo-800">Approved — locked to prevent mistakes.</div>}
-                    <div className="grid gap-3 md:grid-cols-6">
+                    <div className="grid gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-6">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 md:col-span-6">Permit details</div>
                       <Field label="Permit number" value={permitNumber} onChange={setPermitNumber} disabled={busy || isAtOrAfter(data.status, 'permit_approved')} />
                       <label className="block md:col-span-1"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Status</span><select value={permitStatus} onChange={(e) => setPermitStatus(e.target.value)} disabled={busy || isAtOrAfter(data.status, 'permit_approved')} className={selectCls}><option value="applied">applied</option><option value="approved">approved</option><option value="revision_required">revision_required</option></select><div className="mt-1 text-xs text-slate-400">Change here, then save.</div></label>
                       <label className="block md:col-span-1"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Applied</span><input type="date" value={permitAppliedDate || ''} onChange={(e) => setPermitAppliedDate(e.target.value)} disabled={busy || isAtOrAfter(data.status, 'permit_approved')} className={inputCls} /></label>
@@ -657,13 +659,15 @@ export default function CaseDetail() {
                     {!isAtOrAfter(data.status, 'installed') && !installation?.scheduled_date && !installation?.requested_date && <div className="mb-4 rounded-xl border bg-slate-50 px-3.5 py-2.5 text-xs font-semibold text-slate-600">Waiting for customer to choose an installation time.</div>}
                     {installationDateIssue && <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-semibold text-rose-800">Date issue: completed time is earlier than scheduled time.</div>}
 
-                    <div className="grid gap-2 text-sm text-slate-700">
+                    <div className="grid gap-2 rounded-xl border border-slate-200 p-4 text-sm text-slate-700">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Status</div>
                       <div>Scheduled: <span className="font-semibold">{installation?.scheduled_date ? new Date(installation.scheduled_date).toLocaleString() : '—'}</span></div>
                       <div>Completed: <span className="font-semibold">{installation?.completed_at ? new Date(installation.completed_at).toLocaleString() : '—'}</span></div>
                       <div className="flex items-center justify-between"><span>Completion email</span><Pill tone={installation?.completion_email_sent ? 'emerald' : 'amber'}>{installation?.completion_email_sent ? 'sent' : 'pending'}</Pill></div>
                     </div>
 
-                    <div className="mt-4 grid gap-3">
+                    <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Schedule / complete</div>
                       <label className="block"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Schedule (local)</span><input type="datetime-local" value={installDt} onChange={(e) => setInstallDt(e.target.value)} disabled={busy || (isAtOrAfter(data.status, 'installed') && !installationDateIssue) || (!installationDateIssue && !(installation?.request_status === 'pending' && installation?.requested_date))} className={inputCls} /></label>
                       <label className="block"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Notes</span><input value={installNotes} onChange={(e) => setInstallNotes(e.target.value)} disabled={busy || (isAtOrAfter(data.status, 'installed') && !installationDateIssue)} className={inputCls} /></label>
                       {hasPendingInstallRequest && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs font-semibold text-amber-800">Pending reschedule request — confirm or reject first.</div>}
@@ -679,7 +683,8 @@ export default function CaseDetail() {
                     </div>
 
                     {/* Installation report */}
-                    <div className="mt-5 grid gap-3 md:grid-cols-6">
+                    <div className="mt-5 grid gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-6">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-slate-500 md:col-span-6">Installation report</div>
                       <label className="block md:col-span-6"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Installed items (report)</span><textarea value={installReportInstalledItems} onChange={(e) => setInstallReportInstalledItems(e.target.value)} className={textareaCls} rows={3} placeholder="What was installed, where…" /></label>
                       <label className="block md:col-span-2"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Wire gauge</span><input value={installReportWireGauge} onChange={(e) => setInstallReportWireGauge(e.target.value)} className={inputCls} placeholder="e.g. 6 AWG" /></label>
                       <label className="block md:col-span-2"><span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Max charging amps</span><input value={installReportMaxAmps} onChange={(e) => setInstallReportMaxAmps(e.target.value.replace(/[^\d]/g, ''))} className={inputCls} placeholder="e.g. 40" /></label>
