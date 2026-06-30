@@ -9,6 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.models import (
+    Appointment,
     Case,
     CaseAttachment,
     CaseBomLine,
@@ -80,7 +81,7 @@ def delete_case_cascade(db: Session, case: Case) -> None:
         db.execute(delete(InstallationPhoto).where(InstallationPhoto.installation_id == inst.id))
 
     # Direct children of the case
-    for model in (Survey, Quote, Permit, Installation, Notification, CaseNote, CaseStatusHistory, CaseAttachment, Payment, CaseBomLine):
+    for model in (Appointment, Survey, Quote, Permit, Installation, Notification, CaseNote, CaseStatusHistory, CaseAttachment, Payment, CaseBomLine):
         db.execute(delete(model).where(model.case_id == cid))
 
     db.execute(delete(Case).where(Case.id == cid))
