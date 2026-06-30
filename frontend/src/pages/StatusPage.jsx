@@ -20,6 +20,29 @@ const ORDER = [
   'completed',
 ]
 
+function computeNext(data) {
+  const s = data?.status
+  const depositPaid = data?.survey_deposit_paid
+  if (s === 'pending') return { titleKey: 'next.title.book_survey', subKey: 'next.sub.book_survey', tone: 'act' }
+  if (s === 'survey_scheduled')
+    return depositPaid
+      ? { titleKey: 'next.title.wait_survey', subKey: 'next.sub.wait_survey', tone: 'wait' }
+      : { titleKey: 'next.title.pay_deposit', subKey: 'next.sub.pay_deposit', tone: 'act' }
+  if (s === 'survey_completed' || s === 'quoting') return { titleKey: 'next.title.wait_prep', subKey: 'next.sub.wait_prep', tone: 'wait' }
+  if (s === 'quoted') return { titleKey: 'next.title.sign_quote', subKey: 'next.sub.sign_quote', tone: 'act' }
+  if (s === 'customer_approved' || s === 'permit_applied') return { titleKey: 'next.title.wait_permit', subKey: 'next.sub.wait_permit', tone: 'wait' }
+  if (s === 'permit_approved') return { titleKey: 'next.title.book_install', subKey: 'next.sub.book_install', tone: 'act' }
+  if (s === 'installation_scheduled' || s === 'installed') return { titleKey: 'next.title.wait_install', subKey: 'next.sub.wait_install', tone: 'wait' }
+  if (s === 'completed') return { titleKey: 'next.title.done', subKey: 'next.sub.done', tone: 'done' }
+  return { titleKey: 'next.title.wait_prep', subKey: 'next.sub.wait_prep', tone: 'wait' }
+}
+
+const NEXT_TONE = {
+  act: 'border-sky-200 bg-gradient-to-br from-sky-50 to-teal-50',
+  wait: 'border-slate-200 bg-slate-50',
+  done: 'border-emerald-200 bg-emerald-50',
+}
+
 export default function StatusPage() {
   const { token } = useParams()
   const { t, locale } = useI18n()
@@ -224,6 +247,17 @@ export default function StatusPage() {
               <div className="text-sm font-medium text-slate-800">{t('status.current')}</div>
               <div className="mt-1 text-sm text-slate-700">{statusLabel(data.status)}</div>
             </div>
+
+            {(() => {
+              const na = computeNext(data)
+              return (
+                <div className={`mt-4 rounded-2xl border p-4 ${NEXT_TONE[na.tone]}`}>
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('next.heading')}</div>
+                  <div className="mt-1 text-lg font-bold text-slate-900">{t(na.titleKey)}</div>
+                  <div className="mt-1 text-sm text-slate-600">{t(na.subKey)}</div>
+                </div>
+              )
+            })()}
 
             <div className="mt-4">
               <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('stage.flow_title')}</div>

@@ -17,7 +17,7 @@ const STAGES = [
 
 const STATE_CLS = {
   done: 'border-emerald-200 bg-emerald-50',
-  current: 'border-teal-400 bg-teal-50 ring-2 ring-teal-300',
+  current: 'flow-glow border-teal-400 bg-teal-50',
   upcoming: 'border-slate-200 bg-white',
 }
 

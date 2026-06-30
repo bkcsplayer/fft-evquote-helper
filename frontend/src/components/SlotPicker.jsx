@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api.js'
+import { useI18n } from '../i18n/index.js'
 
 function dayKey(iso) { return iso.slice(0, 10) }
 function fmtDay(dayStr) {
@@ -12,6 +13,7 @@ function fmtHour(iso) {
 
 /** Slot-based booking: lists available times for a kind and books the chosen one. */
 export function SlotPicker({ token, kind, onBooked }) {
+  const { t } = useI18n()
   const [slots, setSlots] = useState([])
   const [loading, setLoading] = useState(true)
   const [selDay, setSelDay] = useState(null)
@@ -50,9 +52,9 @@ export function SlotPicker({ token, kind, onBooked }) {
     }
   }
 
-  if (loading) return <div className="py-3 text-sm text-slate-400">Loading available times…</div>
+  if (loading) return <div className="py-3 text-sm text-slate-400">{t('booking.loading')}</div>
   if (!slots.length)
-    return <div className="rounded-xl border bg-slate-50 px-4 py-3 text-sm text-slate-600">No times available right now — please check back soon.</div>
+    return <div className="rounded-xl border bg-slate-50 px-4 py-3 text-sm text-slate-600">{t('booking.none')}</div>
 
   return (
     <div>

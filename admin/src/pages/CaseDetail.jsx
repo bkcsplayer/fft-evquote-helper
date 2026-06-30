@@ -673,8 +673,12 @@ export default function CaseDetail() {
                       {hasPendingInstallRequest && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs font-semibold text-amber-800">Pending reschedule request — confirm or reject first.</div>}
                       {installationScheduledInFuture && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs font-semibold text-amber-800">Too early to mark installed — scheduled time is in the future.</div>}
                       <div className="flex flex-wrap gap-2">
-                        <button type="button" disabled={busy || (isAtOrAfter(data.status, 'installed') && !installationDateIssue) || !installDt || (!installationDateIssue && !(installation?.request_status === 'pending' && installation?.requested_date))} onClick={scheduleInstallation} className={btnCTA}>{isAtOrAfter(data.status, 'installed') ? 'Fix schedule' : 'Confirm requested time'}</button>
-                        <button type="button" disabled={busy || !(installation?.request_status === 'pending' && installation?.requested_date)} onClick={rejectInstallationRequest} className={btnOutline}>Reject</button>
+                        {(installation?.request_status === 'pending' || installationDateIssue) && (
+                          <>
+                            <button type="button" disabled={busy || (isAtOrAfter(data.status, 'installed') && !installationDateIssue) || !installDt || (!installationDateIssue && !(installation?.request_status === 'pending' && installation?.requested_date))} onClick={scheduleInstallation} className={btnCTA}>{isAtOrAfter(data.status, 'installed') ? 'Fix schedule' : 'Confirm requested time'}</button>
+                            <button type="button" disabled={busy || !(installation?.request_status === 'pending' && installation?.requested_date)} onClick={rejectInstallationRequest} className={btnOutline}>Reject</button>
+                          </>
+                        )}
                         <button type="button" disabled={busy || !canMarkInstalled(data.status) || installationScheduledInFuture || hasPendingInstallRequest} onClick={completeInstallation} className={btnPrimary}>Mark installed</button>
                         <button type="button" disabled={busy || data.status !== 'installed'} onClick={sendInstallationReport} className="rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-800 active:scale-95 disabled:opacity-60">Send install report</button>
                         <button type="button" disabled={busy || (data.status !== 'installed' && data.status !== 'completed')} onClick={sendCompletionEmail} className={btnOutline}>Send completion email</button>

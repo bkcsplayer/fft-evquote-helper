@@ -10,3 +10,23 @@ body {
 body {
   @apply bg-slate-50 text-slate-900;
 }
+
+/* Flowing-light border marking the current step. Border-only; degrades to a static ring. */
+@property --flow-ang { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.flow-glow { position: relative; }
+.flow-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  pointer-events: none;
+  z-index: 5;
+  background: conic-gradient(from var(--flow-ang), transparent 0deg, #2dd4bf 40deg, #0ea5e9 100deg, transparent 160deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  animation: flow-spin 2.6s linear infinite;
+}
+@keyframes flow-spin { to { --flow-ang: 360deg; } }
+@media (prefers-reduced-motion: reduce) { .flow-glow::after { animation: none; background: #2dd4bf; } }
