@@ -116,15 +116,15 @@ export default function Installations() {
           </button>
         </div>
 
-        <div className="mt-5 rounded-2xl border bg-white p-4 shadow-sm">
+        <div className="mt-5 rounded-3xl border border-zinc-100 bg-white p-4 shadow-sm">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <label className="block">
               <span className="text-sm font-medium text-slate-700">Start</span>
-              <input type="date" value={start.toISOString().slice(0, 10)} onChange={(e) => setStart(new Date(e.target.value + 'T00:00:00'))} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20" />
+              <input type="date" value={start.toISOString().slice(0, 10)} onChange={(e) => setStart(new Date(e.target.value + 'T00:00:00'))} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20" />
             </label>
             <label className="block">
               <span className="text-sm font-medium text-slate-700">End</span>
-              <input type="date" value={end.toISOString().slice(0, 10)} onChange={(e) => setEnd(new Date(e.target.value + 'T23:59:59'))} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20" />
+              <input type="date" value={end.toISOString().slice(0, 10)} onChange={(e) => setEnd(new Date(e.target.value + 'T23:59:59'))} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20" />
             </label>
             <button type="button" onClick={load} className="mt-6 inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-800 active:scale-95">
               Apply range
@@ -175,7 +175,7 @@ export default function Installations() {
                     <tr key={s.case_id + s.scheduled_date} className={`transition-colors hover:bg-slate-50 ${s.completed_at && !s.completion_email_sent ? 'bg-amber-50/30' : ''}`}>
                       <td className="px-4 py-3">{new Date(s.scheduled_date).toLocaleString()}</td>
                       <td className="px-4 py-3 font-mono text-xs font-semibold">
-                        <Link className="text-sky-600 hover:underline" to={`/admin/cases/${s.case_id}`}>{s.case_id}</Link>
+                        <Link className="text-emerald-600 hover:underline" to={`/admin/cases/${s.case_id}`}>{s.case_id}</Link>
                       </td>
                       <td className="px-4 py-3 text-slate-600">{s.completed_at ? new Date(s.completed_at).toLocaleString() : '—'}</td>
                       <td className="px-4 py-3">

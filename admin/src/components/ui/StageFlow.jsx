@@ -14,7 +14,7 @@ const idx = (s) => CASE_STATUS_ORDER.indexOf(s)
 
 const STATE_CLS = {
   done: 'border-emerald-200 bg-emerald-50',
-  current: 'border-sky-300 bg-sky-50 ring-2 ring-sky-300',
+  current: 'border-emerald-300 bg-emerald-50 ring-2 ring-emerald-300',
   upcoming: 'border-slate-200 bg-white',
 }
 
@@ -53,7 +53,7 @@ export function StageFlow({ status, details = {} }) {
               <div className={`min-w-[120px] flex-1 rounded-xl border p-3 transition-colors ${STATE_CLS[state]}`}>
                 <div className="flex items-center justify-between gap-2">
                   <span className={`text-[11px] font-semibold uppercase tracking-wider ${state === 'upcoming' ? 'text-slate-400' : 'text-slate-700'}`}>{st.label}</span>
-                  {state === 'done' ? <Check /> : state === 'current' ? <span className="h-2 w-2 animate-pulse rounded-full bg-sky-500" /> : null}
+                  {state === 'done' ? <Check /> : state === 'current' ? <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" /> : null}
                 </div>
                 <div className={`mt-1 text-xs ${state === 'upcoming' ? 'text-slate-400' : 'text-slate-600'}`}>
                   {sub || (state === 'done' ? 'Done' : state === 'current' ? 'In progress' : 'Upcoming')}

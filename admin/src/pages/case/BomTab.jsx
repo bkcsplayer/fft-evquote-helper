@@ -91,7 +91,7 @@ export default function BomTab({ caseId, onChanged, onSuccess, onError }) {
         eyebrow="Bill of materials"
         title="Internal cost vs customer price"
         action={
-          <button type="button" disabled={busy || bom.lines.length === 0} onClick={generateQuote} className="cursor-pointer rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-800 disabled:opacity-60">
+          <button type="button" disabled={busy || bom.lines.length === 0} onClick={generateQuote} className="cursor-pointer rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 disabled:opacity-60">
             Generate quote from BOM
           </button>
         }

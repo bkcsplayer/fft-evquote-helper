@@ -120,8 +120,8 @@ export default function Settings() {
     finally { setBusy(false) }
   }
 
-  const inputClass = "mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
-  const textareaClass = "mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 font-mono text-xs outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
+  const inputClass = "mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+  const textareaClass = "mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3 font-mono text-xs outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
 
   return (
     <AdminShell>
@@ -135,7 +135,7 @@ export default function Settings() {
 
         <div className="mt-5 grid gap-5 lg:grid-cols-2">
           {/* Brand Profile */}
-          <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-bold text-slate-900">Brand profile</h2>
             <p className="mt-1 text-xs text-slate-500">Used in email templates. Stored in <code className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px]">system_settings.brand_profile</code>.</p>
             <div className="mt-4 space-y-3">
@@ -145,7 +145,7 @@ export default function Settings() {
               <div className="rounded-xl border bg-slate-50 p-3">
                 <span className="text-xs font-semibold text-slate-700">Logo</span>
                 <div className="mt-1 text-xs text-slate-600">
-                  {logoUrl ? <>Current: <a className="break-all text-sky-600 underline" href={logoUrl} target="_blank" rel="noreferrer">{logoUrl}</a></> : <>No logo URL set.</>}
+                  {logoUrl ? <>Current: <a className="break-all text-emerald-600 underline" href={logoUrl} target="_blank" rel="noreferrer">{logoUrl}</a></> : <>No logo URL set.</>}
                 </div>
                 <input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; uploadLogo(f) }} className="mt-2 block w-full text-xs" />
                 <div className="mt-1 text-[11px] text-slate-400">PNG/JPG/WEBP, max 5MB.</div>
@@ -157,17 +157,17 @@ export default function Settings() {
           </div>
 
           {/* Pricing */}
-          <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-bold text-slate-900">Pricing defaults</h2>
             <p className="mt-1 text-xs text-slate-500">Edit JSON and save.</p>
-            <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/60 p-3">
+            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
               <div className="grid grid-cols-2 gap-3">
                 <label className="block"><span className="text-xs font-semibold text-slate-700">Default base price ($)</span>
                   <input value={basePriceDefault} onChange={(e) => setBasePriceDefault(e.target.value.replace(/[^\d.]/g, ''))} className={inputClass} placeholder="899.00" /></label>
                 <label className="block"><span className="text-xs font-semibold text-slate-700">Default permit fee ($)</span>
                   <input value={permitFeeDefault} onChange={(e) => setPermitFeeDefault(e.target.value.replace(/[^\d.]/g, ''))} className={inputClass} placeholder="0" /></label>
               </div>
-              <button type="button" disabled={busy} onClick={saveQuoteDefaults} className="mt-2 inline-flex items-center justify-center rounded-xl bg-sky-700 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-sky-800 disabled:opacity-60">Save quote defaults</button>
+              <button type="button" disabled={busy} onClick={saveQuoteDefaults} className="mt-2 inline-flex items-center justify-center rounded-xl bg-emerald-700 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 disabled:opacity-60">Save quote defaults</button>
               <div className="mt-1 text-[11px] text-slate-500">Pre-fills new quotes. Set permit fee to <b>0</b> if the base price already includes the permit; the quote then shows “base includes permit”. City of Calgary permit is ~$75–$200.</div>
             </div>
             <textarea value={pricingJson} onChange={(e) => setPricingJson(e.target.value)} className={`${textareaClass} h-72`} spellCheck={false} />
@@ -177,7 +177,7 @@ export default function Settings() {
           </div>
 
           {/* E-Transfer */}
-          <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-bold text-slate-900">E-transfer settings</h2>
             <p className="mt-1 text-xs text-slate-500">Stored in <code className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px]">system_settings.etransfer_settings</code>.</p>
             <textarea value={etransferJson} onChange={(e) => setEtransferJson(e.target.value)} className={`${textareaClass} h-72`} spellCheck={false} />
@@ -187,7 +187,7 @@ export default function Settings() {
           </div>
 
           {/* Email Templates */}
-          <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-bold text-slate-900">Email templates</h2>
             <p className="mt-1 text-xs text-slate-500">Stored in <code className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px]">system_settings.email_templates</code>. Jinja supported.</p>
             <textarea value={emailTemplatesJson} onChange={(e) => setEmailTemplatesJson(e.target.value)} className={`${textareaClass} h-72`} spellCheck={false} />
@@ -197,7 +197,7 @@ export default function Settings() {
           </div>
 
           {/* Charger Brands */}
-          <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
             <h2 className="text-sm font-bold text-slate-900">Charger brands</h2>
             <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-3">
               <input value={newBrandName} onChange={(e) => setNewBrandName(e.target.value)} className={`${inputClass} mt-0 md:col-span-2`} placeholder="New brand name" />
@@ -232,7 +232,7 @@ export default function Settings() {
         </div>
 
         {/* SMS Templates */}
-        <div className="mt-5 rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="mt-5 rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
           <h2 className="text-sm font-bold text-slate-900">SMS templates</h2>
           <p className="mt-1 text-xs text-slate-500">Stored in <code className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px]">system_settings.sms_templates</code>. Jinja supported.</p>
           <textarea value={smsTemplatesJson} onChange={(e) => setSmsTemplatesJson(e.target.value)} className={`${textareaClass} mt-3 h-72`} spellCheck={false} />
@@ -245,7 +245,7 @@ export default function Settings() {
         <MaterialsManager />
 
         {/* Raw settings */}
-        <div className="mt-5 rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="mt-5 rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
           <h2 className="text-sm font-bold text-slate-900">All settings (read-only)</h2>
           <pre className="mt-3 overflow-auto rounded-xl border bg-slate-50 p-4 text-xs text-slate-600">{JSON.stringify(allSettings, null, 2)}</pre>
         </div>

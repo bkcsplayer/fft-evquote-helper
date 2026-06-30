@@ -62,7 +62,7 @@ export default function Cases() {
         </div>
 
         {/* Filters */}
-        <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mt-5 rounded-3xl border border-zinc-100 bg-white p-4 shadow-sm">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <label className="block">
               <span className="text-sm font-medium text-slate-700">Search</span>
@@ -70,7 +70,7 @@ export default function Cases() {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') load() }}
-                className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
+                className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
                 placeholder="Name / phone / address / reference"
               />
             </label>
@@ -79,7 +79,7 @@ export default function Cases() {
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
-                className="mt-1.5 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
+                className="mt-1.5 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
               >
                 <option value="">All statuses</option>
                 {CASE_STATUS_ORDER.map((s) => (
@@ -112,7 +112,7 @@ export default function Cases() {
         ) : null}
 
         {/* Table */}
-        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="mt-4 overflow-hidden rounded-3xl border border-zinc-100 bg-white shadow-sm">
           {loading ? (
             <SkeletonTable rows={8} cols={5} />
           ) : (
@@ -133,7 +133,7 @@ export default function Cases() {
                     return (
                       <tr key={it.id} className={`group transition-colors hover:bg-slate-50/80 ${rowTintClass(tone)}`}>
                         <td className={`border-l-4 ${borderLeftClass(tone)} px-4 py-3 font-semibold`}>
-                          <Link className="text-sky-600 transition-colors hover:text-sky-700 hover:underline" to={`/admin/cases/${it.id}`}>
+                          <Link className="text-emerald-600 transition-colors hover:text-emerald-700 hover:underline" to={`/admin/cases/${it.id}`}>
                             {it.reference_number}
                           </Link>
                         </td>

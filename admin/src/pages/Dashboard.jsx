@@ -61,10 +61,10 @@ export default function Dashboard() {
     <AdminShell>
       <div className="space-y-6 animate-fade-in">
         {/* Hero */}
-        <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-sky-950 shadow-lg">
+        <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 shadow-lg">
           <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-6">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-sky-400">Operations Dashboard</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">Operations Dashboard</p>
               <h1 className="mt-1 text-2xl font-bold tracking-tight text-white">FFT Control Center</h1>
               <p className="mt-1 text-sm text-slate-400">Live pipeline, queues, and money — one screen.</p>
             </div>
@@ -289,7 +289,7 @@ function ActivityTimeline({ rows }) {
           <li key={`${a.case_id || 'x'}|${a.created_at || ''}|${i}`} className="relative">
             <span className={`absolute -left-[1.30rem] top-1 h-2.5 w-2.5 rounded-full ring-4 ring-white ${dotClass(tone)}`} />
             <div className="flex items-start justify-between gap-2">
-              <Link to={`/admin/cases/${a.case_id}`} className="text-sm font-semibold text-slate-900 hover:text-sky-700 hover:underline">
+              <Link to={`/admin/cases/${a.case_id}`} className="text-sm font-semibold text-slate-900 hover:text-emerald-700 hover:underline">
                 {a.customer_nickname || a.reference_number || 'Case'}
               </Link>
               <span className="shrink-0 text-[11px] font-medium text-slate-400">{relativeTime(a.created_at)}</span>

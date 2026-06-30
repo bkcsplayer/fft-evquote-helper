@@ -29,7 +29,7 @@ export default function Referrers() {
           </button>
         </div>
 
-        <div className="mt-5 overflow-hidden rounded-2xl border bg-white shadow-sm">
+        <div className="mt-5 overflow-hidden rounded-3xl border border-zinc-100 bg-white shadow-sm">
           {loading ? (
             <div className="p-4"><div className="h-64 animate-pulse rounded-xl bg-slate-100" /></div>
           ) : error ? (

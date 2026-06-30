@@ -89,7 +89,7 @@ export function CalendarGrid({ start, end, events, emptyMessage = 'No events.' }
   }
 
   return (
-    <div className="overflow-auto rounded-2xl border bg-white shadow-sm">
+    <div className="overflow-auto rounded-3xl border border-zinc-100 bg-white shadow-sm">
       <div className="min-w-[56rem]">
         {weeks.map((week, idx) => (
           <div key={idx} className={`${idx === 0 ? '' : 'border-t'} grid grid-cols-7`}>

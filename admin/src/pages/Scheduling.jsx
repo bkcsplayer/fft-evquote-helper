@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { AdminShell } from '../components/layout/AdminShell.jsx'
 import { api } from '../services/api.js'
 
-const card = 'overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm'
+const card = 'overflow-hidden rounded-3xl border border-zinc-100 bg-white shadow-sm'
 const cardHead = 'border-b border-slate-200 bg-slate-50 px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-700'
-const input = 'mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20'
+const input = 'mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20'
 const btn = 'inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 active:scale-95 disabled:opacity-60'
-const btnP = 'inline-flex items-center gap-2 rounded-xl bg-sky-700 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-sky-800 active:scale-95 disabled:opacity-60'
+const btnP = 'inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 active:scale-95 disabled:opacity-60'
 const btnD = 'inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50'
 
 const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] // index = weekday (Mon=0)
@@ -148,7 +148,7 @@ export default function Scheduling() {
                 <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Working days</div>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {DOW.map((d, i) => (
-                    <label key={i} className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${(config.working_weekdays || []).includes(i) ? 'border-sky-300 bg-sky-50 text-sky-800' : 'border-slate-200 text-slate-400'}`}>
+                    <label key={i} className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${(config.working_weekdays || []).includes(i) ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-slate-200 text-slate-400'}`}>
                       <input type="checkbox" checked={(config.working_weekdays || []).includes(i)} onChange={() => toggleWeekday(i)} className="h-3.5 w-3.5" />{d}
                     </label>
                   ))}
@@ -187,7 +187,7 @@ export default function Scheduling() {
           <div className="space-y-1.5 p-5">
             {bookings.map((b) => (
               <div key={b.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2 text-sm">
-                <div><b>{b.reference_number || b.case_id}</b> · {b.customer || '—'} · <span className="font-semibold text-sky-700">{b.kind}</span></div>
+                <div><b>{b.reference_number || b.case_id}</b> · {b.customer || '—'} · <span className="font-semibold text-emerald-700">{b.kind}</span></div>
                 <div className="text-slate-500">{fmt(b.start_at)}</div>
                 <button className={btnD} onClick={() => cancelBooking(b.id)}>Cancel</button>
               </div>

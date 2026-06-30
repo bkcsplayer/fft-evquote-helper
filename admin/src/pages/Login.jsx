@@ -29,7 +29,7 @@ export default function Login() {
       <div className="w-full max-w-sm animate-fade-in">
         {/* Logo */}
         <div className="mb-8 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-teal-500 text-lg font-bold text-white shadow-lg shadow-sky-500/25">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-lg font-bold text-white shadow-lg shadow-emerald-500/25">
             F
           </div>
           <h1 className="mt-4 text-xl font-bold tracking-tight text-slate-900">FFT Admin</h1>
@@ -37,14 +37,14 @@ export default function Login() {
         </div>
 
         {/* Card */}
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        <div className="rounded-3xl border border-zinc-100 bg-white p-6 shadow-sm">
           <form onSubmit={onSubmit} className="space-y-4">
             <label className="block">
               <div className="text-sm font-medium text-slate-700">Username</div>
               <input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="mt-1.5 block w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
+                className="mt-1.5 block w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
                 autoComplete="username"
                 autoFocus
                 required
@@ -56,7 +56,7 @@ export default function Login() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1.5 block w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
+                className="mt-1.5 block w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
                 autoComplete="current-password"
                 required
               />

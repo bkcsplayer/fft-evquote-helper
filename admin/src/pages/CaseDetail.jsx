@@ -74,9 +74,9 @@ function isPreviewableImageFileName(name) {
   return s.endsWith('.png') || s.endsWith('.jpg') || s.endsWith('.jpeg') || s.endsWith('.webp') || s.endsWith('.gif')
 }
 
-const inputCls = "mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 disabled:bg-slate-50 disabled:text-slate-500"
-const textareaCls = "mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 disabled:bg-slate-50 disabled:text-slate-500"
-const selectCls = "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 disabled:bg-slate-50 disabled:text-slate-500"
+const inputCls = "mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-50 disabled:text-slate-500"
+const textareaCls = "mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-50 disabled:text-slate-500"
+const selectCls = "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-50 disabled:text-slate-500"
 const btnPrimary = "inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-800 active:scale-95 disabled:opacity-60"
 const btnCTA = "inline-flex items-center justify-center rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-800 active:scale-95 disabled:opacity-60"
 const btnOutline = "inline-flex items-center justify-center rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-60"
@@ -371,7 +371,7 @@ export default function CaseDetail() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-sm text-slate-500">
-              <Link className="text-sky-600 hover:underline" to="/admin/cases">Cases</Link> / {data?.reference_number || id}
+              <Link className="text-emerald-600 hover:underline" to="/admin/cases">Cases</Link> / {data?.reference_number || id}
             </div>
             <h1 className="mt-1 flex items-center gap-3 text-xl font-bold tracking-tight text-slate-900">
               {data?.reference_number || 'Case'}
@@ -445,7 +445,7 @@ export default function CaseDetail() {
                     }}
                   />
                 </SectionCard>
-                <details className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <details className="overflow-hidden rounded-3xl border border-zinc-100 bg-white shadow-sm">
                   <summary className="cursor-pointer list-none px-5 py-3.5 text-xs font-semibold uppercase tracking-wider text-slate-700">Full lifecycle <span className="font-normal normal-case text-slate-400">— all states (reference)</span></summary>
                   <div className="flex gap-2 overflow-x-auto px-5 pb-5">
                     {CASE_STAGES.map((stage) => (
@@ -453,7 +453,7 @@ export default function CaseDetail() {
                         <div className="mb-2 border-b border-dashed border-slate-200 pb-1 text-center text-[11px] font-bold text-slate-700">{stage.label}</div>
                         <div className="space-y-1.5">
                           {stage.statuses.map((st) => (
-                            <div key={st} className={`relative rounded-lg border px-2 py-1.5 text-[11px] font-medium ${data.status === st ? 'border-sky-300 bg-sky-50 text-sky-800 flow-glow' : 'border-slate-200 bg-white text-slate-500'}`}>{statusLabel(st)}</div>
+                            <div key={st} className={`relative rounded-lg border px-2 py-1.5 text-[11px] font-medium ${data.status === st ? 'border-emerald-300 bg-emerald-50 text-emerald-800 flow-glow' : 'border-slate-200 bg-white text-slate-500'}`}>{statusLabel(st)}</div>
                           ))}
                         </div>
                       </div>
@@ -594,7 +594,7 @@ export default function CaseDetail() {
                         <div className="flex items-center justify-between"><span className="text-slate-500">Total</span><span className="font-bold text-slate-900">{money(data.active_quote.total)}</span></div>
                         <div className="flex items-center justify-between"><span className="text-slate-500">Approved</span><Pill tone={data.active_quote.signature ? 'emerald' : 'slate'}>{data.active_quote.signature ? 'yes' : 'no'}</Pill></div>
                         <div className="text-xs text-slate-500">Sent: {data.active_quote.sent_at ? new Date(data.active_quote.sent_at).toLocaleString() : '—'}</div>
-                        {data.active_quote.signature && <div className="text-xs text-slate-500">Signature details are in the <button type="button" className="font-semibold text-sky-600 hover:underline" onClick={() => setTab('signature')}>Signature</button> tab.</div>}
+                        {data.active_quote.signature && <div className="text-xs text-slate-500">Signature details are in the <button type="button" className="font-semibold text-emerald-600 hover:underline" onClick={() => setTab('signature')}>Signature</button> tab.</div>}
                       </div>
                     ) : <div className="py-2 text-sm text-slate-500">No active quote yet.</div>}
 
@@ -641,7 +641,7 @@ export default function CaseDetail() {
                         <div className="mt-3 space-y-1.5">
                           {(permit?.attachments || []).map((a) => (
                             <div key={a.id} className="flex items-center justify-between gap-3 rounded-xl border bg-white px-3.5 py-2.5">
-                              <div className="min-w-0"><a className="block truncate font-semibold text-sky-600 hover:underline" href={`/${a.file_path}`} target="_blank" rel="noreferrer">{a.file_name}</a><div className="text-xs text-slate-400">{a.file_path}</div></div>
+                              <div className="min-w-0"><a className="block truncate font-semibold text-emerald-600 hover:underline" href={`/${a.file_path}`} target="_blank" rel="noreferrer">{a.file_name}</a><div className="text-xs text-slate-400">{a.file_path}</div></div>
                               {isPreviewableImageFileName(a.file_name) && <button type="button" className="shrink-0 overflow-hidden rounded-lg border bg-slate-50" title="Preview" onClick={() => setPreview({ src: `/${a.file_path}`, title: a.file_name || 'Attachment', subtitle: 'Permit attachment' })}><img src={`/${a.file_path}`} alt={a.file_name} className="h-10 w-14 object-cover" /></button>}
                             </div>
                           ))}

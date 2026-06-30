@@ -14,7 +14,7 @@ export function SubStepper({ steps = [] }) {
               s.state === 'done'
                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                 : s.state === 'current'
-                  ? 'flow-glow border-sky-300 bg-sky-50 text-sky-800'
+                  ? 'flow-glow border-emerald-300 bg-emerald-50 text-emerald-800'
                   : 'border-slate-200 bg-slate-50 text-slate-400'
             }`}
           >

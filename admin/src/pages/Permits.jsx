@@ -79,15 +79,15 @@ export default function Permits() {
           </button>
         </div>
 
-        <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mt-5 rounded-3xl border border-zinc-100 bg-white p-4 shadow-sm">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <label className="block">
               <span className="text-sm font-medium text-slate-700">Search</span>
-              <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') load() }} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20" placeholder="Reference / address / customer / permit #" />
+              <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') load() }} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20" placeholder="Reference / address / customer / permit #" />
             </label>
             <label className="block">
               <span className="text-sm font-medium text-slate-700">Permit status</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value)} className="mt-1.5 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20">
+              <select value={status} onChange={(e) => setStatus(e.target.value)} className="mt-1.5 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20">
                 <option value="">All</option>
                 {PERMIT_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
               </select>
@@ -133,7 +133,7 @@ export default function Permits() {
                     return (
                       <tr key={it.id} className={`transition-colors hover:bg-slate-50/80 ${rowTintClass(tone)}`}>
                         <td className={`border-l-4 ${borderLeftClass(tone)} px-3 py-3 align-top`}>
-                          <Link className="font-semibold text-sky-600 hover:underline" to={`/admin/cases/${it.case_id}`}>{it.reference_number}</Link>
+                          <Link className="font-semibold text-emerald-600 hover:underline" to={`/admin/cases/${it.case_id}`}>{it.reference_number}</Link>
                           <div className="mt-1"><StatusTag status={it.case_status} /></div>
                         </td>
                         <td className="px-3 py-3 align-top">
@@ -146,7 +146,7 @@ export default function Permits() {
                             <select
                               value={it._edit_status || it.status || 'applied'}
                               onChange={(e) => { const v = e.target.value; setItems((prev) => prev.map((x) => (x.id === it.id ? { ...x, _edit_status: v } : x))) }}
-                              className="cursor-pointer rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
+                              className="cursor-pointer rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
                             >
                               {PERMIT_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
                             </select>

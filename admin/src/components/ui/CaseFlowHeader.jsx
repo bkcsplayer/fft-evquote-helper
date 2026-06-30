@@ -15,14 +15,14 @@ const STEP_CLS = {
 }
 const STEP_SUB = {
   done: 'text-emerald-600',
-  current: 'text-sky-200',
+  current: 'text-emerald-200',
   upcoming: 'text-slate-400',
 }
 const STEP_SUB_LABEL = { done: 'Done', current: 'In progress', upcoming: '—' }
 
 const BALL_TONE = {
   amber: 'text-amber-700',
-  sky: 'text-sky-700',
+  sky: 'text-emerald-700',
   emerald: 'text-emerald-700',
   rose: 'text-rose-600',
   slate: 'text-slate-700',
@@ -42,7 +42,7 @@ export function CaseFlowHeader({ data, installation, onGoTo }) {
   return (
     <div className="mt-5 space-y-3">
       {/* Pipeline stepper */}
-      <div className="flex items-stretch gap-1.5 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+      <div className="flex items-stretch gap-1.5 overflow-x-auto rounded-3xl border border-zinc-100 bg-white p-2 shadow-sm">
         {stages.map((st) => (
           <div key={st.key} className={`relative min-w-[96px] flex-1 rounded-xl border px-3 py-2.5 ${STEP_CLS[st.state]}`}>
             <div className="text-[11px] font-semibold">{st.label}</div>
@@ -52,8 +52,8 @@ export function CaseFlowHeader({ data, installation, onGoTo }) {
       </div>
 
       {/* 4-cell summary */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="h-1 bg-gradient-to-r from-sky-400 via-sky-600 to-indigo-500" />
+      <div className="overflow-hidden rounded-3xl border border-zinc-100 bg-white shadow-sm">
+        <div className="h-1 bg-gradient-to-r from-emerald-500 to-emerald-700" />
         <div className="grid grid-cols-2 divide-slate-200 lg:grid-cols-4 lg:divide-x">
           {/* Current stage */}
           <div className="p-4">
@@ -77,7 +77,7 @@ export function CaseFlowHeader({ data, installation, onGoTo }) {
               <button
                 type="button"
                 onClick={() => na?.tab && onGoTo?.(na.tab)}
-                className="mt-1.5 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-sky-700 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-sky-800 active:scale-95"
+                className="mt-1.5 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-700 px-3.5 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-800 active:scale-95"
               >
                 {na?.label}
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>

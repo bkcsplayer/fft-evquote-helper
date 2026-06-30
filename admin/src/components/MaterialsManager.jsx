@@ -50,7 +50,7 @@ export default function MaterialsManager() {
   const inputCls = 'rounded-xl border border-slate-200 px-3 py-2 text-sm'
 
   return (
-    <div className="mt-5 rounded-2xl border bg-white p-5 shadow-sm">
+    <div className="mt-5 rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
       <h2 className="text-sm font-bold text-slate-900">Material catalog</h2>
       <p className="mt-1 text-xs text-slate-500">Reusable materials with default cost &amp; sell price — used to build case BOMs.</p>
       {error ? <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-700">{error}</div> : null}
