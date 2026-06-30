@@ -213,6 +213,13 @@ export default function CaseDetail() {
   useEffect(() => { if (!preview) return; const onKey = (e) => { if (e.key === 'Escape') setPreview(null) }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey) }, [preview])
   useEffect(() => { if (!success) return; const t = setTimeout(() => setSuccess(''), 4500); return () => clearTimeout(t) }, [success])
   useEffect(() => { if (!error) return; const t = setTimeout(() => setError(''), 7000); return () => clearTimeout(t) }, [error])
+  // Pre-fill the Permit fee on new quotes from the admin-managed default (Settings → pricing_defaults).
+  useEffect(() => {
+    api.get('/settings').then((r) => {
+      const pd = (r.data || []).find((x) => x.key === 'pricing_defaults')?.value || {}
+      if (pd.permit_fee != null && pd.permit_fee !== '') setPermitFee(String(pd.permit_fee))
+    }).catch(() => {})
+  }, [])
   useEffect(() => {
     // Deep links from other pages (e.g. /admin/cases/{id}#permit) open the matching tab.
     const hash = (loc.hash || '').replace('#', '').trim().toLowerCase()

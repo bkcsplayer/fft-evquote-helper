@@ -32,7 +32,7 @@ export function AdminShell({ children }) {
   const [brand, setBrand] = useState(null)
   useEffect(() => {
     let on = true
-    api.get('/branding').then((r) => { if (on) setBrand(r.data) }).catch(() => {})
+    api.get('/branding', { baseURL: '/api/v1' }).then((r) => { if (on) setBrand(r.data) }).catch(() => {})
     return () => { on = false }
   }, [])
 

@@ -13,6 +13,7 @@ export default function Settings() {
   const [supportPhone, setSupportPhone] = useState('')
   const [logoUrl, setLogoUrl] = useState('')
   const [warrantyYears, setWarrantyYears] = useState('1')
+  const [permitFeeDefault, setPermitFeeDefault] = useState('350.00')
   const [brands, setBrands] = useState([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -27,6 +28,7 @@ export default function Settings() {
       setAllSettings(s.data || [])
       const pricing = (s.data || []).find((x) => x.key === 'pricing_defaults')?.value || {}
       setPricingJson(JSON.stringify(pricing, null, 2))
+      setPermitFeeDefault(String(pricing.permit_fee ?? '350.00'))
       const et = (s.data || []).find((x) => x.key === 'etransfer_settings')?.value || {}
       setEtransferJson(JSON.stringify(et, null, 2))
       const emailTemplates = (s.data || []).find((x) => x.key === 'email_templates')?.value || {}
@@ -50,6 +52,16 @@ export default function Settings() {
     setBusy(true); setError('')
     try { const parsed = JSON.parse(pricingJson || '{}'); await api.put('/settings/pricing_defaults', { value: parsed }); await load() }
     catch (e) { setError(e?.response?.data?.detail || e.message || 'Failed to save pricing') }
+    finally { setBusy(false) }
+  }
+
+  async function savePermitDefault() {
+    setBusy(true); setError('')
+    try {
+      const cur = (allSettings.find((x) => x.key === 'pricing_defaults')?.value) || {}
+      await api.put('/settings/pricing_defaults', { value: { ...cur, permit_fee: permitFeeDefault } })
+      await load()
+    } catch (e) { setError(e?.response?.data?.detail || e.message || 'Failed to save permit fee') }
     finally { setBusy(false) }
   }
 
@@ -146,6 +158,12 @@ export default function Settings() {
           <div className="rounded-2xl border bg-white p-5 shadow-sm">
             <h2 className="text-sm font-bold text-slate-900">Pricing defaults</h2>
             <p className="mt-1 text-xs text-slate-500">Edit JSON and save.</p>
+            <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50/60 p-3">
+              <label className="block"><span className="text-xs font-semibold text-slate-700">Default permit fee ($)</span>
+                <input value={permitFeeDefault} onChange={(e) => setPermitFeeDefault(e.target.value.replace(/[^\d.]/g, ''))} className={inputClass} placeholder="350.00" /></label>
+              <button type="button" disabled={busy} onClick={savePermitDefault} className="mt-2 inline-flex items-center justify-center rounded-xl bg-sky-700 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-sky-800 disabled:opacity-60">Save permit fee</button>
+              <div className="mt-1 text-[11px] text-slate-500">Pre-fills the Permit fee on new quotes. City of Calgary permit is ~$75–$200.</div>
+            </div>
             <textarea value={pricingJson} onChange={(e) => setPricingJson(e.target.value)} className={`${textareaClass} h-72`} spellCheck={false} />
             <button type="button" disabled={busy} onClick={savePricing} className="mt-4 inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-800 disabled:opacity-60">
               Save pricing_defaults

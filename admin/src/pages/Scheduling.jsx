@@ -30,10 +30,10 @@ export default function Scheduling() {
 
   async function loadAll() {
     const [c, a, o, b] = await Promise.all([
-      api.get('/admin/booking-config'),
-      api.get('/admin/service-area'),
-      api.get('/admin/availability-overrides'),
-      api.get('/admin/bookings'),
+      api.get('/booking-config'),
+      api.get('/service-area'),
+      api.get('/availability-overrides'),
+      api.get('/bookings'),
     ])
     setConfig(c.data); setArea(a.data); setOverrides(o.data || []); setBookings(b.data || [])
   }
@@ -41,31 +41,31 @@ export default function Scheduling() {
 
   async function saveConfig() {
     setBusy(true)
-    try { const r = await api.put('/admin/booking-config', { value: config }); setConfig(r.data); flash('Booking config saved.') }
+    try { const r = await api.put('/booking-config', { value: config }); setConfig(r.data); flash('Booking config saved.') }
     catch (e) { flash(e?.response?.data?.detail || 'Save failed') } finally { setBusy(false) }
   }
   async function saveArea() {
     setBusy(true)
-    try { const r = await api.put('/admin/service-area', { value: area }); setArea(r.data); flash('Service area saved.') }
+    try { const r = await api.put('/service-area', { value: area }); setArea(r.data); flash('Service area saved.') }
     catch (e) { flash(e?.response?.data?.detail || 'Save failed') } finally { setBusy(false) }
   }
   async function addOverride() {
     if (!ovDay) return
     setBusy(true)
     try {
-      await api.post('/admin/availability-overrides', { day: ovDay, hour: ovHour === '' ? null : Number(ovHour), capacity: Number(ovCap) })
-      const o = await api.get('/admin/availability-overrides'); setOverrides(o.data || [])
+      await api.post('/availability-overrides', { day: ovDay, hour: ovHour === '' ? null : Number(ovHour), capacity: Number(ovCap) })
+      const o = await api.get('/availability-overrides'); setOverrides(o.data || [])
       flash('Override saved.')
     } catch (e) { flash(e?.response?.data?.detail || 'Save failed') } finally { setBusy(false) }
   }
   async function delOverride(id) {
     setBusy(true)
-    try { await api.delete(`/admin/availability-overrides/${id}`); setOverrides((p) => p.filter((x) => x.id !== id)) }
+    try { await api.delete(`/availability-overrides/${id}`); setOverrides((p) => p.filter((x) => x.id !== id)) }
     catch (e) { flash(e?.response?.data?.detail || 'Delete failed') } finally { setBusy(false) }
   }
   async function cancelBooking(id) {
     setBusy(true)
-    try { await api.post(`/admin/bookings/${id}/cancel`); setBookings((p) => p.filter((x) => x.id !== id)); flash('Booking cancelled.') }
+    try { await api.post(`/bookings/${id}/cancel`); setBookings((p) => p.filter((x) => x.id !== id)); flash('Booking cancelled.') }
     catch (e) { flash(e?.response?.data?.detail || 'Cancel failed') } finally { setBusy(false) }
   }
 
