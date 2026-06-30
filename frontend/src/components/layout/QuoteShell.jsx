@@ -1,14 +1,25 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../../i18n/index.js'
+import { api } from '../../services/api.js'
 
 export function QuoteShell({ children }) {
   const { t, lang, toggle } = useI18n()
+  // Single source: logo + support phone come from admin Settings (brand_profile) via /branding.
+  const [brand, setBrand] = useState(null)
+  useEffect(() => {
+    let on = true
+    api.get('/branding').then((r) => { if (on) setBrand(r.data) }).catch(() => {})
+    return () => { on = false }
+  }, [])
+  const logo = brand?.logo_url || '/brand-logo.png'
+  const phone = brand?.support_phone || '+14030000000'
   return (
     <div className="min-h-screen">
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-md items-center justify-between px-4 py-4">
           <Link to="/quote" className="flex items-center gap-2 text-sm font-semibold tracking-wide text-slate-900">
-            <img src="/brand-logo.png" alt="FFT" className="h-6 w-6 rounded-md bg-slate-900/5 object-contain" />
+            <img src={logo} alt={brand?.brand_short || 'FFT'} className="h-6 w-6 rounded-md bg-slate-900/5 object-contain" />
             <span>{t('app.brand')}</span>
           </Link>
           <div className="flex items-center gap-3">
@@ -20,7 +31,7 @@ export function QuoteShell({ children }) {
             >
               {lang === 'zh' ? 'EN' : '中文'}
             </button>
-            <a className="text-sm text-slate-600" href="tel:+14030000000">
+            <a className="text-sm text-slate-600" href={`tel:${phone}`}>
               {t('app.call')}
             </a>
           </div>
@@ -30,4 +41,3 @@ export function QuoteShell({ children }) {
     </div>
   )
 }
-

@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { api } from '../../services/api.js'
 
 const NAV_ITEMS = [
   {
@@ -26,6 +27,13 @@ export function AdminShell({ children }) {
   const nav = useNavigate()
   const loc = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Single source: admin logo comes from Settings (brand_profile) via the public /branding endpoint.
+  const [brand, setBrand] = useState(null)
+  useEffect(() => {
+    let on = true
+    api.get('/branding').then((r) => { if (on) setBrand(r.data) }).catch(() => {})
+    return () => { on = false }
+  }, [])
 
   function logout() {
     localStorage.removeItem('adminToken')
@@ -49,11 +57,15 @@ export function AdminShell({ children }) {
       >
         {/* Logo */}
         <div className="flex h-14 items-center gap-3 border-b border-slate-800 px-4">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-teal-500 text-sm font-bold text-white">
-            F
-          </div>
+          {brand?.logo_url ? (
+            <img src={brand.logo_url} alt={brand?.brand_short || 'FFT'} className="h-8 w-8 rounded-lg bg-white/10 object-contain" />
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-teal-500 text-sm font-bold text-white">
+              F
+            </div>
+          )}
           <div>
-            <div className="text-sm font-semibold text-white">FFT Admin</div>
+            <div className="text-sm font-semibold text-white">{brand?.brand_short ? `${brand.brand_short} Admin` : 'FFT Admin'}</div>
             <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Control Center</div>
           </div>
         </div>
