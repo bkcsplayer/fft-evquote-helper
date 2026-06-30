@@ -73,7 +73,7 @@ class QuoteCreateIn(BaseModel):
     base_price: Decimal
     extra_distance_meters: Decimal = Decimal("0")
     extra_distance_rate: Decimal = Decimal("0")
-    permit_fee: Decimal = Decimal("349.00")
+    permit_fee: Decimal = Decimal("350.00")
     survey_credit: Decimal = Decimal("0")
     gst_rate: Decimal = Decimal("5.00")
     customer_notes: str | None = None

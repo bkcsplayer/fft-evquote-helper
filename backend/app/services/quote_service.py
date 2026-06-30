@@ -152,7 +152,7 @@ def _compute_totals(payload: dict[str, Any]) -> dict[str, Decimal]:
     base_price = Decimal(str(payload["base_price"]))
     extra_m = Decimal(str(payload.get("extra_distance_meters", 0)))
     extra_rate = Decimal(str(payload.get("extra_distance_rate", 0)))
-    permit_fee = Decimal(str(payload.get("permit_fee", "349.00")))
+    permit_fee = Decimal(str(payload.get("permit_fee", "350.00")))
     survey_credit = Decimal(str(payload.get("survey_credit", 0)))
     gst_rate = Decimal(str(payload.get("gst_rate", "5.00")))
 

@@ -226,7 +226,7 @@ export default function QuoteApprove() {
               {Number(quote.extra_distance_cost) > 0 ? (
                 <BRow label={t('quoteView.extra_distance')} sub={`${quote.extra_distance_meters} m × ${money(quote.extra_distance_rate, locale)}`} value={money(quote.extra_distance_cost, locale)} />
               ) : null}
-              <BRow label={t('quoteView.permit_fee')} value={money(quote.permit_fee, locale)} />
+              <BRow label={t('quoteView.permit_fee')} sub={t('quoteApprove.permit_sub')} value={money(quote.permit_fee, locale)} />
               {Number(quote.survey_credit) > 0 ? (
                 <BRow label={t('quoteView.survey_credit')} value={`- ${money(quote.survey_credit, locale)}`} />
               ) : null}

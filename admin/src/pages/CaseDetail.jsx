@@ -123,7 +123,7 @@ export default function CaseDetail() {
   const [basePrice, setBasePrice] = useState('699.00')
   const [extraMeters, setExtraMeters] = useState('0')
   const [extraRate, setExtraRate] = useState('30.00')
-  const [permitFee, setPermitFee] = useState('349.00')
+  const [permitFee, setPermitFee] = useState('350.00')
   const [surveyCredit, setSurveyCredit] = useState('0')
   const [addonName, setAddonName] = useState('')
   const [addonPrice, setAddonPrice] = useState('')
