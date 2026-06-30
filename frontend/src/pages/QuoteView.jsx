@@ -155,7 +155,7 @@ export default function QuoteView() {
               {!quote.signature ? (
                 <Link
                   to={`/quote/approve/${token}`}
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-teal-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-800"
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800"
                 >
                   {t('quoteView.approve')}
                 </Link>

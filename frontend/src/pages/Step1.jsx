@@ -52,7 +52,7 @@ export default function Step1() {
             <input
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step1.nickname_ph')}
               required
             />
@@ -62,7 +62,7 @@ export default function Step1() {
             <input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step1.phone_ph')}
               required
             />
@@ -72,7 +72,7 @@ export default function Step1() {
 
         <button
           type="submit"
-          className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-teal-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-800"
+          className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800"
         >
           {t('common.next')}
         </button>

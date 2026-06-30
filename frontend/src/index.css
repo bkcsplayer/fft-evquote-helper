@@ -8,7 +8,11 @@ body {
 }
 
 body {
-  @apply bg-slate-50 text-slate-900;
+  background-color: #f6f7f6;
+  color: #15171a;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
 }
 
 /* Flowing-light border marking the current step. Border-only; degrades to a static ring. */

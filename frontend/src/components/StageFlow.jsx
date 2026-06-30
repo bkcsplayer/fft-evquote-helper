@@ -17,7 +17,7 @@ const STAGES = [
 
 const STATE_CLS = {
   done: 'border-emerald-200 bg-emerald-50',
-  current: 'flow-glow border-teal-400 bg-teal-50',
+  current: 'flow-glow border-emerald-400 bg-emerald-50',
   upcoming: 'border-slate-200 bg-white',
 }
 
@@ -42,8 +42,8 @@ export function StageFlow({ status, details = {} }) {
           {t('stage.stopped', { state: status })}
         </div>
       ) : null}
-      <div className="grid grid-cols-3 gap-2">
-        {STAGES.map((st) => {
+      <div className="flex items-start">
+        {STAGES.map((st, i) => {
           const endIdx = idx(st.end)
           const startIdx = idx(st.start)
           let state = 'upcoming'
@@ -51,16 +51,21 @@ export function StageFlow({ status, details = {} }) {
             if (cur > endIdx) state = 'done'
             else if (cur >= startIdx) state = 'current'
           }
-          const sub = details[st.key]
           return (
-            <div key={st.key} className={`rounded-xl border p-3 transition-colors ${STATE_CLS[state]}`}>
-              <div className="flex items-center justify-between gap-1">
-                <span className={`text-xs font-semibold ${state === 'upcoming' ? 'text-slate-400' : 'text-slate-800'}`}>{t(st.labelKey)}</span>
-                {state === 'done' ? <Check /> : state === 'current' ? <span className="h-2 w-2 animate-pulse rounded-full bg-teal-500" /> : null}
-              </div>
-              <div className={`mt-1 text-[11px] leading-snug ${state === 'upcoming' ? 'text-slate-400' : 'text-slate-600'}`}>
-                {sub || t(`stage.state.${state}`)}
-              </div>
+            <div key={st.key} className="relative flex flex-1 flex-col items-center gap-2">
+              {i < STAGES.length - 1 ? (
+                <span className={`absolute left-1/2 top-[5px] h-[2px] w-full ${state === 'done' ? 'bg-zinc-900' : 'bg-zinc-200'}`} />
+              ) : null}
+              <span
+                className={`relative z-10 h-3 w-3 rounded-full ${
+                  state === 'done'
+                    ? 'bg-zinc-900'
+                    : state === 'current'
+                      ? 'bg-emerald-600 ring-4 ring-emerald-100'
+                      : 'bg-zinc-200'
+                }`}
+              />
+              <span className={`text-[10.5px] font-bold tracking-tight ${state === 'upcoming' ? 'text-zinc-400' : 'text-zinc-900'}`}>{t(st.labelKey)}</span>
             </div>
           )
         })}

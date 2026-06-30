@@ -66,7 +66,7 @@ export function SlotPicker({ token, kind, onBooked }) {
             type="button"
             onClick={() => setSelDay(d)}
             className={`flex-shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold ${
-              selDay === d ? 'border-teal-700 bg-teal-700 text-white' : 'border-slate-200 bg-white text-slate-700'
+              selDay === d ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700'
             }`}
           >
             {fmtDay(d)}
@@ -80,7 +80,7 @@ export function SlotPicker({ token, kind, onBooked }) {
             type="button"
             disabled={busy}
             onClick={() => book(s)}
-            className="rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:border-teal-500 hover:bg-teal-50 disabled:opacity-50"
+            className="rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:border-emerald-500 hover:bg-emerald-50 disabled:opacity-50"
           >
             {fmtHour(s)}
           </button>

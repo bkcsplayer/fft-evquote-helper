@@ -283,7 +283,7 @@ export default function QuoteApprove() {
             <div className="mt-4">
               <Link
                 to={`/quote/status/${token}`}
-                className="inline-flex w-full items-center justify-center rounded-xl bg-teal-700 px-4 py-3 text-sm font-semibold text-white hover:bg-teal-800"
+                className="inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-800"
               >
                 {t('quoteApprove.back_status')}
               </Link>
@@ -310,7 +310,7 @@ export default function QuoteApprove() {
                 type="checkbox"
                 checked={agreed}
                 onChange={(e) => setAgreed(e.target.checked)}
-                className="mt-1 h-4 w-4 accent-teal-700"
+                className="mt-1 h-4 w-4 accent-emerald-700"
               />
               <span>{t('quoteApprove.agree')}</span>
             </label>
@@ -320,7 +320,7 @@ export default function QuoteApprove() {
               <input
                 value={signedName}
                 onChange={(e) => setSignedName(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
                 placeholder={t('quoteApprove.signature_name_ph')}
               />
             </label>
@@ -352,7 +352,7 @@ export default function QuoteApprove() {
               type="button"
               disabled={busy || !!quote?.signature}
               onClick={onApprove}
-              className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-teal-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-800 disabled:opacity-60"
+              className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:opacity-60"
             >
               {busy ? t('quoteApprove.submit_busy') : t('quoteApprove.submit')}
             </button>

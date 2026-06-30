@@ -126,7 +126,7 @@ export default function Step2() {
               disabled={loadingBrands}
               value={chargerBrand}
               onChange={(e) => setChargerBrand(e.target.value)}
-              className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:opacity-60"
+              className="mt-1 w-full rounded-xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-60"
               required
             >
               {brands.map((b) => (
@@ -142,7 +142,7 @@ export default function Step2() {
             <input
               value={evBrand}
               onChange={(e) => setEvBrand(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step2.ev_brand_ph')}
               required
             />
@@ -154,7 +154,7 @@ export default function Step2() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step2.email_ph')}
               required
             />
@@ -165,7 +165,7 @@ export default function Step2() {
             <PlacesAddressInput
               value={installAddress}
               onChange={setInstallAddress}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step2.address_ph')}
               required
             />
@@ -178,7 +178,7 @@ export default function Step2() {
                 type="date"
                 value={pickupDate}
                 onChange={(e) => setPickupDate(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               />
             </label>
             <label className="block">
@@ -187,7 +187,7 @@ export default function Step2() {
                 type="date"
                 value={preferredInstallDate}
                 onChange={(e) => setPreferredInstallDate(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                className="mt-1 w-full rounded-xl border px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               />
             </label>
           </div>
@@ -197,7 +197,7 @@ export default function Step2() {
             <input
               value={referrer}
               onChange={(e) => setReferrer(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step2.referrer_ph')}
             />
           </label>
@@ -214,13 +214,13 @@ export default function Step2() {
                 return (
                   <label
                     key={opt.id}
-                    className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition-colors ${active ? 'border-teal-500 bg-teal-50 font-semibold text-teal-800' : 'border-slate-200 hover:bg-slate-50'}`}
+                    className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition-colors ${active ? 'border-emerald-500 bg-emerald-50 font-semibold text-emerald-800' : 'border-slate-200 hover:bg-slate-50'}`}
                   >
                     <input
                       type="checkbox"
                       checked={active}
                       onChange={() => toggleSlot(opt.id)}
-                      className="h-4 w-4 accent-teal-700"
+                      className="h-4 w-4 accent-emerald-700"
                     />
                     <span>{opt.label}</span>
                   </label>
@@ -234,7 +234,7 @@ export default function Step2() {
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               rows={4}
               placeholder={t('step2.notes_ph')}
             />
@@ -246,7 +246,7 @@ export default function Step2() {
         <button
           type="submit"
           disabled={submitting}
-          className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-teal-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-800 disabled:opacity-60"
+          className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:opacity-60"
         >
           {submitting ? t('step2.submitting') : t('step2.submit')}
         </button>

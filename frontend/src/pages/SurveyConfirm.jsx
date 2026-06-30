@@ -99,7 +99,7 @@ export default function SurveyConfirm() {
               <input
                 value={senderName}
                 onChange={(e) => setSenderName(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600"
+                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
                 placeholder={t('surveyConfirm.sender_name_ph')}
               />
             </label>
@@ -111,7 +111,7 @@ export default function SurveyConfirm() {
                 type="button"
                 disabled={busy}
                 onClick={onSent}
-                className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-teal-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-800 disabled:opacity-60"
+                className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 disabled:opacity-60"
               >
                 {t('surveyConfirm.sent')}
               </button>
@@ -132,7 +132,7 @@ export default function SurveyConfirm() {
 
         <Link
           to={`/quote/status/${token}`}
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-700 px-4 py-3.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-teal-800 active:scale-[0.99]"
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-emerald-800 active:scale-[0.99]"
         >
           {t('quoteView.back_status')}
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">

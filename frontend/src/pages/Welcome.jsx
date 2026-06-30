@@ -24,7 +24,7 @@ export default function Welcome() {
         <div className="mt-5">
           <Link
             to="/quote/step1"
-            className="inline-flex w-full items-center justify-center rounded-xl bg-teal-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-teal-800"
+            className="inline-flex w-full items-center justify-center rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800"
           >
             {t('welcome.cta')}
           </Link>

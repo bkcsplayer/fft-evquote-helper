@@ -38,9 +38,9 @@ function computeNext(data) {
 }
 
 const NEXT_TONE = {
-  act: 'border-sky-200 bg-gradient-to-br from-sky-50 to-teal-50',
-  wait: 'border-slate-200 bg-slate-50',
-  done: 'border-emerald-200 bg-emerald-50',
+  act: 'bg-gradient-to-br from-emerald-800 to-emerald-950',
+  wait: 'bg-gradient-to-br from-zinc-800 to-zinc-950',
+  done: 'bg-gradient-to-br from-emerald-500 to-emerald-700',
 }
 
 export default function StatusPage() {
@@ -251,10 +251,10 @@ export default function StatusPage() {
             {(() => {
               const na = computeNext(data)
               return (
-                <div className={`mt-4 rounded-2xl border p-4 ${NEXT_TONE[na.tone]}`}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('next.heading')}</div>
-                  <div className="mt-1 text-lg font-bold text-slate-900">{t(na.titleKey)}</div>
-                  <div className="mt-1 text-sm text-slate-600">{t(na.subKey)}</div>
+                <div className={`mt-4 overflow-hidden rounded-3xl p-6 text-white shadow-lg ${NEXT_TONE[na.tone]}`}>
+                  <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/60">{t('next.heading')}</div>
+                  <div className="mt-2.5 text-2xl font-extrabold tracking-tight">{t(na.titleKey)}</div>
+                  <div className="mt-1.5 text-sm font-medium text-white/80">{t(na.subKey)}</div>
                 </div>
               )
             })()}
