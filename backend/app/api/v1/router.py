@@ -16,14 +16,16 @@ from app.api.v1.admin import referrers as admin_referrers
 from app.api.v1.admin import settings as admin_settings
 from app.api.v1.admin import surveys as admin_surveys
 from app.api.v1.admin import surveys_photos as admin_surveys_photos
+from app.api.v1.admin import scheduling as admin_scheduling
 from app.api.v1.admin import users as admin_users
-from app.api.v1.public import branding, charger_brands, cases, payments, quotes, survey_photos
+from app.api.v1.public import booking, branding, charger_brands, cases, payments, quotes, survey_photos
 
 
 api_router = APIRouter(prefix="/api/v1")
 
 # Public
 api_router.include_router(branding.router, tags=["public"])
+api_router.include_router(booking.router, tags=["public"])
 api_router.include_router(charger_brands.router, tags=["public"])
 api_router.include_router(cases.router, tags=["public"])
 api_router.include_router(quotes.router, tags=["public"])
@@ -40,6 +42,7 @@ api_router.include_router(admin_permits.router, tags=["admin"])
 api_router.include_router(admin_quotes.router, tags=["admin"])
 api_router.include_router(admin_referrers.router, tags=["admin"])
 api_router.include_router(admin_settings.router, tags=["admin"])
+api_router.include_router(admin_scheduling.router, tags=["admin"])
 api_router.include_router(admin_surveys.router, tags=["admin"])
 api_router.include_router(admin_surveys_photos.router, tags=["admin"])
 api_router.include_router(admin_users.router, tags=["admin"])
