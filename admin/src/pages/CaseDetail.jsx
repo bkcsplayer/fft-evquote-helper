@@ -21,13 +21,10 @@ import {
 } from '../utils/caseStatus.js'
 
 /* ── Shared tone colors ── */
+// Calm redesign: all sections share one neutral tone (no rainbow). Status is conveyed by chips, not card color.
+const NEUTRAL_TONE = { border: 'border-zinc-200/70', headerBg: 'bg-white', headerText: 'text-zinc-800', accent: 'border-l-zinc-200' }
 const SECTION_TONES = {
-  slate: { border: 'border-slate-200', headerBg: 'bg-slate-50', headerText: 'text-slate-700', accent: 'border-l-slate-400' },
-  teal: { border: 'border-teal-200', headerBg: 'bg-teal-50/70', headerText: 'text-teal-800', accent: 'border-l-teal-500' },
-  amber: { border: 'border-amber-200', headerBg: 'bg-amber-50/70', headerText: 'text-amber-800', accent: 'border-l-amber-500' },
-  emerald: { border: 'border-emerald-200', headerBg: 'bg-emerald-50/70', headerText: 'text-emerald-800', accent: 'border-l-emerald-500' },
-  indigo: { border: 'border-indigo-200', headerBg: 'bg-indigo-50/70', headerText: 'text-indigo-800', accent: 'border-l-indigo-500' },
-  rose: { border: 'border-rose-200', headerBg: 'bg-rose-50/70', headerText: 'text-rose-800', accent: 'border-l-rose-500' },
+  slate: NEUTRAL_TONE, teal: NEUTRAL_TONE, amber: NEUTRAL_TONE, emerald: NEUTRAL_TONE, indigo: NEUTRAL_TONE, rose: NEUTRAL_TONE,
 }
 
 function SectionCard({ tone = 'slate', title, subtitle, right, className = '', children }) {
@@ -81,7 +78,7 @@ const inputCls = "mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-2.5
 const textareaCls = "mt-1.5 w-full rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 disabled:bg-slate-50 disabled:text-slate-500"
 const selectCls = "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition-all focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 disabled:bg-slate-50 disabled:text-slate-500"
 const btnPrimary = "inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-slate-800 active:scale-95 disabled:opacity-60"
-const btnCTA = "inline-flex items-center justify-center rounded-xl bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-sky-800 active:scale-95 disabled:opacity-60"
+const btnCTA = "inline-flex items-center justify-center rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-800 active:scale-95 disabled:opacity-60"
 const btnOutline = "inline-flex items-center justify-center rounded-xl border bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-95 disabled:opacity-60"
 
 const TABS = [

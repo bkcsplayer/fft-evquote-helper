@@ -42,7 +42,7 @@ export function AdminShell({ children }) {
   }
 
   return (
-    <div className="flex h-full overflow-hidden bg-slate-50">
+    <div className="flex h-full overflow-hidden bg-[#FAFAFA]">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden" onClick={() => setSidebarOpen(false)}>
@@ -52,22 +52,22 @@ export function AdminShell({ children }) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-slate-900 text-slate-300 transition-transform duration-300 lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-zinc-100 bg-white text-zinc-600 transition-transform duration-300 lg:static lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         {/* Logo */}
-        <div className="flex h-14 items-center gap-3 border-b border-slate-800 px-4">
+        <div className="flex h-14 items-center gap-3 border-b border-zinc-100 px-4">
           {brand?.logo_url ? (
-            <img src={brand.logo_url} alt={brand?.brand_short || 'FFT'} className="h-8 w-8 rounded-lg bg-white/10 object-contain" />
+            <img src={brand.logo_url} alt={brand?.brand_short || 'FFT'} className="h-8 w-8 rounded-lg bg-zinc-100 object-contain" />
           ) : (
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-teal-500 text-sm font-bold text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-sm font-bold text-white">
               F
             </div>
           )}
           <div>
-            <div className="text-sm font-semibold text-white">{brand?.brand_short ? `${brand.brand_short} Admin` : 'FFT Admin'}</div>
-            <div className="text-[10px] font-medium uppercase tracking-wider text-slate-500">Control Center</div>
+            <div className="text-sm font-semibold text-zinc-900">{brand?.brand_short ? `${brand.brand_short} Admin` : 'FFT Admin'}</div>
+            <div className="text-[10px] font-medium uppercase tracking-wider text-zinc-400">Control Center</div>
           </div>
         </div>
 
@@ -75,7 +75,7 @@ export function AdminShell({ children }) {
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           {NAV_ITEMS.map((group) => (
             <div key={group.section} className="mb-5">
-              <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
                 {group.section}
               </div>
               {group.items.map((item) => (
@@ -88,11 +88,11 @@ export function AdminShell({ children }) {
         </nav>
 
         {/* Bottom: user + logout */}
-        <div className="border-t border-slate-800 p-3">
+        <div className="border-t border-zinc-100 p-3">
           <button
             type="button"
             onClick={logout}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
           >
             <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
@@ -135,8 +135,8 @@ function SidebarLink({ to, end, icon, children }) {
       className={({ isActive }) =>
         `my-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150 ${
           isActive
-            ? 'bg-sky-600 text-white shadow-sm'
-            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+            ? 'bg-zinc-900 text-white shadow-sm'
+            : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
         }`
       }
     >
