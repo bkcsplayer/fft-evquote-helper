@@ -205,7 +205,9 @@ const dictionaries = {
     'quoteView.photos.empty': 'No photos yet.',
 
     'quoteApprove.title': 'Approve quote',
-    'quoteApprove.subtitle': 'Please review the key terms and sign to approve.',
+    'quoteApprove.subtitle': 'Please review the price and key terms, then sign to approve.',
+    'quoteApprove.summary_title': 'Your quote',
+    'quoteApprove.summary_hint': "This is the total you're approving. Open your full quote for survey photos and details.",
     'quoteApprove.done': 'Approved. We’ll contact you with next steps.',
     'quoteApprove.already': 'This quote is already approved.',
     'quoteApprove.back_status': 'Back to status',
@@ -439,7 +441,9 @@ const dictionaries = {
     'quoteView.photos.empty': '暂无照片。',
 
     'quoteApprove.title': '确认报价',
-    'quoteApprove.subtitle': '请阅读条款并签名确认。',
+    'quoteApprove.subtitle': '请先查看费用与关键条款，再签名确认。',
+    'quoteApprove.summary_title': '你的报价',
+    'quoteApprove.summary_hint': '这是你将批准的总金额。点开完整报价可看勘测照片与明细。',
     'quoteApprove.done': '已确认。我们会联系你安排下一步。',
     'quoteApprove.already': '该报价已确认，无需重复提交。',
     'quoteApprove.back_status': '返回进度',

@@ -4,6 +4,24 @@ import { QuoteShell } from '../components/layout/QuoteShell.jsx'
 import { api } from '../services/api.js'
 import { useI18n } from '../i18n/index.js'
 
+function money(v, locale) {
+  const n = Number(v)
+  if (Number.isNaN(n)) return '—'
+  return n.toLocaleString(locale || 'en-CA', { style: 'currency', currency: 'CAD' })
+}
+
+function BRow({ label, sub, value, bold }) {
+  return (
+    <div className="flex items-start justify-between gap-4 px-3 py-2">
+      <div>
+        <div className={bold ? 'font-semibold text-slate-900' : 'text-slate-600'}>{label}</div>
+        {sub ? <div className="text-xs text-slate-400">{sub}</div> : null}
+      </div>
+      <div className={`text-right ${bold ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'}`}>{value}</div>
+    </div>
+  )
+}
+
 export default function QuoteApprove() {
   const { token } = useParams()
   const { t, lang, locale } = useI18n()
@@ -239,6 +257,29 @@ export default function QuoteApprove() {
           </>
         ) : (
           <>
+            {quote ? (
+              <div className="mt-4">
+                <div className="text-sm font-semibold text-slate-900">{t('quoteApprove.summary_title')}</div>
+                <div className="mt-2 divide-y rounded-xl border text-sm">
+                  <BRow label={t('quoteView.base_price')} sub={`${t('quoteView.install_type')}: ${quote.install_type}`} value={money(quote.base_price, locale)} />
+                  {Number(quote.extra_distance_cost) > 0 ? (
+                    <BRow label={t('quoteView.extra_distance')} sub={`${quote.extra_distance_meters} m × ${money(quote.extra_distance_rate, locale)}`} value={money(quote.extra_distance_cost, locale)} />
+                  ) : null}
+                  <BRow label={t('quoteView.permit_fee')} value={money(quote.permit_fee, locale)} />
+                  {Number(quote.survey_credit) > 0 ? (
+                    <BRow label={t('quoteView.survey_credit')} value={`- ${money(quote.survey_credit, locale)}`} />
+                  ) : null}
+                  {(quote.addons || []).map((a) => (
+                    <BRow key={a.id} label={a.name} value={money(a.price, locale)} />
+                  ))}
+                  <BRow label={t('quoteView.subtotal')} value={money(quote.subtotal, locale)} bold />
+                  <BRow label={`GST (${quote.gst_rate}%)`} value={money(quote.gst_amount, locale)} />
+                  <BRow label={t('quoteView.total')} value={money(quote.total, locale)} bold />
+                </div>
+                <div className="mt-2 text-xs text-slate-500">{t('quoteApprove.summary_hint')}</div>
+              </div>
+            ) : null}
+
             <div className="mt-4 space-y-3">
               {TERMS.map((term) => (
                 <div key={term.title} className="rounded-xl border bg-slate-50 p-3">
