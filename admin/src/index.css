@@ -57,7 +57,7 @@ body {
   padding: 2px;
   pointer-events: none;
   z-index: 5;
-  background: conic-gradient(from var(--flow-ang), transparent 0deg, #34D399 36deg, #10B981 94deg, transparent 150deg, transparent 360deg);
+  background: conic-gradient(from var(--flow-ang), transparent 0deg, #22D3EE 36deg, #6366F1 94deg, transparent 150deg, transparent 360deg);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
           mask-composite: exclude;
@@ -65,5 +65,5 @@ body {
 }
 @keyframes flow-spin { to { --flow-ang: 360deg; } }
 @media (prefers-reduced-motion: reduce) {
-  .flow-glow::after { animation: none; background: #10B981; }
+  .flow-glow::after { animation: none; background: #22D3EE; }
 }

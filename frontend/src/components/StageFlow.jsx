@@ -61,7 +61,7 @@ export function StageFlow({ status, details = {} }) {
                   state === 'done'
                     ? 'bg-zinc-900'
                     : state === 'current'
-                      ? 'bg-emerald-600 ring-4 ring-emerald-100'
+                      ? 'flow-glow bg-emerald-600 ring-4 ring-emerald-100'
                       : 'bg-zinc-200'
                 }`}
               />
