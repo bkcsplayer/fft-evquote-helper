@@ -7,6 +7,7 @@ import Login from './pages/Login.jsx'
 import Installations from './pages/Installations.jsx'
 import Permits from './pages/Permits.jsx'
 import Referrers from './pages/Referrers.jsx'
+import Scheduling from './pages/Scheduling.jsx'
 import Settings from './pages/Settings.jsx'
 import Surveys from './pages/Surveys.jsx'
 import Users from './pages/Users.jsx'
@@ -73,6 +74,15 @@ export default function App() {
           element={
             <RequireAuth>
               <Users />
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/admin/scheduling"
+          element={
+            <RequireAuth>
+              <Scheduling />
             </RequireAuth>
           }
         />
