@@ -123,11 +123,22 @@ export default function SurveyConfirm() {
           {t('surveyConfirm.note')}
         </div>
 
-        <div className="mt-4">
-          <Link to={`/quote/status/${token}`} className="text-sm font-semibold text-slate-700 underline">
-            {t('quoteView.back_status')}
-          </Link>
-        </div>
+        {sent ? (
+          <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3.5 text-sm text-emerald-800">
+            <div className="font-semibold">{t('surveyConfirm.next_title')}</div>
+            <div className="mt-1">{t('surveyConfirm.next_step')}</div>
+          </div>
+        ) : null}
+
+        <Link
+          to={`/quote/status/${token}`}
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-teal-700 px-4 py-3.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-teal-800 active:scale-[0.99]"
+        >
+          {t('quoteView.back_status')}
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12l-7.5 7.5M21 12H3" />
+          </svg>
+        </Link>
       </div>
     </QuoteShell>
   )

@@ -179,6 +179,8 @@ const dictionaries = {
     'surveyConfirm.sender_name_ph': 'Name used for e-transfer',
     'surveyConfirm.sent': 'I sent the e-transfer',
     'surveyConfirm.sent_done': 'Thanks! We will verify and confirm.',
+    'surveyConfirm.next_title': 'What happens next',
+    'surveyConfirm.next_step': "We'll verify your deposit and confirm your survey time — you'll get a notification. You can track everything on your status page.",
     'surveyConfirm.err.notify': 'Unable to submit. Please contact us.',
 
     'quoteView.title': 'Quote',
@@ -411,6 +413,8 @@ const dictionaries = {
     'surveyConfirm.sender_name_ph': 'e-transfer 显示的姓名',
     'surveyConfirm.sent': '我已完成转账',
     'surveyConfirm.sent_done': '已收到你的提交，我们会核对并确认。',
+    'surveyConfirm.next_title': '接下来会发生什么',
+    'surveyConfirm.next_step': '我们会核对你的押金并确认勘测时间——确认后会通知你。你可以随时在状态页查看进度。',
     'surveyConfirm.err.notify': '提交失败，请直接联系我们。',
 
     'quoteView.title': '报价单',
