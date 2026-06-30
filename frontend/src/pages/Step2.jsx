@@ -20,6 +20,7 @@ export default function Step2() {
   const [loadingBrands, setLoadingBrands] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [outOfArea, setOutOfArea] = useState(false)
 
   const [chargerBrand, setChargerBrand] = useState(draft?.charger_brand || '')
   const [evBrand, setEvBrand] = useState(draft?.ev_brand || '')
@@ -60,6 +61,19 @@ export default function Step2() {
 
     setSubmitting(true)
     try {
+      // Service-area gate: out-of-area -> waitlist instead of creating a case.
+      const postal = (installAddress.match(/[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d/) || [])[0] || ''
+      if (postal) {
+        try {
+          const chk = await api.get('/service-area/check', { params: { postal } })
+          if (chk.data && chk.data.allowed === false) {
+            try { await api.post('/waitlist', { email: email.trim() || null, phone: draft.customer.phone, postal, city: null }) } catch { /* ignore */ }
+            setOutOfArea(true)
+            setSubmitting(false)
+            return
+          }
+        } catch { /* check failed -> fail open, let them through */ }
+      }
       const payload = {
         customer: {
           nickname: draft.customer.nickname,
@@ -94,6 +108,14 @@ export default function Step2() {
   return (
     <QuoteShell>
       <div className="mb-4 text-sm text-slate-600">{t('step.progress', { n: 2, total: 2 })}</div>
+      {outOfArea ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="text-base font-semibold text-amber-900">We don&apos;t serve your area yet</div>
+          <p className="mt-2 text-sm text-amber-800">
+            We currently serve Calgary only. You&apos;ve been added to our waitlist — we&apos;ll email you as soon as we reach your area.
+          </p>
+        </div>
+      ) : (
       <form onSubmit={onSubmit} className="rounded-2xl border bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">{t('step2.title')}</h2>
 
@@ -229,6 +251,7 @@ export default function Step2() {
           {submitting ? t('step2.submitting') : t('step2.submit')}
         </button>
       </form>
+      )}
     </QuoteShell>
   )
 }

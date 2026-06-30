@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { QuoteShell } from '../components/layout/QuoteShell.jsx'
 import { StageFlow } from '../components/StageFlow.jsx'
+import { SlotPicker } from '../components/SlotPicker.jsx'
 import { api } from '../services/api.js'
 import { useI18n } from '../i18n/index.js'
 
@@ -276,44 +277,8 @@ export default function StatusPage() {
                   </div>
                 ) : null}
 
-                <div className="mt-3 grid grid-cols-1 gap-3">
-                  <label className="block">
-                    <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                      {t('status.request.preferred_time')}
-                    </div>
-                    <input
-                      type="datetime-local"
-                      value={surveyReqDtValue}
-                      onChange={(e) => setSurveyReqDt(e.target.value)}
-                      disabled={surveyReqBusy}
-                      className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
-                    />
-                  </label>
-                  <label className="block">
-                    <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                      {t('status.request.note')}
-                    </div>
-                    <input
-                      value={surveyReqNote}
-                      onChange={(e) => setSurveyReqNote(e.target.value)}
-                      disabled={surveyReqBusy}
-                      className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
-                      placeholder={t('status.survey.note_ph')}
-                    />
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={surveyReqBusy || !surveyReqDt}
-                      onClick={submitSurveyRequest}
-                      className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
-                    >
-                      {t('status.request.submit')}
-                    </button>
-                    <div className="text-xs text-slate-500 self-center">
-                      {t('status.request.submit_hint')}
-                    </div>
-                  </div>
+                <div className="mt-3">
+                  <SlotPicker token={token} kind="survey" onBooked={load} />
                 </div>
               </div>
             )}
@@ -353,44 +318,8 @@ export default function StatusPage() {
                     </div>
                   ) : null}
 
-                  <div className="mt-3 grid grid-cols-1 gap-3">
-                    <label className="block">
-                      <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                        {t('status.request.preferred_time')}
-                      </div>
-                      <input
-                        type="datetime-local"
-                        value={installReqDtValue}
-                        onChange={(e) => setInstallReqDt(e.target.value)}
-                        disabled={installReqBusy}
-                        className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
-                      />
-                    </label>
-                    <label className="block">
-                      <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                        {t('status.request.note')}
-                      </div>
-                      <input
-                        value={installReqNote}
-                        onChange={(e) => setInstallReqNote(e.target.value)}
-                        disabled={installReqBusy}
-                        className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-teal-600 disabled:bg-slate-50"
-                        placeholder={t('status.installation.note_ph')}
-                      />
-                    </label>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={installReqBusy || !installReqDt}
-                        onClick={submitInstallRequest}
-                        className="rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
-                      >
-                        {t('status.request.submit')}
-                      </button>
-                      <div className="text-xs text-slate-500 self-center">
-                        {t('status.request.submit_hint')}
-                      </div>
-                    </div>
+                  <div className="mt-3">
+                    <SlotPicker token={token} kind="install" onBooked={load} />
                   </div>
                 </div>
               )
