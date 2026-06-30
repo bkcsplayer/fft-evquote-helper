@@ -214,39 +214,27 @@ export default function StatusPage() {
 
   return (
     <QuoteShell>
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
-        <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('status.case')}</div>
-        <div className="mt-1 text-lg font-semibold text-slate-900">{data?.reference_number || '—'}</div>
+      <div className="space-y-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('status.case')}</div>
+            <div className="mt-0.5 text-2xl font-extrabold tracking-tight text-zinc-900">{data?.reference_number || '—'}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => load().catch((e) => setError(e?.response?.data?.detail || t('status.not_found')))}
+            className="shrink-0 rounded-full border border-zinc-200 bg-white p-2.5 text-zinc-400 transition-colors hover:text-zinc-900"
+            aria-label="Refresh"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-2.64-6.36M21 4v5h-5" /></svg>
+          </button>
+        </div>
 
-        {loading ? <div className="mt-4 text-sm text-slate-600">{t('status.loading')}</div> : null}
-        {error ? <div className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+        {loading ? <div className="text-sm text-zinc-500">{t('status.loading')}</div> : null}
+        {error ? <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
 
         {data ? (
           <>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-              <div>
-                {t('status.autorefresh')}{' '}
-                <button
-                  type="button"
-                  onClick={() => setAutoRefresh((v) => !v)}
-                  className="font-semibold text-slate-800 underline"
-                >
-                  {autoRefresh ? t('status.autorefresh.on') : t('status.autorefresh.off')}
-                </button>
-                {lastUpdatedAt ? <span className="ml-2">{t('status.last_updated', { time: lastUpdatedAt.toLocaleTimeString(locale) })}</span> : null}
-              </div>
-              <button
-                type="button"
-                onClick={() => load().catch((e) => setError(e?.response?.data?.detail || t('status.not_found')))}
-                className="rounded-lg border bg-white px-2 py-1 text-xs font-semibold text-slate-800 hover:bg-slate-100"
-              >
-                {t('status.refresh_now')}
-              </button>
-            </div>
-            <div className="mt-4">
-              <div className="text-sm font-medium text-slate-800">{t('status.current')}</div>
-              <div className="mt-1 text-sm text-slate-700">{statusLabel(data.status)}</div>
-            </div>
 
             {(() => {
               const na = computeNext(data)
@@ -259,16 +247,16 @@ export default function StatusPage() {
               )
             })()}
 
-            <div className="mt-4">
-              <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('stage.flow_title')}</div>
-              <div className="mt-2">
+            <div className="rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
+              <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('stage.flow_title')}</div>
+              <div className="mt-3.5">
                 <StageFlow status={data.status} details={{ permit: permitDetail }} />
               </div>
             </div>
 
             {data.survey_scheduled_date ? (
-              <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm">
-                <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('status.survey')}</div>
+              <div className="rounded-3xl border border-zinc-100 bg-white p-5 text-sm shadow-sm">
+                <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('status.survey')}</div>
                 <div className="mt-1 text-slate-800">
                   {t('status.scheduled', { dt: dt(data.survey_scheduled_date) })}
                 </div>
@@ -289,8 +277,8 @@ export default function StatusPage() {
                 ) : null}
               </div>
             ) : (
-              <div className="mt-4 rounded-xl border bg-white p-3 text-sm">
-                <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('status.survey')}</div>
+              <div className="rounded-3xl border border-zinc-100 bg-white p-5 text-sm shadow-sm">
+                <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('status.survey')}</div>
                 <div className="mt-1 text-slate-800">
                   {t('status.survey.choose_prompt')}
                 </div>
@@ -319,8 +307,8 @@ export default function StatusPage() {
 
             {showInstallScheduling ? (
               data.installation_scheduled_date ? (
-                <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm">
-                  <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                <div className="rounded-3xl border border-zinc-100 bg-white p-5 text-sm shadow-sm">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">
                     {t('status.installation')}
                   </div>
                   <div className="mt-1 text-slate-800">
@@ -328,8 +316,8 @@ export default function StatusPage() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-4 rounded-xl border bg-white p-3 text-sm">
-                  <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                <div className="rounded-3xl border border-zinc-100 bg-white p-5 text-sm shadow-sm">
+                  <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">
                     {t('status.installation')}
                   </div>
                   <div className="mt-1 text-slate-800">
@@ -358,8 +346,8 @@ export default function StatusPage() {
                 </div>
               )
             ) : installLockedByPermit ? (
-              <div className="mt-4 rounded-xl border bg-white p-3 text-sm">
-                <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('stage.install')}</div>
+              <div className="rounded-3xl border border-zinc-100 bg-white p-5 text-sm shadow-sm">
+                <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('stage.install')}</div>
                 <div className="mt-1 font-semibold text-slate-800">{t('install.locked.title')}</div>
                 <div className="mt-1 text-slate-600">{t('install.locked.body')}</div>
                 {permitDetail ? <div className="mt-2 inline-flex rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">{permitDetail}</div> : null}
@@ -373,8 +361,8 @@ export default function StatusPage() {
               </div>
             ) : null}
 
-            <div className="mt-4 rounded-2xl border bg-slate-50 p-4 text-sm">
-              <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('status.summary')}</div>
+            <div className="rounded-3xl border border-zinc-100 bg-white p-5 text-sm shadow-sm">
+              <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('status.summary')}</div>
               <div className="mt-2 grid gap-2">
                 <div className="flex items-center justify-between">
                   <div className="text-slate-600">{t('status.summary.deposit')}</div>
@@ -416,11 +404,11 @@ export default function StatusPage() {
               </div>
             ) : null}
 
-            <div className="mt-5">
-              <div className="text-sm font-medium text-slate-800">{t('status.timeline')}</div>
-              <div className="mt-2 space-y-2">
+            <div className="rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
+              <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('status.timeline')}</div>
+              <div className="mt-3.5 space-y-2">
                 {timeline.map((row, idx) => (
-                  <div key={idx} className="rounded-xl border bg-white px-3 py-2 text-sm">
+                  <div key={idx} className="rounded-2xl bg-zinc-50 px-3.5 py-2.5 text-sm">
                     <div className="text-xs text-slate-500">{dt(row.created_at)}</div>
                     <div className="mt-1 text-slate-800">
                       {statusLabel(row.from_status) + ' → '}
