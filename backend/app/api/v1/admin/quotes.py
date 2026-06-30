@@ -129,7 +129,17 @@ def preview_quote(
     _ = quote.signature
     case = db.get(Case, quote.case_id)
     customer = db.get(Customer, case.customer_id) if case else None
+    from sqlalchemy import select as _select
+
+    from app.config import get_settings as _get_settings
+    from app.models.models import SystemSetting
     from app.services.notification_service import render_template
+
+    # Use the admin-managed brand profile (Settings) for contact info, like emails do —
+    # otherwise the quote shows the config default phone instead of the real one.
+    _row = db.execute(_select(SystemSetting).where(SystemSetting.key == "brand_profile")).scalar_one_or_none()
+    _profile = _row.value if _row and isinstance(_row.value, dict) else {}
+    _s = _get_settings()
 
     html = render_template(
         "quote_preview.html",
@@ -138,6 +148,8 @@ def preview_quote(
             "case": case,
             "customer": customer,
             "generated_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+            "support_phone": (_profile.get("support_phone") or "").strip() or _s.brand_support_phone,
+            "support_email": (_profile.get("support_email") or "").strip() or _s.brand_support_email,
         },
     )
     return {"html": html}
