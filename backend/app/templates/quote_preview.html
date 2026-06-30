@@ -96,7 +96,7 @@
             <tr>
               <td>
                 <div style="font-weight:700;">Base installation</div>
-                <div class="small">Install type: {{ quote.install_type.value }}</div>
+                <div class="small">{% if quote.permit_fee|float > 0 %}Install type: {{ quote.install_type.value }}{% else %}Includes City electrical permit, inspection &amp; standard wiring{% endif %}</div>
               </td>
               <td class="r">${{ '%.2f'|format(quote.base_price|float) }}</td>
             </tr>
@@ -109,10 +109,12 @@
               </td>
               <td class="r">${{ '%.2f'|format(quote.extra_distance_cost|float) }}</td>
             </tr>
+            {% if quote.permit_fee|float > 0 %}
             <tr>
               <td style="font-weight:700;">Permit fee</td>
               <td class="r">${{ '%.2f'|format(quote.permit_fee|float) }}</td>
             </tr>
+            {% endif %}
             {% if quote.addons %}
               {% for a in quote.addons %}
                 <tr>

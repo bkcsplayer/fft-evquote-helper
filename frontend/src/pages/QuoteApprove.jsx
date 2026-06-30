@@ -222,11 +222,13 @@ export default function QuoteApprove() {
           <div className="mt-4">
             <div className="text-sm font-semibold text-slate-900">{t('quoteApprove.summary_title')}</div>
             <div className="mt-2 divide-y rounded-xl border text-sm">
-              <BRow label={t('quoteView.base_price')} sub={`${t('quoteView.install_type')}: ${quote.install_type}`} value={money(quote.base_price, locale)} />
+              <BRow label={t('quoteView.base_price')} sub={Number(quote.permit_fee) > 0 ? `${t('quoteView.install_type')}: ${quote.install_type}` : t('quoteApprove.base_sub')} value={money(quote.base_price, locale)} />
               {Number(quote.extra_distance_cost) > 0 ? (
                 <BRow label={t('quoteView.extra_distance')} sub={`${quote.extra_distance_meters} m × ${money(quote.extra_distance_rate, locale)}`} value={money(quote.extra_distance_cost, locale)} />
               ) : null}
-              <BRow label={t('quoteView.permit_fee')} sub={t('quoteApprove.permit_sub')} value={money(quote.permit_fee, locale)} />
+              {Number(quote.permit_fee) > 0 ? (
+                <BRow label={t('quoteView.permit_fee')} sub={t('quoteApprove.permit_sub')} value={money(quote.permit_fee, locale)} />
+              ) : null}
               {Number(quote.survey_credit) > 0 ? (
                 <BRow label={t('quoteView.survey_credit')} value={`- ${money(quote.survey_credit, locale)}`} />
               ) : null}

@@ -218,6 +218,7 @@ export default function CaseDetail() {
     api.get('/settings').then((r) => {
       const pd = (r.data || []).find((x) => x.key === 'pricing_defaults')?.value || {}
       if (pd.permit_fee != null && pd.permit_fee !== '') setPermitFee(String(pd.permit_fee))
+      if (pd.base_price != null && pd.base_price !== '') setBasePrice(String(pd.base_price))
     }).catch(() => {})
   }, [])
   useEffect(() => {

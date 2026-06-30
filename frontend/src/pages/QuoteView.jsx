@@ -87,7 +87,7 @@ export default function QuoteView() {
                 label={t('quoteView.extra_distance')}
                 value={`${quote.extra_distance_meters} m × ${money(quote.extra_distance_rate, locale)} = ${money(quote.extra_distance_cost, locale)}`}
               />
-              <Row label={t('quoteView.permit_fee')} value={money(quote.permit_fee, locale)} />
+              {Number(quote.permit_fee) > 0 ? <Row label={t('quoteView.permit_fee')} value={money(quote.permit_fee, locale)} /> : null}
               {Number(quote.survey_credit) > 0 ? (
                 <Row
                   label={t('quoteView.survey_credit')}
@@ -101,6 +101,9 @@ export default function QuoteView() {
               <Row label={`GST (${quote.gst_rate}%)`} value={money(quote.gst_amount, locale)} />
               <Row label={t('quoteView.total')} value={money(quote.total, locale)} bold />
             </div>
+            {Number(quote.permit_fee) === 0 ? (
+              <div className="mt-2 text-xs text-slate-500">{t('quoteApprove.base_sub')}</div>
+            ) : null}
 
             <div className="mt-4 rounded-2xl border bg-slate-50 p-4">
               <div className="flex items-start justify-between gap-3">
