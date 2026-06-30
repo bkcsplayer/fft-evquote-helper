@@ -383,6 +383,57 @@ class ChargerBrand(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
+# ── Slot-based booking (replaces the survey/install propose→confirm handshake) ──
+class AppointmentKind(str, enum.Enum):
+    survey = "survey"
+    install = "install"
+
+
+class AppointmentStatus(str, enum.Enum):
+    booked = "booked"
+    cancelled = "cancelled"
+    completed = "completed"
+
+
+class Appointment(Base, TimestampMixin):
+    __tablename__ = "appointments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id"), index=True, nullable=False)
+    kind: Mapped[AppointmentKind] = mapped_column(Enum(AppointmentKind, name="appointment_kind"), nullable=False)
+    start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    duration_min: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
+    status: Mapped[AppointmentStatus] = mapped_column(
+        Enum(AppointmentStatus, name="appointment_status"), nullable=False, default=AppointmentStatus.booked
+    )
+    created_by: Mapped[str] = mapped_column(String(20), nullable=False, default="customer")  # customer|admin
+
+
+class AvailabilityOverride(Base):
+    """Per-day or per-slot capacity override. capacity 0 = closed; > default = extra capacity."""
+
+    __tablename__ = "availability_overrides"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    day: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    hour: Mapped[int | None] = mapped_column(Integer, nullable=True)  # null = whole-day rule
+    capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Waitlist(Base):
+    """Out-of-service-area leads captured at the customer gate."""
+
+    __tablename__ = "waitlist"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    postal: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 # ── Phase 5: Case aggregate-root extensions (attachments / payments / BOM) ──
 
 
