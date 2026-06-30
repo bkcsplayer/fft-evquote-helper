@@ -6,8 +6,8 @@ export default function Welcome() {
   const { t } = useI18n()
   return (
     <QuoteShell>
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
-        <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('welcome.kicker')}</div>
+      <div className="rounded-3xl border border-zinc-100 bg-white p-6 shadow-sm">
+        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('welcome.kicker')}</div>
         <h1 className="mt-2 text-2xl font-semibold leading-tight text-slate-900">
           {t('welcome.title')
             .split('\n')

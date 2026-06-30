@@ -12,14 +12,14 @@ export default function Submitted() {
 
   return (
     <QuoteShell>
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">{t('submitted.title')}</h2>
+      <div className="rounded-3xl border border-zinc-100 bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-bold tracking-tight text-zinc-900">{t('submitted.title')}</h2>
         <p className="mt-2 text-sm text-slate-600">
           {t('submitted.subtitle')}
         </p>
 
         <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm">
-          <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('submitted.case_ref')}</div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('submitted.case_ref')}</div>
           <div className="mt-1 font-semibold text-slate-900">{reference}</div>
         </div>
 

@@ -44,15 +44,15 @@ export default function Step1() {
   return (
     <QuoteShell>
       <div className="mb-4 text-sm text-slate-600">{t('step.progress', { n: 1, total: 2 })}</div>
-      <form onSubmit={onNext} className="rounded-2xl border bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">{t('step1.title')}</h2>
+      <form onSubmit={onNext} className="rounded-3xl border border-zinc-100 bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-bold tracking-tight text-zinc-900">{t('step1.title')}</h2>
         <div className="mt-4 space-y-3">
           <label className="block">
             <div className="text-sm font-medium text-slate-800">{t('step1.nickname')}</div>
             <input
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step1.nickname_ph')}
               required
             />
@@ -62,7 +62,7 @@ export default function Step1() {
             <input
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step1.phone_ph')}
               required
             />

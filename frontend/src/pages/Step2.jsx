@@ -116,8 +116,8 @@ export default function Step2() {
           </p>
         </div>
       ) : (
-      <form onSubmit={onSubmit} className="rounded-2xl border bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">{t('step2.title')}</h2>
+      <form onSubmit={onSubmit} className="rounded-3xl border border-zinc-100 bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-bold tracking-tight text-zinc-900">{t('step2.title')}</h2>
 
         <div className="mt-4 space-y-3">
           <label className="block">
@@ -142,7 +142,7 @@ export default function Step2() {
             <input
               value={evBrand}
               onChange={(e) => setEvBrand(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step2.ev_brand_ph')}
               required
             />
@@ -154,7 +154,7 @@ export default function Step2() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step2.email_ph')}
               required
             />
@@ -165,7 +165,7 @@ export default function Step2() {
             <PlacesAddressInput
               value={installAddress}
               onChange={setInstallAddress}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step2.address_ph')}
               required
             />
@@ -197,7 +197,7 @@ export default function Step2() {
             <input
               value={referrer}
               onChange={(e) => setReferrer(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               placeholder={t('step2.referrer_ph')}
             />
           </label>
@@ -234,7 +234,7 @@ export default function Step2() {
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
+              className="mt-1 w-full rounded-2xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
               rows={4}
               placeholder={t('step2.notes_ph')}
             />

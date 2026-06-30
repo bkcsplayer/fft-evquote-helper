@@ -52,8 +52,8 @@ export default function QuoteView() {
         title={preview?.title}
         subtitle={preview?.subtitle}
       />
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">{t('quoteView.title')}</h2>
+      <div className="rounded-3xl border border-zinc-100 bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-bold tracking-tight text-zinc-900">{t('quoteView.title')}</h2>
         <p className="mt-2 text-sm text-slate-600">{t('quoteView.subtitle')}</p>
 
         {loading ? <div className="mt-4 text-sm text-slate-600">{t('status.loading')}</div> : null}

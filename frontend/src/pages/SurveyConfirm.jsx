@@ -44,8 +44,8 @@ export default function SurveyConfirm() {
 
   return (
     <QuoteShell>
-      <div className="rounded-2xl border bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">{t('surveyConfirm.title')}</h2>
+      <div className="rounded-3xl border border-zinc-100 bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-bold tracking-tight text-zinc-900">{t('surveyConfirm.title')}</h2>
         <p className="mt-2 text-sm text-slate-600">
           {t('surveyConfirm.subtitle')}
         </p>
@@ -55,7 +55,7 @@ export default function SurveyConfirm() {
 
         {status?.survey_scheduled_date ? (
           <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm">
-            <div className="text-xs font-medium uppercase tracking-wider text-slate-500">{t('surveyConfirm.scheduled')}</div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('surveyConfirm.scheduled')}</div>
             <div className="mt-1 text-slate-800">{new Date(status.survey_scheduled_date).toLocaleString()}</div>
             <div className="mt-1 text-xs text-slate-500">
               {t('surveyConfirm.deposit_status', {
@@ -99,7 +99,7 @@ export default function SurveyConfirm() {
               <input
                 value={senderName}
                 onChange={(e) => setSenderName(e.target.value)}
-                className="mt-1 w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
+                className="mt-1 w-full rounded-2xl border border-zinc-200 px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-emerald-600"
                 placeholder={t('surveyConfirm.sender_name_ph')}
               />
             </label>
