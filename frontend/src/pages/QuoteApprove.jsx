@@ -218,6 +218,29 @@ export default function QuoteApprove() {
         {loadingQuote ? <div className="mt-4 text-sm text-slate-600">{t('status.loading')}</div> : null}
         {error ? <div className="mt-4 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
 
+        {quote ? (
+          <div className="mt-4">
+            <div className="text-sm font-semibold text-slate-900">{t('quoteApprove.summary_title')}</div>
+            <div className="mt-2 divide-y rounded-xl border text-sm">
+              <BRow label={t('quoteView.base_price')} sub={`${t('quoteView.install_type')}: ${quote.install_type}`} value={money(quote.base_price, locale)} />
+              {Number(quote.extra_distance_cost) > 0 ? (
+                <BRow label={t('quoteView.extra_distance')} sub={`${quote.extra_distance_meters} m × ${money(quote.extra_distance_rate, locale)}`} value={money(quote.extra_distance_cost, locale)} />
+              ) : null}
+              <BRow label={t('quoteView.permit_fee')} value={money(quote.permit_fee, locale)} />
+              {Number(quote.survey_credit) > 0 ? (
+                <BRow label={t('quoteView.survey_credit')} value={`- ${money(quote.survey_credit, locale)}`} />
+              ) : null}
+              {(quote.addons || []).map((a) => (
+                <BRow key={a.id} label={a.name} value={money(a.price, locale)} />
+              ))}
+              <BRow label={t('quoteView.subtotal')} value={money(quote.subtotal, locale)} bold />
+              <BRow label={`GST (${quote.gst_rate}%)`} value={money(quote.gst_amount, locale)} />
+              <BRow label={t('quoteView.total')} value={money(quote.total, locale)} bold />
+            </div>
+            <div className="mt-2 text-xs text-slate-500">{t('quoteApprove.summary_hint')}</div>
+          </div>
+        ) : null}
+
         {done ? (
           <>
             <div className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
@@ -257,29 +280,6 @@ export default function QuoteApprove() {
           </>
         ) : (
           <>
-            {quote ? (
-              <div className="mt-4">
-                <div className="text-sm font-semibold text-slate-900">{t('quoteApprove.summary_title')}</div>
-                <div className="mt-2 divide-y rounded-xl border text-sm">
-                  <BRow label={t('quoteView.base_price')} sub={`${t('quoteView.install_type')}: ${quote.install_type}`} value={money(quote.base_price, locale)} />
-                  {Number(quote.extra_distance_cost) > 0 ? (
-                    <BRow label={t('quoteView.extra_distance')} sub={`${quote.extra_distance_meters} m × ${money(quote.extra_distance_rate, locale)}`} value={money(quote.extra_distance_cost, locale)} />
-                  ) : null}
-                  <BRow label={t('quoteView.permit_fee')} value={money(quote.permit_fee, locale)} />
-                  {Number(quote.survey_credit) > 0 ? (
-                    <BRow label={t('quoteView.survey_credit')} value={`- ${money(quote.survey_credit, locale)}`} />
-                  ) : null}
-                  {(quote.addons || []).map((a) => (
-                    <BRow key={a.id} label={a.name} value={money(a.price, locale)} />
-                  ))}
-                  <BRow label={t('quoteView.subtotal')} value={money(quote.subtotal, locale)} bold />
-                  <BRow label={`GST (${quote.gst_rate}%)`} value={money(quote.gst_amount, locale)} />
-                  <BRow label={t('quoteView.total')} value={money(quote.total, locale)} bold />
-                </div>
-                <div className="mt-2 text-xs text-slate-500">{t('quoteApprove.summary_hint')}</div>
-              </div>
-            ) : null}
-
             <div className="mt-4 space-y-3">
               {TERMS.map((term) => (
                 <div key={term.title} className="rounded-xl border bg-slate-50 p-3">
