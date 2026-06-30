@@ -133,9 +133,16 @@ def cancel(db: Session, *, case: Case, kind: AppointmentKind) -> None:
         if survey:
             survey.scheduled_date = None
             survey.request_status = None
+        # Revert the case so the customer can re-book (transition guard is for forward progress only).
+        if case.status == CaseStatus.survey_scheduled:
+            case.status = CaseStatus.pending
+            db.add(CaseStatusHistory(case_id=case.id, from_status=CaseStatus.survey_scheduled.value, to_status=CaseStatus.pending.value, changed_by=None, note="Survey booking cancelled"))
     else:
         inst = db.execute(select(Installation).where(Installation.case_id == case.id)).scalar_one_or_none()
         if inst:
             inst.scheduled_date = None
             inst.request_status = None
+        if case.status == CaseStatus.installation_scheduled:
+            case.status = CaseStatus.permit_approved
+            db.add(CaseStatusHistory(case_id=case.id, from_status=CaseStatus.installation_scheduled.value, to_status=CaseStatus.permit_approved.value, changed_by=None, note="Installation booking cancelled"))
     db.commit()
