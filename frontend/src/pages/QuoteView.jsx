@@ -101,9 +101,17 @@ export default function QuoteView() {
               <Row label={`GST (${quote.gst_rate}%)`} value={money(quote.gst_amount, locale)} />
               <Row label={t('quoteView.total')} value={money(quote.total, locale)} bold />
             </div>
-            {Number(quote.permit_fee) === 0 ? (
-              <div className="mt-2 text-xs text-slate-500">{t('quoteApprove.base_sub')}</div>
-            ) : null}
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4">
+              <div className="text-sm font-semibold text-slate-900">{t('quote.includes_title')}</div>
+              <ul className="mt-2 space-y-1">
+                {t('quote.includes_list').split('\n').map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
+                    <svg className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
 
             <div className="mt-4 rounded-2xl border bg-slate-50 p-4">
               <div className="flex items-start justify-between gap-3">
