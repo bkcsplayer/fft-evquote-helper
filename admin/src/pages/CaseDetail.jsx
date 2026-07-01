@@ -588,6 +588,12 @@ export default function CaseDetail() {
                     ) : null}
                   >
                     <SubStepper steps={tabSubSteps('quote', { data })} />
+                    <div className="mb-3">
+                      <Link to={`/admin/cases/${id}/load-calc`} className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-100">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.8" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        Load calculator (CEC 8-200)
+                      </Link>
+                    </div>
                     {data.active_quote ? (
                       <div className="grid gap-2 rounded-xl border bg-slate-50 p-4 text-sm">
                         <div className="flex items-center justify-between"><span className="text-slate-500">Version</span><span className="font-bold text-slate-900">v{data.active_quote.version}</span></div>

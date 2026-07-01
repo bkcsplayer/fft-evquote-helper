@@ -5,6 +5,7 @@ import Cases from './pages/Cases.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Login from './pages/Login.jsx'
 import Installations from './pages/Installations.jsx'
+import LoadCalc from './pages/LoadCalc.jsx'
 import Permits from './pages/Permits.jsx'
 import Referrers from './pages/Referrers.jsx'
 import Scheduling from './pages/Scheduling.jsx'
@@ -100,6 +101,14 @@ export default function App() {
           element={
             <RequireAuth>
               <CaseDetail />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/cases/:id/load-calc"
+          element={
+            <RequireAuth>
+              <LoadCalc />
             </RequireAuth>
           }
         />
