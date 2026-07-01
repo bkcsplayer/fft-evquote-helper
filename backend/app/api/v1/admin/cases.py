@@ -26,6 +26,10 @@ class CaseOverrideStatusIn(BaseModel):
     note: str | None = None
 
 
+class LoadCalcIn(BaseModel):
+    value: dict
+
+
 @router.delete("/cases/{case_id}")
 def delete_case(
     case_id: str,
@@ -39,6 +43,38 @@ def delete_case(
         raise HTTPException(status_code=404, detail="Case not found")
     delete_case_cascade(db, case)
     return {"ok": True}
+
+
+@router.get("/cases/{case_id}/load-calc")
+def get_load_calc(
+    case_id: str,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """Return the saved electrical load calculation (panel + inputs) for a case."""
+    _ = admin
+    case = db.get(Case, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    return {"value": case.load_calc}
+
+
+@router.put("/cases/{case_id}/load-calc")
+def put_load_calc(
+    case_id: str,
+    payload: LoadCalcIn,
+    db: Session = Depends(get_db),
+    admin: AdminUser = Depends(get_current_admin),
+):
+    """Save the electrical load calculation (panel layout, breakers, inputs, result) for a case."""
+    _ = admin
+    case = db.get(Case, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Case not found")
+    case.load_calc = payload.value
+    db.add(case)
+    db.commit()
+    return {"ok": True, "value": case.load_calc}
 
 
 @router.get("/cases", response_model=list[CaseListItemOut])
