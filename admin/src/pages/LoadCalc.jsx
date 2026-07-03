@@ -698,13 +698,16 @@ const CSS = `
 .lc .big{font-size:26px;font-weight:800;letter-spacing:-.02em}
 
 @media print{
-  @page{ size:A4 portrait; margin:12mm; }
+  @page{ size:A4 landscape; margin:10mm; }
   html,body{ background:#fff !important; }
   body{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   body *{ visibility:hidden !important; }
   #panelPrint, #panelPrint *{ visibility:visible !important; }
-  #panelPrint{ position:absolute; left:0; top:0; width:100%; padding:0; background:none; display:flex; flex-direction:column; align-items:center; gap:14px; }
-  #panelPrint .panel{ margin:0 auto; box-shadow:none; }
+  /* row+wrap so the main panel and its subpanels sit side by side, not one-per-page */
+  #panelPrint{ position:absolute; left:0; top:0; width:100%; padding:0; background:none; display:flex; flex-direction:row; flex-wrap:wrap; align-items:flex-start; justify-content:center; gap:16px 22px; }
+  #panelPrint .substage{ width:auto; gap:4px; }
+  /* never split a panel across a page boundary */
+  #panelPrint .panel, #panelPrint .substage{ margin:0; box-shadow:none; break-inside:avoid; page-break-inside:avoid; }
   #panelPrint .bus::after{ animation:none; }
   .lc .subctl{ display:none !important; }
   .lc .del{ display:none !important; }
