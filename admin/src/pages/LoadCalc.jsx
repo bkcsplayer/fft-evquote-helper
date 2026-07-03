@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AdminShell } from '../components/layout/AdminShell.jsx'
 import { api } from '../services/api.js'
+import { computeLoad } from '../utils/cecLoad.js'
 
 /* ---------- panel slot model (ported from the hi-fi mockup) ---------- */
 const TYPES = {
@@ -38,6 +39,7 @@ export default function LoadCalc() {
   const [units, setUnits] = useState([])
 
   const [area, setArea] = useState('180')
+  const [heatType, setHeatType] = useState('gas')
   const [heat, setHeat] = useState('10')
   const [ac, setAc] = useState('0')
   const [range, setRange] = useState('12')
@@ -65,6 +67,7 @@ export default function LoadCalc() {
       }
       const c = v.calc || {}
       if (c.area != null) setArea(String(c.area))
+      if (c.heatType != null) setHeatType(c.heatType)
       if (c.heat != null) setHeat(String(c.heat))
       if (c.ac != null) setAc(String(c.ac))
       if (c.range != null) setRange(String(c.range))
@@ -74,7 +77,7 @@ export default function LoadCalc() {
   }, [id])
 
   async function save() {
-    const value = { brand, main, slots, units, calc: { area, heat, ac, range, wh, other } }
+    const value = { brand, main, slots, units, calc: { area, heatType, heat, ac, range, wh, other } }
     try {
       await api.put('/cases/' + id + '/load-calc', { value })
       flash('已保存到 case')
@@ -139,23 +142,12 @@ export default function LoadCalc() {
     }))
   }
 
-  /* ---------- CEC 8-200 calc ---------- */
+  /* ---------- CEC 8-200 calc (see utils/cecLoad.js) ---------- */
   const calc = useMemo(() => {
-    const areaV = num(area)
-    const heatW = num(heat) * 1000, acW = num(ac) * 1000, rangeW = num(range) * 1000, whW = num(wh) * 1000, otherW = num(other) * 1000
-    const svc = parseInt(main, 10) || 100
-    const basic = areaV <= 0 ? 0 : 5000 + Math.max(0, Math.ceil((areaV - 90) / 90)) * 1000 // (i)(ii)
-    const heatAC = Math.max(heatW, acW) // (iii) larger of heat/AC @100%
-    const rangeDem = rangeW <= 0 ? 0 : rangeW <= 12000 ? 6000 : 6000 + (rangeW - 12000) * 0.4 // (iv)
-    const whDem = whW // (v) 100%
-    const otherDem = otherW * 0.25 // (vii) 25% (range present)
-    const evW = units.filter((u) => u.kind === 'ev').reduce((a, u) => a + u.circuits.reduce((b, c) => b + c.amp * 240, 0), 0) // (vi) 100%
-    const total = basic + heatAC + rangeDem + whDem + otherDem + evW
-    const amps = total / 240
-    const pct = Math.min(140, (amps / svc) * 100)
-    const minSvc = areaV >= 80 ? 100 : 60 // 8-200(1)(b)
-    return { basic, heatAC, rangeDem, whDem, otherDem, evW, total, amps, pct, svc, minSvc }
-  }, [area, heat, ac, range, wh, other, main, units])
+    const evW = units.filter((u) => u.kind === 'ev').reduce((a, u) => a + u.circuits.reduce((b, c) => b + c.amp * 240, 0), 0)
+    const r = computeLoad({ area, heat, ac, range, wh, other, heatType, main, evW })
+    return { ...r, pct: Math.min(140, (r.amps / r.svc) * 100) }
+  }, [area, heat, ac, range, wh, other, main, units, heatType])
 
   const f = (w) => (w / 1000).toFixed(1) + ' kW'
   const over = calc.amps > calc.svc
@@ -288,17 +280,26 @@ export default function LoadCalc() {
               <div className="cb">
                 <div className="calcin">
                   <label>居住面积 m²<input type="number" value={area} onChange={(e) => setArea(e.target.value)} /></label>
-                  <label>电采暖 kW<input type="number" value={heat} onChange={(e) => setHeat(e.target.value)} /></label>
+                  <label>供热类型
+                    <select value={heatType} onChange={(e) => setHeatType(e.target.value)}>
+                      <option value="gas">燃气供热</option>
+                      <option value="electric">电供热</option>
+                    </select>
+                  </label>
+                  <label style={heatType === 'gas' ? { opacity: .5 } : undefined}>电采暖 kW
+                    <input type="number" value={heat} disabled={heatType === 'gas'} onChange={(e) => setHeat(e.target.value)} />
+                  </label>
                   <label>空调 kW<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} /></label>
-                  <label>电炉 kW<input type="number" value={range} onChange={(e) => setRange(e.target.value)} /></label>
-                  <label>即热热水器/泳池/SPA kW<input type="number" value={wh} onChange={(e) => setWh(e.target.value)} /></label>
-                  <label>其它附加(&gt;1.5kW) kW<input type="number" value={other} onChange={(e) => setOther(e.target.value)} /></label>
+                  <label>电炉 kW · 燃气灶填0<input type="number" value={range} onChange={(e) => setRange(e.target.value)} /></label>
+                  <label>即热热水器/Hottub/泳池 · 100%<input type="number" value={wh} onChange={(e) => setWh(e.target.value)} /></label>
+                  <label>储水热水器/烘干机等 · 其它&gt;1.5kW<input type="number" value={other} onChange={(e) => setOther(e.target.value)} /></label>
                 </div>
+                <div className="hint">填表提示:<b>即热</b>热水器 / Hot tub / 泳池 / SPA 填「100% 那格」;<b>常规储水式</b>热水器、烘干机等走「其它&gt;1.5kW」。燃气供暖/燃气灶/燃气热水器→对应格填 0。</div>
                 <div className="kv"><span className="k">基础 · 面积 (i)(ii)</span><span className="v mono">{f(calc.basic)}</span></div>
-                <div className="kv"><span className="k">采暖/空调 · 取大 (iii)</span><span className="v mono">{f(calc.heatAC)}</span></div>
-                <div className="kv"><span className="k">电炉 (iv)</span><span className="v mono">{f(calc.rangeDem)}</span></div>
-                <div className="kv"><span className="k">即热热水器/泳池/SPA · 100% (v)</span><span className="v mono">{f(calc.whDem)}</span></div>
-                <div className="kv"><span className="k">其它附加 · 25% (vii)</span><span className="v mono">{f(calc.otherDem)}</span></div>
+                <div className="kv"><span className="k">{heatType === 'gas' ? '空调 · 100% (iii/iv · 燃气供热)' : '采暖 62-118 / 空调 · 取大 (iii/iv)'}</span><span className="v mono">{f(calc.heatAC)}</span></div>
+                <div className="kv"><span className="k">电炉 (v)</span><span className="v mono">{f(calc.rangeDem)}</span></div>
+                <div className="kv"><span className="k">即热热水器/泳池/SPA · 100% (vi)</span><span className="v mono">{f(calc.whDem)}</span></div>
+                <div className="kv"><span className="k">{num(range) > 0 ? '其它附加 · 25% (viii)' : '其它附加 · 6kW内100%+余25% (viii)'}</span><span className="v mono">{f(calc.otherDem)}</span></div>
                 <div className="kv"><span className="k" style={{ color: 'var(--blue)', fontWeight: 700 }}>+ EV 充电桩 (100%)</span><span className="v mono" style={{ color: 'var(--blue)' }}>+ {f(calc.evW)}</span></div>
                 <div className="kv" style={{ borderTop: '2px solid var(--ink)', marginTop: 4, paddingTop: 10 }}><span className="k" style={{ fontWeight: 700, color: 'var(--ink)' }}>计算总负荷</span><span className="v big mono">{calc.amps.toFixed(0)} A</span></div>
 
@@ -313,7 +314,7 @@ export default function LoadCalc() {
                   <div>
                     {over ? '超出 service 容量,需上 EVEMS 或升级 service。' : '容量充足,可直接加装 EV 充电桩。'}
                     <small>{over
-                      ? '缺口 ' + (calc.amps - calc.svc).toFixed(0) + ' A · CEC 8-106(11) 加 EVEMS 可把 EV 限到剩余容量免升级。' + note
+                      ? '缺口 ' + (calc.amps - calc.svc).toFixed(0) + ' A · CEC 8-106(10) 加 EVEMS 可把 EV 限到剩余容量免升级。' + note
                       : '余量 ' + (calc.svc - calc.amps).toFixed(0) + ' A。' + note}</small>
                   </div>
                 </div>
@@ -439,8 +440,11 @@ const CSS = `
 .lc .kv:last-child{border:none}.lc .kv .k{color:var(--ink2);font-weight:500}.lc .kv .v{font-weight:700}
 .lc .calcin{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
 .lc .calcin label{display:flex;flex-direction:column;gap:4px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3)}
-.lc .calcin input{width:100%;min-width:0;border:1px solid var(--line2);border-radius:9px;padding:8px 10px;font-size:13.5px;font-weight:600;outline:none}
-.lc .calcin input:focus{border-color:var(--accent)}
+.lc .calcin input,.lc .calcin select{width:100%;min-width:0;border:1px solid var(--line2);border-radius:9px;padding:8px 10px;font-size:13.5px;font-weight:600;outline:none;background:#fff}
+.lc .calcin input:focus,.lc .calcin select:focus{border-color:var(--accent)}
+.lc .calcin input:disabled{background:#F1F3F2;color:#AEB4BA;cursor:not-allowed}
+.lc .hint{font-size:11px;color:var(--ink3);line-height:1.6;background:var(--app);border-radius:10px;padding:9px 11px;margin-bottom:12px}
+.lc .hint b{color:var(--ink2)}
 .lc .gauge{margin:14px 0 6px}
 .lc .gauge .track{height:14px;border-radius:8px;background:#EEF1F0;overflow:hidden;position:relative}
 .lc .gauge .fill{height:100%;border-radius:8px;background:linear-gradient(90deg,#10b981,#34d399);transition:width .5s cubic-bezier(.2,.8,.3,1)}
