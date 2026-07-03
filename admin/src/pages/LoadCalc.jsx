@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AdminShell } from '../components/layout/AdminShell.jsx'
 import { api } from '../services/api.js'
-import { computeLoad } from '../utils/cecLoad.js'
+import { computeLoad, connectedAmps } from '../utils/cecLoad.js'
 
 /* ---------- panel slot model (ported from the hi-fi mockup) ---------- */
 const TYPES = {
@@ -12,8 +12,11 @@ const TYPES = {
   quad: { slots: 2, kind: 'normal', mk: () => [{ label: '', amp: 15, pole: 1 }, { label: '', amp: 30, pole: 2 }, { label: '', amp: 15, pole: 1 }] },
   ev: { slots: 2, kind: 'ev', mk: () => [{ label: 'EV CHARGER', amp: 30, pole: 2 }] },
   solar: { slots: 2, kind: 'solar', mk: () => [{ label: 'SOLAR PV', amp: 40, pole: 2 }] },
+  // feeder = the breaker in the MAIN panel that supplies a subpanel. Auto-placed, not draggable.
+  feeder: { slots: 2, kind: 'feeder', mk: () => [{ label: '→ SUB', amp: 60, pole: 2 }] },
 }
 const SPAN = (t) => TYPES[t].slots
+const FEEDER_AMPS = [40, 60, 100, 125]
 
 const PALETTE = [
   { type: 'p1', glyph: 'p1', bars: 1, t: '1-Pole 120V', s: '占 1 槽' },
@@ -30,6 +33,20 @@ const num = (s) => {
 }
 const slotNumber = (col, row) => (col === 'L' ? row * 2 + 1 : row * 2 + 2)
 
+function buildSlotList(slots) {
+  const n = Math.max(2, slots)
+  const per = Math.ceil(n / 2)
+  const out = []
+  for (let r = 0; r < per; r++) {
+    for (const col of ['L', 'R']) {
+      const nm = slotNumber(col, r)
+      if (nm > n) continue
+      out.push({ col, row: r, num: nm })
+    }
+  }
+  return out
+}
+
 export default function LoadCalc() {
   const { id } = useParams()
 
@@ -37,19 +54,28 @@ export default function LoadCalc() {
   const [main, setMain] = useState('100 A')
   const [slots, setSlots] = useState(30)
   const [units, setUnits] = useState([])
+  const [subEnabled, setSubEnabled] = useState(false)
+  const [subpanels, setSubpanels] = useState([]) // [{ id, name, feederAmp, slots, units }]
 
   const [area, setArea] = useState('180')
-  const [heatType, setHeatType] = useState('gas')
+  const [heatType, setHeatType] = useState('gas')   // gas | electric
   const [heat, setHeat] = useState('10')
-  const [ac, setAc] = useState('0')
+  const [acOn, setAcOn] = useState(false)
+  const [ac, setAc] = useState('3.5')
   const [range, setRange] = useState('12')
-  const [wh, setWh] = useState('0')
-  const [other, setOther] = useState('4.5')
+  const [whType, setWhType] = useState('gas')       // gas | tankless | tank
+  const [whKw, setWhKw] = useState('4.5')
+  const [hottubOn, setHottubOn] = useState(false)
+  const [hottubKw, setHottubKw] = useState('11.5')
+  const [poolOn, setPoolOn] = useState(false)
+  const [poolKw, setPoolKw] = useState('0')
+  const [other, setOther] = useState('0')
 
   const [overKey, setOverKey] = useState(null)
   const [flashId, setFlashId] = useState(null)
   const [msg, setMsg] = useState('')
   const uidRef = useRef(1)
+  const subSeqRef = useRef(1)
 
   function flash(m) { setMsg(m); setTimeout(() => setMsg(''), 3500) }
 
@@ -61,23 +87,32 @@ export default function LoadCalc() {
       if (v.brand != null) setBrand(v.brand)
       if (v.main != null) setMain(v.main)
       if (v.slots != null) setSlots(v.slots)
-      if (Array.isArray(v.units)) {
-        setUnits(v.units)
-        uidRef.current = v.units.reduce((m, u) => Math.max(m, u.id || 0), 0) + 1
-      }
+      if (Array.isArray(v.units)) setUnits(v.units)
+      const subs = Array.isArray(v.subpanels) ? v.subpanels : []
+      setSubpanels(subs)
+      setSubEnabled(v.subEnabled != null ? !!v.subEnabled : subs.length > 0)
+      const allUnits = [...(v.units || []), ...subs.flatMap((s) => s.units || [])]
+      uidRef.current = allUnits.reduce((m, u) => Math.max(m, u.id || 0), 0) + 1
+      subSeqRef.current = subs.reduce((m, s) => Math.max(m, parseInt(String(s.id).replace('sub-', ''), 10) || 0), 0) + 1
       const c = v.calc || {}
       if (c.area != null) setArea(String(c.area))
       if (c.heatType != null) setHeatType(c.heatType)
       if (c.heat != null) setHeat(String(c.heat))
+      if (c.acOn != null) setAcOn(!!c.acOn)
       if (c.ac != null) setAc(String(c.ac))
       if (c.range != null) setRange(String(c.range))
-      if (c.wh != null) setWh(String(c.wh))
+      if (c.whType != null) setWhType(c.whType)
+      if (c.whKw != null) setWhKw(String(c.whKw))
+      if (c.hottubOn != null) setHottubOn(!!c.hottubOn)
+      if (c.hottubKw != null) setHottubKw(String(c.hottubKw))
+      if (c.poolOn != null) setPoolOn(!!c.poolOn)
+      if (c.poolKw != null) setPoolKw(String(c.poolKw))
       if (c.other != null) setOther(String(c.other))
     }).catch(() => {})
   }, [id])
 
   async function save() {
-    const value = { brand, main, slots, units, calc: { area, heatType, heat, ac, range, wh, other } }
+    const value = { brand, main, slots, units, subEnabled, subpanels, calc: { area, heatType, heat, acOn, ac, range, whType, whKw, hottubOn, hottubKw, poolOn, poolKw, other } }
     try {
       await api.put('/cases/' + id + '/load-calc', { value })
       flash('已保存到 case')
@@ -86,39 +121,35 @@ export default function LoadCalc() {
     }
   }
 
-  /* ---------- slot geometry ---------- */
-  const slotList = useMemo(() => {
-    const n = Math.max(2, slots)
-    const per = Math.ceil(n / 2)
-    const out = []
-    for (let r = 0; r < per; r++) {
-      for (const col of ['L', 'R']) {
-        const nm = slotNumber(col, r)
-        if (nm > n) continue
-        out.push({ col, row: r, num: nm })
-      }
-    }
-    return out
-  }, [slots])
+  /* ---------- panel accessors (pid = 'main' | sub id) ---------- */
+  const getUnits = (pid) => (pid === 'main' ? units : subpanels.find((s) => s.id === pid)?.units || [])
+  const getSlots = (pid) => (pid === 'main' ? slots : subpanels.find((s) => s.id === pid)?.slots || 12)
+  function setUnitsFor(pid, updater) {
+    if (pid === 'main') { setUnits(updater); return }
+    setSubpanels((ps) => ps.map((s) => (s.id === pid
+      ? { ...s, units: typeof updater === 'function' ? updater(s.units) : updater }
+      : s)))
+  }
 
-  const slotExists = (col, row) => slotNumber(col, row) <= Math.max(2, slots)
-  const occupiedAt = (col, row) =>
-    units.some((u) => u.col === col && (u.row === row || (SPAN(u.type) === 2 && u.row + 1 === row)))
+  const slotExists = (pid, col, row) => slotNumber(col, row) <= Math.max(2, getSlots(pid))
+  const occupiedAt = (pid, col, row) =>
+    getUnits(pid).some((u) => u.col === col && (u.row === row || (SPAN(u.type) === 2 && u.row + 1 === row)))
 
-  function place(type, col, row) {
+  function place(pid, type, col, row) {
+    if (!TYPES[type]) return
     const s = SPAN(type)
-    if (occupiedAt(col, row)) return
-    if (s === 2 && (!slotExists(col, row + 1) || occupiedAt(col, row + 1))) return
+    if (occupiedAt(pid, col, row)) return
+    if (s === 2 && (!slotExists(pid, col, row + 1) || occupiedAt(pid, col, row + 1))) return
     const nid = uidRef.current++
-    setUnits((p) => [...p, { id: nid, type, col, row, kind: TYPES[type].kind, circuits: TYPES[type].mk() }])
+    setUnitsFor(pid, (p) => [...p, { id: nid, type, col, row, kind: TYPES[type].kind, circuits: TYPES[type].mk() }])
     setFlashId(nid)
     setTimeout(() => setFlashId((cur) => (cur === nid ? null : cur)), 700)
   }
 
-  function deleteUnit(uid) { setUnits((p) => p.filter((u) => u.id !== uid)) }
+  function deleteUnit(pid, uid) { setUnitsFor(pid, (p) => p.filter((u) => u.id !== uid)) }
 
-  function editCircuit(uid, i) {
-    const u = units.find((x) => x.id === uid)
+  function editCircuit(pid, uid, i) {
+    const u = getUnits(pid).find((x) => x.id === uid)
     if (!u) return
     const c = u.circuits[i]
     const label = window.prompt('这一路是干什么的?(用电器名称)', c.label)
@@ -126,28 +157,89 @@ export default function LoadCalc() {
     const amp = window.prompt('容量 (A):', c.amp)
     if (amp === null) return
     const newAmp = parseInt(amp, 10) || c.amp
-    setUnits((p) => p.map((x) => x.id !== uid ? x
+    setUnitsFor(pid, (p) => p.map((x) => x.id !== uid ? x
       : { ...x, circuits: x.circuits.map((cc, j) => j === i ? { ...cc, label: label.trim(), amp: newAmp } : cc) }))
   }
 
-  function changeSlots(v) {
-    const n = Math.max(2, parseInt(v, 10) || 30)
-    setSlots(n)
-    // ponytail: keep breakers that still fit instead of wiping the panel (mockup cleared all on any config change)
-    setUnits((p) => p.filter((u) => {
+  function keepFitting(list, n) {
+    return list.filter((u) => {
       const top = slotNumber(u.col, u.row)
       if (top > n) return false
       if (SPAN(u.type) === 2 && slotNumber(u.col, u.row + 1) > n) return false
       return true
-    }))
+    })
+  }
+
+  function changeSlots(pid, v) {
+    const n = Math.max(2, parseInt(v, 10) || 12)
+    if (pid === 'main') {
+      setSlots(n)
+      // ponytail: keep breakers that still fit instead of wiping the panel
+      setUnits((p) => keepFitting(p, n))
+    } else {
+      setSubpanels((ps) => ps.map((s) => (s.id === pid ? { ...s, slots: n, units: keepFitting(s.units, n) } : s)))
+    }
+  }
+
+  /* ---------- subpanel management (feeder lives in the MAIN panel) ---------- */
+  function firstFreeDouble(pid) {
+    for (const { col, row } of buildSlotList(getSlots(pid))) {
+      if (occupiedAt(pid, col, row)) continue
+      if (!slotExists(pid, col, row + 1) || occupiedAt(pid, col, row + 1)) continue
+      return { col, row }
+    }
+    return null
+  }
+
+  function toggleSub() {
+    if (subEnabled) {
+      if (subpanels.length && !window.confirm('关闭后会移除已添加的 ' + subpanels.length + ' 个 subpanel（含主面板里的 feeder），确定?')) return
+      setUnits((p) => p.filter((u) => u.kind !== 'feeder'))
+      setSubpanels([])
+      setSubEnabled(false)
+    } else {
+      setSubEnabled(true)
+    }
+  }
+
+  function addSubpanel() {
+    const spot = firstFreeDouble('main')
+    if (!spot) { flash('主面板没有连续 2 槽给 feeder，请先增大主面板槽位'); return }
+    const seq = subSeqRef.current++
+    const sid = 'sub-' + seq
+    const name = 'SUB-' + seq
+    const feederAmp = 60
+    const feederId = uidRef.current++
+    setUnits((p) => [...p, {
+      id: feederId, type: 'feeder', col: spot.col, row: spot.row, kind: 'feeder',
+      subId: sid, circuits: [{ label: '→ ' + name, amp: feederAmp, pole: 2 }],
+    }])
+    setSubpanels((ps) => [...ps, { id: sid, name, feederAmp, slots: 12, units: [] }])
+  }
+
+  function removeSubpanel(sid) {
+    setUnits((p) => p.filter((u) => !(u.kind === 'feeder' && u.subId === sid)))
+    setSubpanels((ps) => ps.filter((s) => s.id !== sid))
+  }
+
+  function setSubFeeder(sid, amp) {
+    setSubpanels((ps) => ps.map((s) => (s.id === sid ? { ...s, feederAmp: amp } : s)))
+    setUnits((p) => p.map((u) => (u.kind === 'feeder' && u.subId === sid)
+      ? { ...u, circuits: [{ ...u.circuits[0], amp }] } : u))
   }
 
   /* ---------- CEC 8-200 calc (see utils/cecLoad.js) ---------- */
   const calc = useMemo(() => {
-    const evW = units.filter((u) => u.kind === 'ev').reduce((a, u) => a + u.circuits.reduce((b, c) => b + c.amp * 240, 0), 0)
-    const r = computeLoad({ area, heat, ac, range, wh, other, heatType, main, evW })
+    // EV load is summed across the MAIN panel and EVERY subpanel (all fed by the one service).
+    const allUnits = [units, ...subpanels.map((s) => s.units)].flat()
+    const evW = allUnits.filter((u) => u.kind === 'ev').reduce((a, u) => a + u.circuits.reduce((b, c) => b + c.amp * 240, 0), 0)
+    // (vi) 100%: tankless water heater + hot tub + pool. (viii) 25%: tank water heater + other big loads.
+    const wh100 = (whType === 'tankless' ? num(whKw) : 0) + (hottubOn ? num(hottubKw) : 0) + (poolOn ? num(poolKw) : 0)
+    const other25 = num(other) + (whType === 'tank' ? num(whKw) : 0)
+    const acKw = acOn ? ac : '0'
+    const r = computeLoad({ area, heat, ac: acKw, range, wh: wh100, other: other25, heatType, main, evW })
     return { ...r, pct: Math.min(140, (r.amps / r.svc) * 100) }
-  }, [area, heat, ac, range, wh, other, main, units, heatType])
+  }, [area, heat, acOn, ac, range, whType, whKw, hottubOn, hottubKw, poolOn, poolKw, other, main, units, subpanels, heatType])
 
   const f = (w) => (w / 1000).toFixed(1) + ' kW'
   const over = calc.amps > calc.svc
@@ -156,7 +248,17 @@ export default function LoadCalc() {
   const brandTag = (brand.split(' ')[0] || 'PANEL').toUpperCase()
 
   /* ---------- render one placed breaker ---------- */
-  function renderUnit(u) {
+  function renderUnit(pid, u) {
+    if (u.kind === 'feeder') {
+      const c = u.circuits[0]
+      return (
+        <div className="unit feeder tall" title="这是去 subpanel 的馈线；删除请用下方 subpanel 的删除按钮">
+          <div className="cstack">
+            <div className="crow"><span className="ctog" /><span className="clab">{c.label}</span><span className="camp">{c.amp}A·240V</span></div>
+          </div>
+        </div>
+      )
+    }
     const span2 = SPAN(u.type) === 2
     const kindCls = u.kind === 'ev' ? 'ev' : u.kind === 'solar' ? 'solar' : ''
     const cls = `unit ${kindCls}${span2 ? ' tall' : ''}${flashId === u.id ? ' in surge' : ''}`
@@ -166,7 +268,7 @@ export default function LoadCalc() {
           {u.circuits.map((c, i) => {
             const v240 = c.pole === 2 && u.kind === 'normal'
             return (
-              <div key={i} className={`crow${v240 ? ' v240' : ''}`} onClick={(e) => { e.stopPropagation(); editCircuit(u.id, i) }}>
+              <div key={i} className={`crow${v240 ? ' v240' : ''}`} onClick={(e) => { e.stopPropagation(); editCircuit(pid, u.id, i) }}>
                 <span className="ctog" />
                 {c.label
                   ? <span className="clab">{c.label}</span>
@@ -176,7 +278,36 @@ export default function LoadCalc() {
             )
           })}
         </div>
-        <button className="del" onClick={(e) => { e.stopPropagation(); deleteUnit(u.id) }}>×</button>
+        <button className="del" onClick={(e) => { e.stopPropagation(); deleteUnit(pid, u.id) }}>×</button>
+      </div>
+    )
+  }
+
+  /* ---------- render one panel (main or a subpanel) ---------- */
+  function renderPanel(pid, pslots, punits, tag, ttl, mainLine, extraClass) {
+    return (
+      <div className={`panel ${extraClass || ''}`}>
+        <div className="brandtag">{tag}</div>
+        <div className="ttl">{ttl}</div>
+        <div className="main">{mainLine}</div>
+        <div className="bus" />
+        <div className="rows">
+          {buildSlotList(pslots).map(({ col, row, num: nm }) => {
+            const key = pid + '-' + col + '-' + row
+            const topUnit = punits.find((u) => u.col === col && u.row === row)
+            const occ = occupiedAt(pid, col, row)
+            return (
+              <div key={key}
+                className={`slot ${col}${occ ? ' occ' : ''}${overKey === key ? ' over' : ''}`}
+                onDragOver={(e) => { e.preventDefault(); setOverKey(key) }}
+                onDragLeave={() => setOverKey((k) => (k === key ? null : k))}
+                onDrop={(e) => { e.preventDefault(); setOverKey(null); place(pid, e.dataTransfer.getData('t'), col, row) }}>
+                <span className="num">{nm}</span>
+                {topUnit && renderUnit(pid, topUnit)}
+              </div>
+            )
+          })}
+        </div>
       </div>
     )
   }
@@ -209,8 +340,14 @@ export default function LoadCalc() {
                 <option>60 A</option><option>100 A</option><option>125 A</option><option>200 A</option>
               </select>
             </label>
-            <label>Spaces (slots)<input className="w-slot" type="number" value={slots} min="12" max="60" step="2" onChange={(e) => changeSlots(e.target.value)} /></label>
+            <label>Spaces (slots)<input className="w-slot" type="number" value={slots} min="12" max="60" step="2" onChange={(e) => changeSlots('main', e.target.value)} /></label>
             <label>Phase / voltage<input className="w-amp" value="240 V 1Ø" readOnly style={{ background: '#F6F7F6', color: '#9CA3AB' }} /></label>
+            <label>Subpanel
+              <div className="subtoggle">
+                <button className={subEnabled ? 'on' : ''} onClick={toggleSub}>{subEnabled ? '已启用' : '关闭'}</button>
+                {subEnabled && <button className="addsub" onClick={addSubpanel}>+ 添加</button>}
+              </div>
+            </label>
           </div>
 
           <div className="grid">
@@ -235,40 +372,44 @@ export default function LoadCalc() {
                   <div className="row"><span className="sw" style={{ background: 'linear-gradient(145deg,#3A4045,#2B3035)' }} />常规回路</div>
                   <div className="row"><span className="sw" style={{ background: '#2563EB' }} />EV 充电桩(待装 · 30A 2-pole)</div>
                   <div className="row"><span className="sw" style={{ background: '#DC2626' }} />Solar 太阳能</div>
+                  {subEnabled && <div className="row"><span className="sw" style={{ background: '#7C3AED' }} />Feeder → Subpanel(馈线)</div>}
                 </div>
-                <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷,Solar 不计入需求负荷。</div>
+                <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
               </div>
             </div>
 
-            {/* panel stage */}
+            {/* panel stage(s) */}
             <div className="col">
-              <div className="ch">Main panel</div>
-              <div className="cs">{brand} · {main} · {slots} spaces</div>
+              <div className="ch">Panels</div>
+              <div className="cs">{brand} · {main} · {slots} spaces{subEnabled && subpanels.length ? ` · +${subpanels.length} subpanel` : ''}</div>
               <div className="cb" style={{ padding: 0 }}>
                 <div className="stage" id="panelPrint">
-                  <div className="panel">
-                    <div className="brandtag">{brandTag}</div>
-                    <div className="ttl">Load Centre</div>
-                    <div className="main"><span className="dot" /> MAIN <span className="mono">{calc.svc}A</span></div>
-                    <div className="bus" />
-                    <div className="rows">
-                      {slotList.map(({ col, row, num: nm }) => {
-                        const key = col + '-' + row
-                        const topUnit = units.find((u) => u.col === col && u.row === row)
-                        const occ = occupiedAt(col, row)
-                        return (
-                          <div key={key}
-                            className={`slot ${col}${occ ? ' occ' : ''}${overKey === key ? ' over' : ''}`}
-                            onDragOver={(e) => { e.preventDefault(); setOverKey(key) }}
-                            onDragLeave={() => setOverKey((k) => (k === key ? null : k))}
-                            onDrop={(e) => { e.preventDefault(); setOverKey(null); place(e.dataTransfer.getData('t'), col, row) }}>
-                            <span className="num">{nm}</span>
-                            {topUnit && renderUnit(topUnit)}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
+                  {renderPanel('main', slots, units, brandTag, 'Load Centre',
+                    <><span className="dot" /> MAIN <span className="mono">{calc.svc}A</span></>)}
+
+                  {subEnabled && subpanels.map((sp) => {
+                    const camps = connectedAmps(sp.units)
+                    const oload = camps > sp.feederAmp
+                    return (
+                      <div key={sp.id} className="substage">
+                        <div className="feedwrap"><span className="feedline" /><span className="feedtag">fed by {sp.feederAmp}A feeder ◄ main</span></div>
+                        {renderPanel(sp.id, sp.slots, sp.units, sp.name, 'Sub Panel',
+                          <><span className="dot amber" /> {sp.name} <span className="mono">{sp.feederAmp}A</span></>, 'sub')}
+                        <div className="subctl">
+                          <label>Feeder
+                            <select value={sp.feederAmp} onChange={(e) => setSubFeeder(sp.id, parseInt(e.target.value, 10))}>
+                              {FEEDER_AMPS.map((a) => <option key={a} value={a}>{a} A</option>)}
+                            </select>
+                          </label>
+                          <label>Slots
+                            <input type="number" min="6" max="42" step="2" value={sp.slots} onChange={(e) => changeSlots(sp.id, e.target.value)} />
+                          </label>
+                          <span className={`oload ${oload ? 'bad' : 'ok'}`}>连接负荷 {camps}A / feeder {sp.feederAmp}A{oload ? ' · 超载!' : ''}</span>
+                          <button className="rmsub" onClick={() => removeSubpanel(sp.id)}>删除 subpanel</button>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             </div>
@@ -278,29 +419,70 @@ export default function LoadCalc() {
               <div className="ch">Service load · CEC 8-200</div>
               <div className="cs">实时计算 · EV 按 100% 无需求系数</div>
               <div className="cb">
-                <div className="calcin">
-                  <label>居住面积 m²<input type="number" value={area} onChange={(e) => setArea(e.target.value)} /></label>
-                  <label>供热类型
-                    <select value={heatType} onChange={(e) => setHeatType(e.target.value)}>
-                      <option value="gas">燃气供热</option>
-                      <option value="electric">电供热</option>
-                    </select>
-                  </label>
-                  <label style={heatType === 'gas' ? { opacity: .5 } : undefined}>电采暖 kW
-                    <input type="number" value={heat} disabled={heatType === 'gas'} onChange={(e) => setHeat(e.target.value)} />
-                  </label>
-                  <label>空调 kW<input type="number" value={ac} onChange={(e) => setAc(e.target.value)} /></label>
-                  <label>电炉 kW · 燃气灶填0<input type="number" value={range} onChange={(e) => setRange(e.target.value)} /></label>
-                  <label>即热热水器/Hottub/泳池 · 100%<input type="number" value={wh} onChange={(e) => setWh(e.target.value)} /></label>
-                  <label>储水热水器/烘干机等 · 其它&gt;1.5kW<input type="number" value={other} onChange={(e) => setOther(e.target.value)} /></label>
+                <div className="svc">
+                  <div className="srow">
+                    <span className="sl">居住面积</span>
+                    <span className="sc"><input type="number" value={area} onChange={(e) => setArea(e.target.value)} /><em>m²</em></span>
+                  </div>
+                  <div className="srow">
+                    <span className="sl">供热来源</span>
+                    <span className="sc">
+                      <select value={heatType} onChange={(e) => setHeatType(e.target.value)}>
+                        <option value="gas">燃气</option><option value="electric">电</option>
+                      </select>
+                    </span>
+                  </div>
+                  {heatType === 'electric' && (
+                    <div className="srow sub">
+                      <span className="sl">· 电采暖功率</span>
+                      <span className="sc"><input type="number" value={heat} onChange={(e) => setHeat(e.target.value)} /><em>kW</em></span>
+                    </div>
+                  )}
+                  <div className="srow">
+                    <span className="sl">空调</span>
+                    <span className="sc">
+                      <button type="button" className={`tg ${acOn ? 'on' : ''}`} onClick={() => setAcOn((v) => !v)}>{acOn ? '有' : '无'}</button>
+                      {acOn && <><input type="number" value={ac} onChange={(e) => setAc(e.target.value)} /><em>kW</em></>}
+                    </span>
+                  </div>
+                  <div className="srow">
+                    <span className="sl">电炉<i>燃气灶填 0</i></span>
+                    <span className="sc"><input type="number" value={range} onChange={(e) => setRange(e.target.value)} /><em>kW</em></span>
+                  </div>
+                  <div className="srow">
+                    <span className="sl">热水器</span>
+                    <span className="sc">
+                      <select value={whType} onChange={(e) => setWhType(e.target.value)}>
+                        <option value="gas">燃气</option><option value="tankless">即热(100%)</option><option value="tank">罐式储水(25%)</option>
+                      </select>
+                      {whType !== 'gas' && <><input type="number" value={whKw} onChange={(e) => setWhKw(e.target.value)} /><em>kW</em></>}
+                    </span>
+                  </div>
+                  <div className="srow">
+                    <span className="sl">Hot tub</span>
+                    <span className="sc">
+                      <button type="button" className={`tg ${hottubOn ? 'on' : ''}`} onClick={() => setHottubOn((v) => !v)}>{hottubOn ? '有' : '无'}</button>
+                      {hottubOn && <><input type="number" value={hottubKw} onChange={(e) => setHottubKw(e.target.value)} /><em>kW</em></>}
+                    </span>
+                  </div>
+                  <div className="srow">
+                    <span className="sl">泳池</span>
+                    <span className="sc">
+                      <button type="button" className={`tg ${poolOn ? 'on' : ''}`} onClick={() => setPoolOn((v) => !v)}>{poolOn ? '有' : '无'}</button>
+                      {poolOn && <><input type="number" value={poolKw} onChange={(e) => setPoolKw(e.target.value)} /><em>kW</em></>}
+                    </span>
+                  </div>
+                  <div className="srow">
+                    <span className="sl">其他大电器<i>&gt;1.5kW · 烘干机等</i></span>
+                    <span className="sc"><input type="number" value={other} onChange={(e) => setOther(e.target.value)} /><em>kW</em></span>
+                  </div>
                 </div>
-                <div className="hint">填表提示:<b>即热</b>热水器 / Hot tub / 泳池 / SPA 填「100% 那格」;<b>常规储水式</b>热水器、烘干机等走「其它&gt;1.5kW」。燃气供暖/燃气灶/燃气热水器→对应格填 0。</div>
                 <div className="kv"><span className="k">基础 · 面积 (i)(ii)</span><span className="v mono">{f(calc.basic)}</span></div>
                 <div className="kv"><span className="k">{heatType === 'gas' ? '空调 · 100% (iii/iv · 燃气供热)' : '采暖 62-118 / 空调 · 取大 (iii/iv)'}</span><span className="v mono">{f(calc.heatAC)}</span></div>
                 <div className="kv"><span className="k">电炉 (v)</span><span className="v mono">{f(calc.rangeDem)}</span></div>
-                <div className="kv"><span className="k">即热热水器/泳池/SPA · 100% (vi)</span><span className="v mono">{f(calc.whDem)}</span></div>
+                <div className="kv"><span className="k">即热热水器 / Hot tub / 泳池 · 100% (vi)</span><span className="v mono">{f(calc.whDem)}</span></div>
                 <div className="kv"><span className="k">{num(range) > 0 ? '其它附加 · 25% (viii)' : '其它附加 · 6kW内100%+余25% (viii)'}</span><span className="v mono">{f(calc.otherDem)}</span></div>
-                <div className="kv"><span className="k" style={{ color: 'var(--blue)', fontWeight: 700 }}>+ EV 充电桩 (100%)</span><span className="v mono" style={{ color: 'var(--blue)' }}>+ {f(calc.evW)}</span></div>
+                <div className="kv"><span className="k" style={{ color: 'var(--blue)', fontWeight: 700 }}>+ EV 充电桩 (100%{subEnabled && subpanels.length ? ' · 含 subpanel' : ''})</span><span className="v mono" style={{ color: 'var(--blue)' }}>+ {f(calc.evW)}</span></div>
                 <div className="kv" style={{ borderTop: '2px solid var(--ink)', marginTop: 4, paddingTop: 10 }}><span className="k" style={{ fontWeight: 700, color: 'var(--ink)' }}>计算总负荷</span><span className="v big mono">{calc.amps.toFixed(0)} A</span></div>
 
                 <div className="gauge">
@@ -359,6 +541,12 @@ const CSS = `
 .lc .cfg input,.lc .cfg select{border:1px solid var(--line2);border-radius:10px;padding:9px 11px;font-size:14px;font-weight:600;color:var(--ink);outline:none;background:#fff}
 .lc .cfg input:focus,.lc .cfg select:focus{border-color:var(--accent)}
 .lc .cfg .w-amp{width:120px}.lc .cfg .w-brand{width:180px}.lc .cfg .w-slot{width:110px}
+.lc .subtoggle{display:flex;align-items:center;gap:8px}
+.lc .subtoggle>button{border:1px solid var(--line2);background:#fff;color:var(--ink2);border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;transition:.15s}
+.lc .subtoggle>button.on{border-color:#C4B5FD;background:#F5F3FF;color:#6D28D9}
+.lc .subtoggle>button:hover{border-color:#A78BFA}
+.lc .subtoggle .addsub{border:1px solid #C4B5FD;background:#EDE9FE;color:#6D28D9}
+.lc .subtoggle .addsub:hover{background:#DDD6FE}
 
 .lc .grid{display:grid;grid-template-columns:230px 1fr 320px;gap:18px;align-items:start}
 @media(max-width:1100px){.lc .grid{grid-template-columns:1fr}}
@@ -386,15 +574,19 @@ const CSS = `
 .lc .legend .sw{width:13px;height:13px;border-radius:4px}
 .lc .tip{margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;background:var(--app);border-radius:10px;padding:9px 11px}
 
-.lc .stage{display:flex;justify-content:center;padding:22px 14px 26px;background:radial-gradient(120% 80% at 50% 0,#fafafa,transparent)}
+.lc .stage{display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 14px 26px;background:radial-gradient(120% 80% at 50% 0,#fafafa,transparent)}
 .lc .panel{width:392px;border-radius:16px;padding:16px 32px;background:linear-gradient(160deg,#2A2F34,#1B1E21);box-shadow:0 30px 60px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.06);position:relative}
+.lc .panel.sub{width:360px;background:linear-gradient(160deg,#2b2740,#1c1830);box-shadow:0 20px 44px rgba(50,20,90,.28),inset 0 1px 0 rgba(255,255,255,.06)}
 .lc .panel .brandtag{position:absolute;top:12px;right:14px;font-size:10px;font-weight:700;letter-spacing:.08em;color:#6B7178;text-transform:uppercase}
 .lc .panel .ttl{color:#C9CFD4;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
 .lc .main{display:flex;align-items:center;justify-content:center;gap:10px;background:linear-gradient(145deg,#3A4045,#2A2F34);border:1px solid #444B51;border-radius:9px;padding:11px;margin-bottom:8px;color:#E7ECEF;font-weight:800;font-size:15px;position:relative;box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
 .lc .main .dot{width:9px;height:9px;border-radius:50%;background:#0E9F6E;box-shadow:0 0 10px #0E9F6E;animation:lc-pulse 1.8s ease-in-out infinite}
+.lc .main .dot.amber{background:#a78bfa;box-shadow:0 0 10px #a78bfa}
 @keyframes lc-pulse{50%{opacity:.4}}
 .lc .bus{position:absolute;top:84px;bottom:16px;left:50%;width:6px;transform:translateX(-50%);border-radius:3px;background:linear-gradient(180deg,#0b3d2e,#0b3d2e);overflow:hidden;z-index:0}
+.lc .panel.sub .bus{background:linear-gradient(180deg,#3b2d5e,#3b2d5e)}
 .lc .bus::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent,#10b981 35%,#6ee7b7 50%,#10b981 65%,transparent);background-size:100% 220%;animation:lc-flow 2.4s linear infinite;opacity:.95}
+.lc .panel.sub .bus::after{background:linear-gradient(180deg,transparent,#8b5cf6 35%,#c4b5fd 50%,#8b5cf6 65%,transparent);background-size:100% 220%}
 @keyframes lc-flow{from{background-position:0 120%}to{background-position:0 -120%}}
 .lc .rows{position:relative;z-index:1;display:grid;grid-template-columns:1fr 1fr;gap:7px 30px}
 .lc .slot{height:30px;border-radius:6px;background:linear-gradient(180deg,#23282C,#1C2023);border:1px dashed #3A4045;display:flex;align-items:center;position:relative;transition:.15s}
@@ -414,6 +606,8 @@ const CSS = `
 .lc .unit.ev .toggle{background:#60a5fa;box-shadow:0 0 9px rgba(96,165,250,.9)}
 .lc .unit.solar{background:linear-gradient(145deg,#dc2626,#b91c1c);border-color:#ef4444}
 .lc .unit.solar .toggle{background:#fca5a5;box-shadow:0 0 9px rgba(248,113,113,.9)}
+.lc .unit.feeder{background:linear-gradient(145deg,#7c3aed,#5b21b6);border-color:#8b5cf6;cursor:default}
+.lc .unit.feeder .ctog{background:#c4b5fd;box-shadow:0 0 8px rgba(196,181,253,.9);height:20px}
 .lc .cstack{display:flex;flex-direction:column;height:100%}
 .lc .crow{flex:1;display:flex;align-items:center;gap:6px;padding:0 8px;min-height:0;border-bottom:1px solid rgba(255,255,255,.07);cursor:pointer;transition:background .12s}
 .lc .crow:last-child{border-bottom:none}
@@ -436,6 +630,19 @@ const CSS = `
 .lc .surge::before{content:"";position:absolute;inset:-3px;border-radius:8px;border:2px solid #34d399;opacity:0;animation:lc-surge .7s ease-out}
 @keyframes lc-surge{0%{opacity:.9;transform:scale(.9)}100%{opacity:0;transform:scale(1.25)}}
 
+.lc .substage{display:flex;flex-direction:column;align-items:center;gap:6px;width:100%}
+.lc .feedwrap{display:flex;flex-direction:column;align-items:center;gap:2px}
+.lc .feedline{width:2px;height:20px;background:linear-gradient(180deg,#7c3aed,#a78bfa);border-radius:2px}
+.lc .feedtag{font-size:10px;font-weight:700;color:#7C3AED;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:999px;padding:2px 9px;letter-spacing:.02em}
+.lc .subctl{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:2px;padding:8px 10px;background:#F5F3FF;border:1px solid #E9E3FE;border-radius:12px;width:360px}
+.lc .subctl label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#6D28D9;text-transform:uppercase;letter-spacing:.03em}
+.lc .subctl select,.lc .subctl input{border:1px solid #DDD6FE;border-radius:8px;padding:5px 8px;font-size:12.5px;font-weight:600;color:var(--ink);background:#fff;width:74px}
+.lc .subctl .oload{font-size:11px;font-weight:700;font-family:"Fira Code",monospace;padding:3px 9px;border-radius:999px}
+.lc .subctl .oload.ok{color:var(--accent-d);background:var(--accent-bg);border:1px solid #A7F3D0}
+.lc .subctl .oload.bad{color:#B45309;background:#FFFBEB;border:1px solid #FDE68A}
+.lc .subctl .rmsub{margin-left:auto;border:1px solid #FCA5A5;background:#FEF2F2;color:#B91C1C;border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:700;cursor:pointer}
+.lc .subctl .rmsub:hover{background:#FEE2E2}
+
 .lc .kv{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px dashed var(--line2)}
 .lc .kv:last-child{border:none}.lc .kv .k{color:var(--ink2);font-weight:500}.lc .kv .v{font-weight:700}
 .lc .calcin{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:12px}
@@ -445,6 +652,21 @@ const CSS = `
 .lc .calcin input:disabled{background:#F1F3F2;color:#AEB4BA;cursor:not-allowed}
 .lc .hint{font-size:11px;color:var(--ink3);line-height:1.6;background:var(--app);border-radius:10px;padding:9px 11px;margin-bottom:12px}
 .lc .hint b{color:var(--ink2)}
+.lc .svc{display:flex;flex-direction:column;margin-bottom:14px}
+.lc .srow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px dashed var(--line2);min-height:40px}
+.lc .srow:last-child{border-bottom:none}
+.lc .srow.sub{padding:5px 0 5px 14px}
+.lc .srow.sub .sl{color:var(--ink3)}
+.lc .sl{font-size:12.5px;font-weight:700;color:var(--ink2);display:flex;align-items:baseline;gap:7px;white-space:nowrap}
+.lc .sl i{font-size:10px;font-weight:600;color:var(--ink3);font-style:normal}
+.lc .sc{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex:1;min-width:0}
+.lc .sc input{width:74px;text-align:right;border:1px solid var(--line2);border-radius:8px;padding:6px 9px;font-size:13px;font-weight:600;outline:none;font-variant-numeric:tabular-nums}
+.lc .sc input:focus{border-color:var(--accent)}
+.lc .sc select{border:1px solid var(--line2);border-radius:8px;padding:6px 9px;font-size:12.5px;font-weight:600;outline:none;background:#fff;color:var(--ink)}
+.lc .sc select:focus{border-color:var(--accent)}
+.lc .sc em{font-size:11px;font-weight:600;color:var(--ink3);font-style:normal;width:24px;text-align:left}
+.lc .tg{border:1px solid var(--line2);background:#fff;color:var(--ink3);border-radius:8px;padding:6px 0;width:46px;text-align:center;font-size:12px;font-weight:700;cursor:pointer;transition:.15s;flex:0 0 auto}
+.lc .tg.on{border-color:var(--accent);background:var(--accent-bg);color:var(--accent-d)}
 .lc .gauge{margin:14px 0 6px}
 .lc .gauge .track{height:14px;border-radius:8px;background:#EEF1F0;overflow:hidden;position:relative}
 .lc .gauge .fill{height:100%;border-radius:8px;background:linear-gradient(90deg,#10b981,#34d399);transition:width .5s cubic-bezier(.2,.8,.3,1)}
@@ -463,9 +685,10 @@ const CSS = `
   body{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   body *{ visibility:hidden !important; }
   #panelPrint, #panelPrint *{ visibility:visible !important; }
-  #panelPrint{ position:absolute; left:0; top:0; width:100%; padding:0; background:none; display:flex; justify-content:center; }
+  #panelPrint{ position:absolute; left:0; top:0; width:100%; padding:0; background:none; display:flex; flex-direction:column; align-items:center; gap:14px; }
   #panelPrint .panel{ margin:0 auto; box-shadow:none; }
   #panelPrint .bus::after{ animation:none; }
+  .lc .subctl{ display:none !important; }
   .lc .del{ display:none !important; }
 }
 `
