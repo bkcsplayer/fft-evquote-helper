@@ -33,6 +33,16 @@ export function otherDemand(otherW, hasRange) {
   return otherW <= 6000 ? otherW : 6000 + (otherW - 6000) * 0.25
 }
 
+// Connected breaker load of a panel, in amps — sum of every circuit's rating.
+// Used only to flag an oversized subpanel vs its feeder breaker.
+// ponytail: connected-load estimate, not a full 8-200 demand calc; conservative (high). Feeder breakers excluded.
+export function connectedAmps(units) {
+  return (units || []).reduce((sum, u) => {
+    if (u.kind === 'feeder') return sum
+    return sum + (u.circuits || []).reduce((a, c) => a + (Number(c.amp) || 0), 0)
+  }, 0)
+}
+
 // Full 8-200(1)(a) calculated load. Inputs area in m², heat/ac/range/wh/other in kW,
 // heatType 'electric'|'gas', main service size (A), evW already summed in watts.
 export function computeLoad({ area, heat, ac, range, wh, other, heatType, main, evW = 0 }) {
