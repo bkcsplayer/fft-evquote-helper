@@ -12,7 +12,7 @@ const TYPES = {
   quad: { slots: 2, kind: 'normal', mk: () => [{ label: '', amp: 15, pole: 1 }, { label: '', amp: 30, pole: 2 }, { label: '', amp: 15, pole: 1 }] },
   ev: { slots: 2, kind: 'ev', mk: () => [{ label: 'EV CHARGER', amp: 30, pole: 2 }] },
   solar: { slots: 2, kind: 'solar', mk: () => [{ label: 'SOLAR PV', amp: 40, pole: 2 }] },
-  // feeder = the breaker in the MAIN panel that supplies a subpanel. Auto-placed, not draggable.
+  // feeder = the breaker in the MAIN panel that supplies a subpanel. Auto-placed on add, then draggable to any free double-slot.
   feeder: { slots: 2, kind: 'feeder', mk: () => [{ label: '→ SUB', amp: 60, pole: 2 }] },
 }
 const SPAN = (t) => TYPES[t].slots
@@ -132,8 +132,8 @@ export default function LoadCalc() {
   }
 
   const slotExists = (pid, col, row) => slotNumber(col, row) <= Math.max(2, getSlots(pid))
-  const occupiedAt = (pid, col, row) =>
-    getUnits(pid).some((u) => u.col === col && (u.row === row || (SPAN(u.type) === 2 && u.row + 1 === row)))
+  const occupiedAt = (pid, col, row, exceptId) =>
+    getUnits(pid).some((u) => u.id !== exceptId && u.col === col && (u.row === row || (SPAN(u.type) === 2 && u.row + 1 === row)))
 
   function place(pid, type, col, row) {
     if (!TYPES[type]) return
@@ -144,6 +144,15 @@ export default function LoadCalc() {
     setUnitsFor(pid, (p) => [...p, { id: nid, type, col, row, kind: TYPES[type].kind, circuits: TYPES[type].mk() }])
     setFlashId(nid)
     setTimeout(() => setFlashId((cur) => (cur === nid ? null : cur)), 700)
+  }
+
+  // ponytail: reuse place()'s fit/overlap checks; same-panel move only (feeder stays on main, sub loads stay in their sub)
+  function moveUnit(pid, uid, col, row) {
+    const u = getUnits(pid).find((x) => x.id === uid)
+    if (!u) return
+    if (occupiedAt(pid, col, row, uid)) return
+    if (SPAN(u.type) === 2 && (!slotExists(pid, col, row + 1) || occupiedAt(pid, col, row + 1, uid))) return
+    setUnitsFor(pid, (p) => p.map((x) => (x.id === uid ? { ...x, col, row } : x)))
   }
 
   function deleteUnit(pid, uid) { setUnitsFor(pid, (p) => p.filter((u) => u.id !== uid)) }
@@ -252,7 +261,9 @@ export default function LoadCalc() {
     if (u.kind === 'feeder') {
       const c = u.circuits[0]
       return (
-        <div className="unit feeder tall" title="这是去 subpanel 的馈线；删除请用下方 subpanel 的删除按钮">
+        <div className="unit feeder tall" draggable
+          onDragStart={(e) => { e.stopPropagation(); e.dataTransfer.setData('move', JSON.stringify({ pid, uid: u.id })) }}
+          title="拖动可在主面板内换位置；删除请用下方 subpanel 的删除按钮">
           <div className="cstack">
             <div className="crow"><span className="ctog" /><span className="clab">{c.label}</span><span className="camp">{c.amp}A·240V</span></div>
           </div>
@@ -263,7 +274,8 @@ export default function LoadCalc() {
     const kindCls = u.kind === 'ev' ? 'ev' : u.kind === 'solar' ? 'solar' : ''
     const cls = `unit ${kindCls}${span2 ? ' tall' : ''}${flashId === u.id ? ' in surge' : ''}`
     return (
-      <div className={cls}>
+      <div className={cls} draggable
+        onDragStart={(e) => e.dataTransfer.setData('move', JSON.stringify({ pid, uid: u.id }))}>
         <div className="cstack">
           {u.circuits.map((c, i) => {
             const v240 = c.pole === 2 && u.kind === 'normal'
@@ -301,7 +313,12 @@ export default function LoadCalc() {
                 className={`slot ${col}${occ ? ' occ' : ''}${overKey === key ? ' over' : ''}`}
                 onDragOver={(e) => { e.preventDefault(); setOverKey(key) }}
                 onDragLeave={() => setOverKey((k) => (k === key ? null : k))}
-                onDrop={(e) => { e.preventDefault(); setOverKey(null); place(pid, e.dataTransfer.getData('t'), col, row) }}>
+                onDrop={(e) => {
+                  e.preventDefault(); setOverKey(null)
+                  const mv = e.dataTransfer.getData('move')
+                  if (mv) { const m = JSON.parse(mv); if (m.pid === pid) moveUnit(pid, m.uid, col, row); return }
+                  place(pid, e.dataTransfer.getData('t'), col, row)
+                }}>
                 <span className="num">{nm}</span>
                 {topUnit && renderUnit(pid, topUnit)}
               </div>
@@ -374,7 +391,7 @@ export default function LoadCalc() {
                   <div className="row"><span className="sw" style={{ background: '#DC2626' }} />Solar 太阳能</div>
                   {subEnabled && <div className="row"><span className="sw" style={{ background: '#7C3AED' }} />Feeder → Subpanel(馈线)</div>}
                 </div>
-                <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
+                <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
               </div>
             </div>
 
@@ -606,7 +623,8 @@ const CSS = `
 .lc .unit.ev .toggle{background:#60a5fa;box-shadow:0 0 9px rgba(96,165,250,.9)}
 .lc .unit.solar{background:linear-gradient(145deg,#dc2626,#b91c1c);border-color:#ef4444}
 .lc .unit.solar .toggle{background:#fca5a5;box-shadow:0 0 9px rgba(248,113,113,.9)}
-.lc .unit.feeder{background:linear-gradient(145deg,#7c3aed,#5b21b6);border-color:#8b5cf6;cursor:default}
+.lc .unit.feeder{background:linear-gradient(145deg,#7c3aed,#5b21b6);border-color:#8b5cf6;cursor:move}
+.lc .unit[draggable="true"]:active{cursor:grabbing}
 .lc .unit.feeder .ctog{background:#c4b5fd;box-shadow:0 0 8px rgba(196,181,253,.9);height:20px}
 .lc .cstack{display:flex;flex-direction:column;height:100%}
 .lc .crow{flex:1;display:flex;align-items:center;gap:6px;padding:0 8px;min-height:0;border-bottom:1px solid rgba(255,255,255,.07);cursor:pointer;transition:background .12s}
