@@ -8,6 +8,7 @@ a booking. Replaces the old propose->confirm/reject handshake.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from fastapi import HTTPException
@@ -29,13 +30,68 @@ from app.models.models import (
 from app.services import booking as booking_svc
 from app.services.availability import list_available_slots
 from app.services.booking_config import get_booking_config
-from app.services.notification_service import notify_case_status_sms
+from app.services.notification_service import build_invoice_pdf, notify_case_status_sms, notify_email, render_email_from_db_or_files
 from app.services.status_machine import assert_transition_allowed
+
+logger = logging.getLogger(__name__)
 
 
 def _status_url(case: Case) -> str:
     base = (get_settings().frontend_url or "").rstrip("/")
     return f"{base}/quote/status/{case.access_token}"
+
+
+def _notify_survey_deposit(db: Session, case: Case, survey: Survey, start_at: datetime) -> None:
+    """Deposit invoice email for a self-booked survey. Mirrors admin/surveys.py's
+    confirm_survey_date (the admin-driven confirm-a-request path) — this is the customer
+    self-book path, a separate code path that previously only sent an SMS with no email
+    or invoice at all."""
+    try:
+        customer = db.get(Customer, case.customer_id)
+        if not customer or not customer.email:
+            return
+        scheduled_text = start_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        ctx = {
+            "title": "FFT - Survey scheduled",
+            "nickname": customer.nickname,
+            "reference_number": case.reference_number,
+            "scheduled_text": scheduled_text,
+            "deposit_amount": f"{float(survey.deposit_amount):.2f}",
+            "pay_url": f"{_status_url(case)}",
+        }
+        subject, html = render_email_from_db_or_files(
+            db,
+            template_key="survey_scheduled",
+            ctx=ctx,
+            fallback_file="survey_scheduled.html",
+            fallback_subject="Your EV charger site survey is scheduled",
+        )
+        pdf_attachment = build_invoice_pdf(
+            db,
+            kind_label="Deposit Invoice",
+            invoice_number=f"{case.reference_number}-DEP",
+            reference_number=case.reference_number,
+            bill_to_name=customer.nickname,
+            bill_to_address=case.install_address,
+            bill_to_phone=customer.phone,
+            items=[{
+                "description": "Site survey deposit",
+                "quantity": "1", "unit_price": f"${float(survey.deposit_amount):.2f}", "amount": float(survey.deposit_amount),
+            }],
+            subtotal=float(survey.deposit_amount),
+            total=float(survey.deposit_amount),
+        )
+        notify_email(
+            db,
+            case_id=str(case.id),
+            to_email=customer.email,
+            template_name="survey_scheduled",
+            subject=subject,
+            html=html,
+            pdf_attachment=pdf_attachment,
+        )
+    except Exception:
+        logger.exception("Survey deposit invoice notification failed for case %s", case.id)
 
 
 def _notify_booked(db: Session, case: Case, kind: AppointmentKind, start_at: datetime) -> None:
@@ -122,6 +178,13 @@ def book(db: Session, *, case: Case, kind: AppointmentKind, start_at: datetime, 
 
     db.commit()
     _notify_booked(db, case, kind, start_at)
+    if kind == AppointmentKind.survey:
+        _notify_survey_deposit(db, case, survey, start_at)
+    # Both notify calls above record their Notification row in a SAVEPOINT (begin_nested), not a
+    # full commit — without this, get_db() closes the session at request end without committing,
+    # silently discarding the audit row even though the actual SMS/email was already sent (same
+    # bug class documented on notify_service's docstring; this call site was missing the same fix).
+    db.commit()
     return appt
 
 
