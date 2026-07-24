@@ -1,6 +1,6 @@
 # MEMORY — FFT EV 充电桩报价与项目管理系统
 
-> **当前版本:v2.0**(2026-07-03 发布,commit `a32e2d7`)。版本总结见根目录 `PROJECT-SUMMARY-v2.0.md`。
+> **当前版本:v3.0.0**(2026-07-24 发布,git tag `v3.0.0`)。四服务门户升级(EV + Diagnostic + Bird Netting + Cleaning),详见 README 更新日志与 `evquote-v3-claude-code-kickoff (1).md`。上一版本总结见根目录 `PROJECT-SUMMARY-v2.0.md`。
 > 开工先读本文件。人脑级记忆:现状 / 下一步 / 技术栈 / 已知坑 / 关键决策。
 > 详细功能全景见 `docs/SYSTEM-OVERVIEW.md`(2026-07-02 生成的完整系统盘点)。
 > cmm 代码图谱见 `.cmm/REPORT.md`(2026-07-23 生成,1285 节点/3585 边)。

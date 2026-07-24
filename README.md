@@ -5,7 +5,7 @@
 # ⚡ FFT EV Charger Quote System
 
 <p align="center">
-  <b>企业级 EV 户用充电桩智能报价与全流程项目管理系统</b>
+  <b>企业级四服务门户：EV 充电桩安装 · 光伏诊断 · 太阳能鸟网安装 · 太阳能面板清洁</b>
 </p>
 
 <p align="center">
@@ -20,7 +20,7 @@
 
 ## 📖 系统简介
 
-**FFT EV Quote System** 是一款面向现代化电动车（EV）充电桩安装服务商的端到端管理平台。系统集成了 **C端移动化自适应报价流程 (Customer Mobile Web)** 与 **B端强大的后台管理面板 (Admin Panel)**，辅以高性能的 **FastAPI** 接口和 **PostgreSQL** 数据库驱动，助力企业实现无纸化、自动化的报价与现场服务流转。
+**FFT EV Quote System** 最初是面向电动车（EV）充电桩安装服务商的端到端管理平台，v3.0 升级为 **FutureFrontier 四服务门户**：在 EV 充电桩全流程之外，新增光伏诊断（按小时计费上门维修）、太阳能鸟网安装（无人机勘测 + 报价签字 + 安装）、太阳能面板清洁（年度订阅 + 季度上门）三条独立业务线，客户端首页统一入口，Admin 后台统一日历排期 + 分服务线可视化流程管理。系统集成了 **C端移动化自适应报价流程 (Customer Mobile Web)** 与 **B端强大的后台管理面板 (Admin Panel)**，辅以高性能的 **FastAPI** 接口和 **PostgreSQL** 数据库驱动，助力企业实现无纸化、自动化的报价与现场服务流转。
 
 <div align="center">
   <img src="./assets/dashboard.png" alt="System Dashboard Preview" width="100%">
@@ -115,7 +115,32 @@ docker compose -f docker-compose.vps.yml --env-file .env up --build -d
 
 ---
 
-## 📋 更新日志 — 2026-06（运营增强 + 财务闭环）
+## 📋 更新日志 — v3.0.0（2026-07-24，四服务门户）
+
+### 新增三条业务线（EV 全流程冻结不动，新服务独立建模，不复用 Case / 13 状态机）
+- **光伏诊断 (Diagnostic)**：按小时收费（首小时起步，之后按 15 分钟递增），仅需预约不做提前勘查，硬件问题另行报价。
+- **太阳能鸟网安装 (Bird Netting)**：按卷计费，无人机勘测出精确报价 → 客户手写签名批准（30% 订金 + 完工尾款）→ 排期安装；鸟窝清理另计费。
+- **太阳能面板清洁 (Cleaning)**：年度订阅，每季度 1 次，按板数分档定价，去离子纯水人工清洗、不接触电气部分。
+- 三条新业务线共享 EV 现有的容量池排期系统，互不冲突。
+
+### Admin 后台重构
+- 侧边栏导航从扁平列表改为 5 组分区（Overview / Schedule / EV Chargers / Solar Services / Admin），每组独立卡片区块，移动端尤其清晰。
+- **统一 Calendar**：四条业务线的确认预约 + 未确认的 EV 勘测/安装请求（琥珀色高亮）聚合到一个日历。
+- **Dashboard 重构为"一服务一大区块"**：EV Chargers 保留管线视图；Diagnostic / Bird Netting / Cleaning 各自一个通栏区块，配可视化流程图（节点严格对应真实状态机）+ 5 项 KPI（下次上门时间、待处理报价金额、未付款订阅数等）。
+- Diagnostic / Bird Netting 从共享的 "Bookings" 页拆分为侧边栏独立入口。
+
+### SOP 补完（17 项澄清，详见 `evquote-v3-claude-code-kickoff (1).md` §4-7）
+补齐诊断计费粒度、鸟网报价有效期与付款条款、清洁未付款排期规则、全线 SLA 响应时限等此前未定义的业务边界；鸟网鸟窝清理费由 $199/个 调整为 **$99/个**。
+
+### 通知系统修复
+- 邮件 Logo 从 base64 内嵌图改为 CID 附件——Gmail 会静默屏蔽 `data:` URI 图片，之前的"修复"实际在 Gmail 里不显示。
+- 邮件模板对齐 Apple 风格设计参考（居中大 Logo + 大标题、更宽的详情行间距、浅色边框页脚）。
+- 修复排期列表（Availability 页 "Upcoming bookings"）对新服务预约显示 "None" 的问题——老代码只认 EV 的 `case_id`，未适配 v3.0 的多态预约表。
+
+### 基础设施
+- `admin/nginx.conf`：修复容器内部端口（80）与外部映射端口不一致时，自建重定向 `Location` 头丢失端口号的问题（`absolute_redirect off`）。
+
+
 
 ### 一期 — 通知 / 清理 / UI
 - **双向通知完善**：客户每个动作（提交申请 / 申请勘测·安装时间 / 报告 e-transfer / 签字批准）→ **邮件提醒管理员**（全新，原先缺失）；管理员每次状态变更 → **短信带链接通知客户**。可在 `.env` 配 `ADMIN_NOTIFY_EMAIL` 指定收件人。
