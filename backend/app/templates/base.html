@@ -3,101 +3,140 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta name="format-detection" content="telephone=no,address=no,email=no,date=no,url=no" />
     <title>{{ title or brand_name }}</title>
     <style>
       :root {
-        --ink: #0f172a;
-        --muted: #475569;
-        --muted2: #64748b;
-        --line: #e2e8f0;
-        --bg: #f8fafc;
+        --ink: #1d1d1f;
+        --muted: #424245;
+        --muted2: #86868b;
+        --line: #e5e5ea;
+        --bg: #f5f5f7;
         --card: #ffffff;
         --accent: #0f766e;
-        --accent2: #14b8a6;
+        --accent-soft: rgba(15, 118, 110, 0.1);
       }
-      body { margin:0; background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
-      .wrap { max-width: 680px; margin: 0 auto; padding: 26px 16px; }
-      .hero { border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: linear-gradient(135deg, rgba(15,118,110,.10), rgba(20,184,166,.06)); }
-      .hero-inner { padding: 18px 18px 16px 18px; }
-      .top { display:flex; justify-content:space-between; gap: 14px; align-items:flex-start; }
-      .brand-row { display:flex; align-items:center; gap: 10px; }
-      .logo { width: 38px; height: 38px; border-radius: 10px; border: 1px solid rgba(15,23,42,.08); background: rgba(15,23,42,.03); object-fit: contain; }
-      .brand { font-weight: 900; letter-spacing: .2px; font-size: 16px; margin:0; }
-      .tag { color: var(--muted2); font-size: 12px; margin-top: 2px; }
-      .chip { display:inline-block; padding: 4px 10px; border-radius: 999px; background: rgba(15,118,110,.12); color: var(--accent); font-weight: 800; font-size: 12px; letter-spacing:.2px; }
-      .card { background: var(--card); border:1px solid var(--line); border-radius: 16px; padding: 18px; box-shadow: 0 1px 0 rgba(15,23,42,.03); }
+      body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      a { color: var(--accent); }
       .muted { color: var(--muted); }
       .small { font-size: 12px; }
-      .btn { display:inline-block; background: var(--accent); color:#fff; padding:11px 14px; border-radius: 12px; text-decoration:none; font-weight: 800; }
-      .btn-outline { display:inline-block; border:1px solid var(--line); color: var(--ink); padding:10px 14px; border-radius: 12px; text-decoration:none; font-weight: 800; background:#fff; }
-      .iconRow { margin-top: 14px; display:grid; grid-template-columns: 1fr; gap: 8px; }
-      .iconItem { display:flex; gap: 10px; align-items:flex-start; }
-      .icon { width: 18px; height: 18px; margin-top: 2px; }
-      .iconBubble { width: 26px; height: 26px; border-radius: 12px; background: rgba(15,118,110,.12); display:flex; align-items:center; justify-content:center; border: 1px solid rgba(15,118,110,.16); }
-      .divider { height: 1px; background: var(--line); margin: 16px 0; }
-      a { color: var(--accent); }
-      @media (min-width: 560px) {
-        .iconRow { grid-template-columns: 1fr 1fr; }
+      .btn { display: inline-block; background: var(--accent); color: #fff !important; padding: 12px 20px; border-radius: 12px; text-decoration: none; font-weight: 700; font-size: 15px; }
+      .btn-outline { display: inline-block; border: 1px solid var(--line); color: var(--ink) !important; padding: 11px 20px; border-radius: 12px; text-decoration: none; font-weight: 700; font-size: 15px; background: #fff; }
+      .chip { display: inline-block; padding: 5px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12px; letter-spacing: 0.2px; }
+      .card { background: #fbfbfd; border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+      .divider { height: 1px; background: var(--line); line-height: 1px; font-size: 1px; }
+      .icon { width: 18px; height: 18px; }
+      /* Legacy classes kept for quote_preview.html and other file-based templates. */
+      .grid { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; }
+      .k { color: var(--muted2); font-size: 13px; }
+      .v { font-weight: 600; text-align: right; }
+      .r { display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line); }
+      .r.total, .total { font-weight: 800; font-size: 16px; }
+      .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 11px; }
+      .terms { line-height: 1.6; }
+      @media only screen and (max-width: 640px) {
+        .email-shell { width: 100% !important; }
+        .email-card { border-radius: 0 !important; }
+        .content-pad { padding-left: 24px !important; padding-right: 24px !important; }
       }
     </style>
   </head>
-  <body>
-    <div class="wrap">
-      <div class="hero">
-        <div class="hero-inner">
-          <div class="top">
-            <div class="brand-row">
-              {% if logo_url %}
-                <img class="logo" src="{{ logo_url }}" alt="{{ brand_short }}" referrerpolicy="no-referrer" />
-              {% else %}
-                <div class="logo" style="display:flex;align-items:center;justify-content:center;font-weight:900;color:rgba(15,23,42,.55);">{{ brand_short }}</div>
-              {% endif %}
-              <div>
-                <div class="brand">{{ brand_name }}</div>
-                <div class="tag">{{ brand_tagline }}</div>
-              </div>
-            </div>
-            {% if top_chip %}
-              <div class="chip">{{ top_chip }}</div>
+  <body style="margin:0; padding:0; background:#f5f5f7;">
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">{{ preheader or "" }}</div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; background:#f5f5f7;">
+      <tr>
+        <td align="center" style="padding:32px 16px;">
+          <table role="presentation" class="email-shell email-card" width="600" cellpadding="0" cellspacing="0" border="0"
+                 style="width:600px; max-width:600px; background:#ffffff; border:1px solid #e5e5ea; border-radius:28px; overflow:hidden; box-shadow:0 12px 35px rgba(0,0,0,0.06);">
+
+            <!-- Header -->
+            <tr>
+              <td class="content-pad" style="padding:40px 44px 8px 44px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td valign="middle">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                          <td valign="middle" style="padding-right:12px;">
+                            {% if logo_url %}
+                              <img src="{{ logo_url }}" width="44" height="44" alt="{{ brand_short }}" style="display:block; width:44px; height:44px; border-radius:12px; object-fit:contain; background:#f5f5f7; border:1px solid #e5e5ea;" />
+                            {% else %}
+                              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                                <tr>
+                                  <td align="center" valign="middle" style="width:44px; height:44px; border-radius:12px; background:var(--accent); color:#ffffff; font-size:13px; line-height:44px; font-weight:800;">{{ brand_short }}</td>
+                                </tr>
+                              </table>
+                            {% endif %}
+                          </td>
+                          <td valign="middle">
+                            <div style="font-weight:800; font-size:16px; letter-spacing:-0.2px; color:#1d1d1f;">{{ brand_name }}</div>
+                            <div style="font-size:12px; color:#86868b; margin-top:1px;">{{ brand_tagline }}</div>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                    {% if top_chip %}
+                    <td align="right" valign="middle">
+                      <span class="chip">{{ top_chip }}</span>
+                    </td>
+                    {% endif %}
+                  </tr>
+                </table>
+
+                {% if heading %}
+                <h1 style="margin:26px 0 0 0; font-size:28px; line-height:34px; font-weight:800; letter-spacing:-0.6px; color:#1d1d1f;">{{ heading }}</h1>
+                {% endif %}
+              </td>
+            </tr>
+
+            {% if highlights %}
+            <tr>
+              <td class="content-pad" style="padding:18px 44px 0 44px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e5ea; border-radius:18px; background:#fbfbfd;">
+                  {% for h in highlights %}
+                  <tr>
+                    <td width="52" align="center" valign="middle" style="padding:16px 4px 16px 16px;">
+                      <div style="width:34px; height:34px; border-radius:11px; background:#ffffff; border:1px solid #e5e5ea; text-align:center; line-height:34px;">{{ h.icon|safe }}</div>
+                    </td>
+                    <td valign="middle" style="padding:16px 16px 16px 10px;">
+                      <div style="font-size:12px; font-weight:700; color:#86868b;">{{ h.title }}</div>
+                      <div style="font-size:15px; font-weight:600; color:#1d1d1f; margin-top:2px;">{{ h.text }}</div>
+                    </td>
+                  </tr>
+                  {% if not loop.last %}
+                  <tr><td colspan="2" style="padding:0 16px;"><div class="divider">&nbsp;</div></td></tr>
+                  {% endif %}
+                  {% endfor %}
+                </table>
+              </td>
+            </tr>
             {% endif %}
-          </div>
-          {% if highlights %}
-            <div class="iconRow">
-              {% for h in highlights %}
-                <div class="iconItem">
-                  <div class="iconBubble">
-                    {{ h.icon|safe }}
-                  </div>
-                  <div>
-                    <div style="font-weight:800; font-size: 13px; margin:0;">{{ h.title }}</div>
-                    <div class="small muted" style="margin-top:2px;">{{ h.text }}</div>
-                  </div>
+
+            <!-- Content -->
+            <tr>
+              <td class="content-pad" style="padding:26px 44px 8px 44px; font-size:15px; line-height:24px;">
+                {% block content %}{% endblock %}
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td class="content-pad" style="padding:30px 44px 34px 44px;">
+                <div class="divider" style="margin-bottom:20px;">&nbsp;</div>
+                <div class="small muted">
+                  Questions?
+                  {% if support_email %}Email <a href="mailto:{{ support_email }}">{{ support_email }}</a>{% endif %}
+                  {% if support_phone %}{% if support_email %} or{% endif %} call <a href="tel:{{ support_phone }}">{{ support_phone }}</a>{% endif %}.
                 </div>
-              {% endfor %}
-            </div>
-          {% endif %}
-        </div>
-      </div>
+                <div class="small" style="color:#86868b; margin-top:6px;">&copy; {{ year }} {{ brand_name }}</div>
+              </td>
+            </tr>
 
-      <div style="height: 14px"></div>
-      <div class="card">
-        {% block content %}{% endblock %}
-      </div>
-
-      <div class="divider"></div>
-      <div class="muted small">
-        Questions?
-        {% if support_email %}
-          Email <a href="mailto:{{ support_email }}">{{ support_email }}</a>
-        {% endif %}
-        {% if support_phone %}
-          {% if support_email %} or {% endif %}
-          call <a href="tel:{{ support_phone }}">{{ support_phone }}</a>
-        {% endif %}
-        .
-        <div style="margin-top:6px;">© {{ year }} {{ brand_name }}</div>
-      </div>
-    </div>
+          </table>
+        </td>
+      </tr>
+    </table>
   </body>
 </html>
-

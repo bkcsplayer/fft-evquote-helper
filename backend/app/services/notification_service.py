@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import logging
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -36,6 +38,37 @@ def _absolute_logo_url(logo_url: str | None) -> str | None:
     if not base or is_local_url(base):
         return None
     return f"{base}/{url.lstrip('/')}"
+
+
+_LOGO_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}
+
+
+def _brand_logo_data_uri(logo_url: str | None) -> str | None:
+    """
+    Inline the brand logo as a base64 data: URI so it renders in every email client with zero
+    network dependency — unlike an external <img src>, this works in local dev (recipients can
+    never reach a `localhost` URL) and isn't affected by clients that block remote images by
+    default. Only applies to our own uploads (served under /uploads/branding/...); anything else
+    falls back to the URL-based approach in _absolute_logo_url.
+    """
+    url = (logo_url or "").strip()
+    marker = "/uploads/"
+    idx = url.find(marker)
+    if idx == -1:
+        return None
+    rel_path = url[idx + len(marker):].split("?", 1)[0]
+    path = Path("uploads") / rel_path
+    try:
+        if not path.is_file():
+            return None
+        ext = path.suffix.lstrip(".").lower()
+        mime = _LOGO_MIME.get(ext)
+        if not mime:
+            return None
+        data = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{mime};base64,{data}"
+    except Exception:
+        return None
 
 
 def _with_branding(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -97,12 +130,16 @@ def _with_brand_profile(db: Session, ctx: dict[str, Any]) -> dict[str, Any]:
     if support_phone:
         out["support_phone"] = support_phone
     if logo_url:
-        abs_logo = _absolute_logo_url(logo_url)
-        # Avoid a localhost asset in production emails (won't load externally; can hurt deliverability).
-        if abs_logo and is_local_url(abs_logo) and get_settings().app_env == "production":
-            out["logo_url"] = None
+        data_uri = _brand_logo_data_uri(logo_url)
+        if data_uri:
+            out["logo_url"] = data_uri
         else:
-            out["logo_url"] = abs_logo
+            abs_logo = _absolute_logo_url(logo_url)
+            # Avoid a localhost asset in production emails (won't load externally; can hurt deliverability).
+            if abs_logo and is_local_url(abs_logo) and get_settings().app_env == "production":
+                out["logo_url"] = None
+            else:
+                out["logo_url"] = abs_logo
     if isinstance(warranty_years, int) and warranty_years > 0:
         out["warranty_years"] = warranty_years
 
