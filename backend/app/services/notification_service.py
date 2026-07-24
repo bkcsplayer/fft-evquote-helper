@@ -127,6 +127,9 @@ def build_invoice_pdf(
     gst_rate: float = 0.0,
     gst_amount: float = 0.0,
     amount_paid: float | None = None,
+    due_now_label: str | None = None,
+    due_now_amount: float | None = None,
+    note: str | None = None,
 ) -> tuple[str, bytes] | None:
     """
     Render a branded invoice PDF for attaching to a payment-related email (deposit/balance/full
@@ -170,6 +173,9 @@ def build_invoice_pdf(
             "total": float(total),
             "amount_paid": float(amount_paid) if amount_paid is not None else None,
             "balance_due": float(total) - float(amount_paid) if amount_paid is not None else None,
+            "due_now_label": due_now_label,
+            "due_now_amount": float(due_now_amount) if due_now_amount is not None else None,
+            "note": note,
             "etransfer_email": (etransfer.get("recipient_email") or "").strip() or None,
             "support_email": (str(profile.get("support_email") or "").strip() or s.brand_support_email),
             "support_phone": (str(profile.get("support_phone") or "").strip() or s.brand_support_phone),

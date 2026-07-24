@@ -28,6 +28,7 @@ from app.models.models import (
     CleaningPaymentStatus,
     CleaningPricingStatus,
     CleaningSubscription,
+    CleaningTier,
     CleaningVisit,
     CleaningVisitStatus,
     QuoteStatus,
@@ -355,8 +356,21 @@ def approve_bird_quote(
     db.refresh(quote)
 
     # Signing approves the price and triggers the 30% deposit — the first real "pay now" moment
-    # for this booking (the earlier quote email was just a proposal, no invoice attached).
+    # for this booking (the earlier quote email was just a proposal, no invoice attached). Shows
+    # the full itemized quote for reference (what was agreed to) with the actual payable amount
+    # (30%) called out separately, instead of collapsing straight to one opaque deposit line.
     deposit_amount = float(quote.total) * 0.30
+    quote_items = [{
+        "description": f"Bird netting installation — {quote.roll_count} roll(s)",
+        "quantity": quote.roll_count, "unit_price": f"${float(quote.roll_price_snapshot):.2f}",
+        "amount": quote.roll_count * float(quote.roll_price_snapshot),
+    }]
+    if quote.nest_count:
+        quote_items.append({
+            "description": f"Bird nest cleanup — {quote.nest_count} nest(s)",
+            "quantity": quote.nest_count, "unit_price": f"${float(quote.nest_fee_snapshot):.2f}",
+            "amount": quote.nest_count * float(quote.nest_fee_snapshot),
+        })
     pdf_attachment = build_invoice_pdf(
         db,
         kind_label="Deposit Invoice",
@@ -365,12 +379,12 @@ def approve_bird_quote(
         bill_to_name=booking.customer_name,
         bill_to_address=booking.address,
         bill_to_phone=booking.phone,
-        items=[{
-            "description": f"Bird netting deposit (30% of ${float(quote.total):.2f})",
-            "quantity": "1", "unit_price": f"${deposit_amount:.2f}", "amount": deposit_amount,
-        }],
-        subtotal=deposit_amount,
-        total=deposit_amount,
+        items=quote_items,
+        subtotal=float(quote.total),
+        total=float(quote.total),
+        due_now_label="Deposit Due Now (30%)",
+        due_now_amount=deposit_amount,
+        note="Approved project total shown above. A 30% deposit is due now to lock in your install date; the remaining 70% is invoiced separately after installation.",
     )
     notify_service(
         db,
@@ -572,6 +586,9 @@ def create_cleaning_subscription(
     if annual_price is not None:
         # Fixed price known now (tier1/tier2) -> this confirmation IS the invoice, annual fee due
         # to activate. Custom tier (pending_quote) has no price yet, so no invoice until priced.
+        t1_max = int(pricing["cleaning_tier1_max_panels"])
+        t2_max = int(pricing["cleaning_tier2_max_panels"])
+        tier_range = f"up to {t1_max} panels" if tier == CleaningTier.tier1 else f"{t1_max + 1}–{t2_max} panels"
         pdf_attachment = build_invoice_pdf(
             db,
             kind_label="Invoice",
@@ -584,6 +601,7 @@ def create_cleaning_subscription(
                 "description": f"Annual panel cleaning subscription ({tier.value}, 4 visits)",
                 "quantity": "1", "unit_price": f"${annual_price:.2f}", "amount": annual_price,
             }],
+            note=f"Tier: {tier.value} ({tier_range}) · Your subscription: {panel_count} panels · Includes 4 quarterly visits over the year.",
             subtotal=annual_price,
             total=annual_price,
         )
