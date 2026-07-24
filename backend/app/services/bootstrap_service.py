@@ -132,6 +132,10 @@ SERVICE_EMAIL_TEMPLATES = {
         "subject": "Your bird-netting installation is scheduled",
         "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Installation scheduled</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your bird-netting installation is scheduled for <strong>{{ scheduled_text }}</strong>. You do not need to be home.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">View status</a></p>{% endblock %}',
     },
+    "bird_quote_approved": {
+        "subject": "Your bird-netting quote is approved",
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Quote approved</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, thanks for approving your bird-netting quote. A 30% deposit of <strong>${{ deposit_amount }}</strong> is due to lock in your install date — invoice attached.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">Track status</a></p>{% endblock %}',
+    },
     "service_completed": {
         "subject": "Your service is complete",
         "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Service complete</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your service is complete. Thank you!</p>{% endblock %}',
@@ -155,6 +159,7 @@ SERVICE_SMS_TEMPLATES = {
     "service_scheduled": {"body": "{{ brand_name }}\nAppointment confirmed\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}\nTrack: {{ status_url }}"},
     "bird_quote_ready": {"body": "{{ brand_name }}\nBird-netting quote ready\nTotal: ${{ total }}\nRef: {{ reference_number }}\nApprove: {{ quote_url }}"},
     "bird_install_scheduled": {"body": "{{ brand_name }}\nInstallation scheduled\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}\nTrack: {{ status_url }}"},
+    "bird_quote_approved": {"body": "{{ brand_name }}\nQuote approved\nDeposit due: ${{ deposit_amount }}\nRef: {{ reference_number }}\nTrack: {{ status_url }}"},
     "service_completed": {"body": "{{ brand_name }}\nService complete\nRef: {{ reference_number }}\nThank you!"},
     "cleaning_subscription_confirm": {"body": "{{ brand_name }}\nCleaning subscription confirmed\nAnnual: ${{ annual_price }}\nRef: {{ reference_number }}\nView: {{ status_url }}"},
     "cleaning_visit_upcoming": {"body": "{{ brand_name }}\nUpcoming cleaning (Q{{ quarter }})\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}"},

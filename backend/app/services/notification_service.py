@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import logging
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models.models import Notification, NotificationChannel, NotificationStatus, SystemSetting
 from app.services.email_service import send_email
+from app.services.pdf_service import render_invoice_pdf
 from app.services.sms_service import send_sms
 from app.utils.url_utils import is_local_url
 
@@ -110,6 +112,75 @@ def _resolve_inline_logo(db: Session) -> tuple[bytes, str] | None:
     return _brand_logo_inline_asset(str(profile.get("logo_url") or "").strip())
 
 
+def build_invoice_pdf(
+    db: Session,
+    *,
+    kind_label: str,
+    invoice_number: str,
+    reference_number: str,
+    bill_to_name: str,
+    items: list[dict[str, Any]],
+    subtotal: float,
+    total: float,
+    bill_to_address: str = "",
+    bill_to_phone: str = "",
+    gst_rate: float = 0.0,
+    gst_amount: float = 0.0,
+    amount_paid: float | None = None,
+) -> tuple[str, bytes] | None:
+    """
+    Render a branded invoice PDF for attaching to a payment-related email (deposit/balance/full
+    invoice — never at the quote/estimate stage, before a customer has agreed to pay anything).
+
+    Best-effort like the rest of this module: a PDF-rendering failure must never block the
+    underlying notification, so this returns None (logged) instead of raising.
+    """
+    try:
+        profile = _get_system_setting(db, "brand_profile") or {}
+        if not isinstance(profile, dict):
+            profile = {}
+        s = get_settings()
+
+        logo_data_uri = None
+        asset = _brand_logo_inline_asset(str(profile.get("logo_url") or "").strip())
+        if asset:
+            data, subtype = asset
+            logo_data_uri = f"data:image/{subtype};base64,{base64.b64encode(data).decode('ascii')}"
+
+        etransfer = _get_system_setting(db, "etransfer_settings") or {}
+        if not isinstance(etransfer, dict):
+            etransfer = {}
+
+        context = {
+            "brand_name": s.brand_name,
+            "brand_short": s.brand_short,
+            "logo_data_uri": logo_data_uri,
+            "kind_label": kind_label,
+            "invoice_number": invoice_number,
+            "invoice_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "reference_number": reference_number,
+            "bill_to_name": bill_to_name,
+            "bill_to_address": bill_to_address,
+            "bill_to_phone": bill_to_phone,
+            "items": items,
+            "subtotal": float(subtotal),
+            "gst_enabled": gst_amount > 0,
+            "gst_rate": gst_rate,
+            "gst_amount": float(gst_amount),
+            "total": float(total),
+            "amount_paid": float(amount_paid) if amount_paid is not None else None,
+            "balance_due": float(total) - float(amount_paid) if amount_paid is not None else None,
+            "etransfer_email": (etransfer.get("recipient_email") or "").strip() or None,
+            "support_email": (str(profile.get("support_email") or "").strip() or s.brand_support_email),
+            "support_phone": (str(profile.get("support_phone") or "").strip() or s.brand_support_phone),
+        }
+        pdf_bytes = render_invoice_pdf(context)
+        return f"{invoice_number}.pdf", pdf_bytes
+    except Exception:
+        logger.exception("Invoice PDF generation failed (invoice_number=%s)", invoice_number)
+        return None
+
+
 def render_template(template_name: str, ctx: dict[str, Any]) -> str:
     env = _templates_env()
     tpl = env.get_template(template_name)
@@ -195,6 +266,7 @@ def notify_email(
     template_name: str,
     subject: str,
     html: str,
+    pdf_attachment: tuple[str, bytes] | None = None,
 ) -> Notification:
     n = Notification(
         case_id=case_id,
@@ -215,7 +287,11 @@ def notify_email(
             if asset:
                 data, subtype = asset
                 inline_images = [(LOGO_CID, data, subtype)]
-        send_email(to_email=to_email, subject=subject, html=html, inline_images=inline_images)
+        attachments = None
+        if pdf_attachment:
+            filename, pdf_bytes = pdf_attachment
+            attachments = [(filename, pdf_bytes, "pdf")]
+        send_email(to_email=to_email, subject=subject, html=html, inline_images=inline_images, attachments=attachments)
         n.status = NotificationStatus.sent
         n.sent_at = datetime.now(timezone.utc)
     except Exception as e:
@@ -366,6 +442,7 @@ def notify_service(
     sms_fallback: str,
     service_booking_id: str | None = None,
     cleaning_subscription_id: str | None = None,
+    pdf_attachment: tuple[str, bytes] | None = None,
 ) -> None:
     """Render + send email and/or SMS for a new-service event, from DB-overridable templates.
 
@@ -398,6 +475,7 @@ def notify_service(
                 html=html,
                 service_booking_id=service_booking_id,
                 cleaning_subscription_id=cleaning_subscription_id,
+                pdf_attachment=pdf_attachment,
             )
         except Exception:
             logger.exception("notify_service email failed (template=%s)", template_key)
@@ -431,6 +509,7 @@ def _send_service_email(
     html: str,
     service_booking_id: str | None,
     cleaning_subscription_id: str | None,
+    pdf_attachment: tuple[str, bytes] | None = None,
 ) -> Notification | None:
     n = Notification(
         service_booking_id=service_booking_id,
@@ -449,7 +528,11 @@ def _send_service_email(
             if asset:
                 data, subtype = asset
                 inline_images = [(LOGO_CID, data, subtype)]
-        send_email(to_email=to_email, subject=subject, html=html, inline_images=inline_images)
+        attachments = None
+        if pdf_attachment:
+            filename, pdf_bytes = pdf_attachment
+            attachments = [(filename, pdf_bytes, "pdf")]
+        send_email(to_email=to_email, subject=subject, html=html, inline_images=inline_images, attachments=attachments)
         n.status = NotificationStatus.sent
         n.sent_at = datetime.now(timezone.utc)
     except Exception as e:

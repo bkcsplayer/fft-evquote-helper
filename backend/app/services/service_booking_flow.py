@@ -38,7 +38,7 @@ from app.models.models import (
 from app.services import booking as booking_svc
 from app.services.availability import list_available_slots
 from app.services.booking_config import get_booking_config
-from app.services.notification_service import notify_service
+from app.services.notification_service import build_invoice_pdf, notify_service
 from app.services.service_pricing import get_service_pricing, resolve_cleaning_tier
 from app.utils.reference import build_prefixed_reference, current_year
 from app.utils.token import generate_access_token
@@ -353,6 +353,53 @@ def approve_bird_quote(
     booking.status = ServiceBookingStatus.approved
     db.commit()
     db.refresh(quote)
+
+    # Signing approves the price and triggers the 30% deposit — the first real "pay now" moment
+    # for this booking (the earlier quote email was just a proposal, no invoice attached).
+    deposit_amount = float(quote.total) * 0.30
+    pdf_attachment = build_invoice_pdf(
+        db,
+        kind_label="Deposit Invoice",
+        invoice_number=f"{booking.reference_number}-DEP",
+        reference_number=booking.reference_number,
+        bill_to_name=booking.customer_name,
+        bill_to_address=booking.address,
+        bill_to_phone=booking.phone,
+        items=[{
+            "description": f"Bird netting deposit (30% of ${float(quote.total):.2f})",
+            "quantity": "1", "unit_price": f"${deposit_amount:.2f}", "amount": deposit_amount,
+        }],
+        subtotal=deposit_amount,
+        total=deposit_amount,
+    )
+    notify_service(
+        db,
+        template_key="bird_quote_approved",
+        to_email=booking.email,
+        to_phone=booking.phone,
+        ctx={
+            "customer_name": booking.customer_name,
+            "reference_number": booking.reference_number,
+            "deposit_amount": f"{deposit_amount:.2f}",
+            "status_url": service_status_url(booking.access_token),
+        },
+        email_subject_fallback="Your bird-netting quote is approved",
+        email_html_fallback=(
+            '{% extends "base.html" %}{% block content %}'
+            '<h2 style="margin:0 0 8px 0;">Quote approved</h2>'
+            '<p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, thanks for approving '
+            "your bird-netting quote. A 30% deposit of <strong>${{ deposit_amount }}</strong> is due to "
+            "lock in your install date — invoice attached.</p>"
+            '<p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">Track status</a></p>'
+            "{% endblock %}"
+        ),
+        sms_fallback=(
+            "{{ brand_name }}\nQuote approved\nDeposit due: ${{ deposit_amount }}\n"
+            "Ref: {{ reference_number }}\nTrack: {{ status_url }}"
+        ),
+        service_booking_id=str(booking.id),
+        pdf_attachment=pdf_attachment,
+    )
     return quote
 
 
@@ -393,6 +440,7 @@ def admin_update_status(
     db.refresh(booking)
 
     if new_status == ServiceBookingStatus.completed:
+        pdf_attachment = _build_completion_invoice(db, booking=booking)
         notify_service(
             db,
             template_key="service_completed",
@@ -413,8 +461,62 @@ def admin_update_status(
             ),
             sms_fallback="{{ brand_name }}\nService complete\nRef: {{ reference_number }}\nThank you!",
             service_booking_id=str(booking.id),
+            pdf_attachment=pdf_attachment,
         )
     return booking
+
+
+def _build_completion_invoice(db: Session, *, booking: ServiceBooking) -> tuple[str, bytes] | None:
+    """Diagnostic: full invoice (hours x rate, settled on completion per SOP).
+    Bird netting: balance invoice for the remaining 70% (30% deposit was already invoiced at
+    approval — see approve_bird_quote())."""
+    if booking.service_type == ServiceType.diagnostic:
+        if not booking.actual_hours or not booking.hourly_rate_snapshot:
+            return None
+        hours = float(booking.actual_hours)
+        rate = float(booking.hourly_rate_snapshot)
+        total = hours * rate
+        return build_invoice_pdf(
+            db,
+            kind_label="Invoice",
+            invoice_number=booking.reference_number,
+            reference_number=booking.reference_number,
+            bill_to_name=booking.customer_name,
+            bill_to_address=booking.address,
+            bill_to_phone=booking.phone,
+            items=[{"description": "Solar diagnostic service", "quantity": f"{hours:g} hrs", "unit_price": f"${rate:.2f}/hr", "amount": total}],
+            subtotal=total,
+            total=total,
+        )
+
+    quote = db.execute(select(BirdNettingQuote).where(BirdNettingQuote.booking_id == booking.id)).scalar_one_or_none()
+    if not quote:
+        return None
+    deposit_paid = float(quote.total) * 0.30
+    items = [{
+        "description": f"Bird netting installation — {quote.roll_count} roll(s)",
+        "quantity": quote.roll_count, "unit_price": f"${float(quote.roll_price_snapshot):.2f}",
+        "amount": quote.roll_count * float(quote.roll_price_snapshot),
+    }]
+    if quote.nest_count:
+        items.append({
+            "description": f"Bird nest cleanup — {quote.nest_count} nest(s)",
+            "quantity": quote.nest_count, "unit_price": f"${float(quote.nest_fee_snapshot):.2f}",
+            "amount": quote.nest_count * float(quote.nest_fee_snapshot),
+        })
+    return build_invoice_pdf(
+        db,
+        kind_label="Balance Invoice",
+        invoice_number=f"{booking.reference_number}-BAL",
+        reference_number=booking.reference_number,
+        bill_to_name=booking.customer_name,
+        bill_to_address=booking.address,
+        bill_to_phone=booking.phone,
+        items=items,
+        subtotal=float(quote.total),
+        total=float(quote.total),
+        amount_paid=deposit_paid,
+    )
 
 
 def cancel_booking(db: Session, *, booking: ServiceBooking) -> ServiceBooking:
@@ -466,6 +568,25 @@ def create_cleaning_subscription(
     db.commit()
     db.refresh(sub)
 
+    pdf_attachment = None
+    if annual_price is not None:
+        # Fixed price known now (tier1/tier2) -> this confirmation IS the invoice, annual fee due
+        # to activate. Custom tier (pending_quote) has no price yet, so no invoice until priced.
+        pdf_attachment = build_invoice_pdf(
+            db,
+            kind_label="Invoice",
+            invoice_number=sub.reference_number,
+            reference_number=sub.reference_number,
+            bill_to_name=customer_name,
+            bill_to_address=address,
+            bill_to_phone=phone,
+            items=[{
+                "description": f"Annual panel cleaning subscription ({tier.value}, 4 visits)",
+                "quantity": "1", "unit_price": f"${annual_price:.2f}", "amount": annual_price,
+            }],
+            subtotal=annual_price,
+            total=annual_price,
+        )
     notify_service(
         db,
         template_key="cleaning_subscription_confirm",
@@ -492,6 +613,7 @@ def create_cleaning_subscription(
             "Ref: {{ reference_number }}\nView: {{ status_url }}"
         ),
         cleaning_subscription_id=str(sub.id),
+        pdf_attachment=pdf_attachment,
     )
     return sub
 

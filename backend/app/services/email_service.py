@@ -37,12 +37,17 @@ def send_email(
     subject: str,
     html: str,
     inline_images: list[tuple[str, bytes, str]] | None = None,
+    attachments: list[tuple[str, bytes, str]] | None = None,
 ) -> None:
     """
     inline_images: list of (content_id, image_bytes, mime_subtype) referenced from `html` via
     `cid:<content_id>` — e.g. the brand logo. Attached as multipart/related parts on the HTML
     alternative so they render inline with zero external network dependency, in clients (Gmail
     included) that block or strip `data:` URI images.
+
+    attachments: list of (filename, data, mime_subtype) — e.g. an invoice PDF. Attached as regular
+    (non-inline) parts; add_attachment() promotes the message to multipart/mixed around the
+    existing multipart/alternative body, which every mail client renders as body + attachment.
     """
     settings = get_settings()
     if not (settings.smtp_host and settings.smtp_port):
@@ -68,6 +73,10 @@ def send_email(
         html_part = msg.get_payload()[-1]
         for content_id, data, subtype in inline_images:
             html_part.add_related(data, maintype="image", subtype=subtype, cid=f"<{content_id}>")
+
+    if attachments:
+        for filename, data, subtype in attachments:
+            msg.add_attachment(data, maintype="application", subtype=subtype, filename=filename)
 
     smtp_cls = smtplib.SMTP_SSL if settings.smtp_use_ssl else smtplib.SMTP
     with smtp_cls(settings.smtp_host, int(settings.smtp_port), timeout=20) as server:

@@ -12,6 +12,7 @@ from app.database import get_db
 from app.middleware.auth import get_current_admin
 from app.models.models import AdminUser, Case, CaseStatus, CaseStatusHistory, Customer, Survey
 from app.services.notification_service import (
+    build_invoice_pdf,
     notify_email,
     notify_sms,
     notify_case_status_sms,
@@ -125,6 +126,23 @@ def schedule_survey(
             fallback_file="survey_scheduled.html",
             fallback_subject="Your EV charger site survey is scheduled",
         )
+        pdf_attachment = build_invoice_pdf(
+            db,
+            kind_label="Deposit Invoice",
+            invoice_number=f"{case.reference_number}-DEP",
+            reference_number=case.reference_number,
+            bill_to_name=customer.nickname,
+            bill_to_address=case.install_address,
+            bill_to_phone=customer.phone,
+            items=[{
+                "description": "Site survey deposit",
+                "quantity": "1",
+                "unit_price": f"${float(survey.deposit_amount):.2f}",
+                "amount": float(survey.deposit_amount),
+            }],
+            subtotal=float(survey.deposit_amount),
+            total=float(survey.deposit_amount),
+        )
         notify_email(
             db,
             case_id=str(case.id),
@@ -132,6 +150,7 @@ def schedule_survey(
             template_name="survey_scheduled",
             subject=subject,
             html=html,
+            pdf_attachment=pdf_attachment,
         )
         sms = render_sms_from_db_or_fallback(
             db,

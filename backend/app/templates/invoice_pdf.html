@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Invoice {{ invoice_number }}</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1d1d1f;
+    background: #ffffff;
+  }
+  .sheet { max-width: 800px; margin: 0 auto; }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
+    color: #ffffff;
+    padding: 44px 40px 36px 40px;
+    text-align: center;
+  }
+  .logo { display: block; margin: 0 auto 14px auto; }
+  .logo img { max-height: 56px; display: inline-block; border-radius: 12px; }
+  .logo-fallback {
+    display: inline-block; width: 56px; height: 56px; border-radius: 14px;
+    background: rgba(255,255,255,0.18); color: #fff; font-size: 22px; font-weight: 700;
+    line-height: 56px; text-align: center;
+  }
+  .brand-name { font-size: 20px; font-weight: 700; margin-top: 6px; }
+  .invoice-kind {
+    margin-top: 22px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.35);
+    font-size: 30px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; opacity: 0.96;
+  }
+
+  /* Bill to + meta */
+  .info-row { display: flex; padding: 28px 40px; gap: 24px; background: #f5f5f7; }
+  .info-block { flex: 1; }
+  .info-label { font-size: 12px; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; color: #86868b; margin-bottom: 6px; }
+  .info-value { font-size: 15px; color: #1d1d1f; line-height: 1.55; }
+  .info-value.strong { font-weight: 600; }
+
+  /* Items table */
+  .table-wrap { padding: 28px 40px 8px 40px; }
+  table.items { width: 100%; border-collapse: separate; border-spacing: 0; }
+  table.items thead th {
+    background: #0f766e; color: #fff; font-size: 12px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.3px; padding: 11px 14px; text-align: left;
+  }
+  table.items thead th:first-child { border-radius: 10px 0 0 0; }
+  table.items thead th:last-child { border-radius: 0 10px 0 0; }
+  table.items tbody td { padding: 12px 14px; font-size: 14px; color: #333; border-bottom: 1px solid #eee; }
+  table.items tbody tr:nth-child(even) { background: #fbfbfd; }
+
+  .totals { width: 100%; margin-top: 2px; }
+  .totals td { padding: 10px 14px; font-size: 14px; }
+  .totals .label { text-align: right; color: #6e6e73; }
+  .totals .amt { text-align: right; width: 130px; color: #1d1d1f; }
+  .totals .total-row td { font-size: 17px; font-weight: 700; color: #0f766e; border-top: 2px solid #0f766e; padding-top: 14px; }
+  .totals .paid-row td { color: #0f766e; }
+  .totals .due-row td { font-size: 16px; font-weight: 700; }
+
+  /* Payment info */
+  .payment-section { margin: 8px 40px 0 40px; padding: 20px 22px; background: #f0fdfa; border: 1px solid #ccfbf1; border-radius: 14px; }
+  .payment-title { font-size: 13px; font-weight: 700; color: #0f766e; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 10px; }
+  .payment-line { font-size: 14px; color: #333; line-height: 1.7; }
+
+  /* Footer */
+  .footer { margin-top: 30px; padding: 20px 40px 34px 40px; border-top: 1px solid #e5e5ea; text-align: center; }
+  .footer div { font-size: 12px; color: #86868b; line-height: 1.7; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="header">
+      <div class="logo">
+        {% if logo_data_uri %}
+          <img src="{{ logo_data_uri }}" alt="{{ brand_short }}" />
+        {% else %}
+          <span class="logo-fallback">{{ brand_short }}</span>
+        {% endif %}
+      </div>
+      <div class="brand-name">{{ brand_name }}</div>
+      <div class="invoice-kind">{{ kind_label }}</div>
+    </div>
+
+    <div class="info-row">
+      <div class="info-block">
+        <div class="info-label">Bill To</div>
+        <div class="info-value strong">{{ bill_to_name }}</div>
+        {% if bill_to_address %}<div class="info-value">{{ bill_to_address }}</div>{% endif %}
+        {% if bill_to_phone %}<div class="info-value">{{ bill_to_phone }}</div>{% endif %}
+      </div>
+      <div class="info-block">
+        <div class="info-label">Invoice #</div>
+        <div class="info-value strong">{{ invoice_number }}</div>
+        <div class="info-label" style="margin-top:12px;">Date</div>
+        <div class="info-value">{{ invoice_date }}</div>
+      </div>
+      <div class="info-block">
+        <div class="info-label">Reference</div>
+        <div class="info-value strong">{{ reference_number }}</div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="items">
+        <thead>
+          <tr>
+            <th style="width:52%">Description</th>
+            <th style="width:16%;text-align:right">Qty</th>
+            <th style="width:16%;text-align:right">Unit Price</th>
+            <th style="width:16%;text-align:right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+          <tr>
+            <td>{{ item.description }}</td>
+            <td style="text-align:right">{{ item.quantity }}</td>
+            <td style="text-align:right">{{ item.unit_price }}</td>
+            <td style="text-align:right;font-weight:600">${{ '%.2f' % item.amount }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <table class="totals">
+        <tr>
+          <td class="label">Subtotal</td>
+          <td class="amt">${{ '%.2f' % subtotal }}</td>
+        </tr>
+        {% if gst_enabled %}
+        <tr>
+          <td class="label">GST ({{ gst_rate }}%)</td>
+          <td class="amt">${{ '%.2f' % gst_amount }}</td>
+        </tr>
+        {% endif %}
+        <tr class="total-row">
+          <td class="label">Total</td>
+          <td class="amt">${{ '%.2f' % total }}</td>
+        </tr>
+        {% if amount_paid is not none %}
+        <tr class="paid-row">
+          <td class="label">Amount Paid</td>
+          <td class="amt">-${{ '%.2f' % amount_paid }}</td>
+        </tr>
+        <tr class="due-row">
+          <td class="label">{{ 'Paid in Full' if balance_due <= 0 else 'Balance Due' }}</td>
+          <td class="amt">${{ '%.2f' % balance_due }}</td>
+        </tr>
+        {% endif %}
+      </table>
+    </div>
+
+    {% if etransfer_email %}
+    <div class="payment-section">
+      <div class="payment-title">Payment Instructions</div>
+      <div class="payment-line">
+        Please send an Interac e-Transfer to <strong>{{ etransfer_email }}</strong>.<br>
+        Include your reference number <strong>{{ reference_number }}</strong> in the transfer message.
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="footer">
+      <div><strong>{{ brand_name }}</strong></div>
+      {% if support_email %}<div>{{ support_email }}{% if support_phone %} &middot; {{ support_phone }}{% endif %}</div>{% endif %}
+    </div>
+  </div>
+</body>
+</html>

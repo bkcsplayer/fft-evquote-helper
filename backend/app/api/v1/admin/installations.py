@@ -13,9 +13,21 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.database import get_db
 from app.middleware.auth import get_current_admin
-from app.models.models import AdminUser, Case, CaseStatus, CaseStatusHistory, Customer, Installation, InstallationPhoto
+from app.models.models import (
+    AdminUser,
+    Case,
+    CaseStatus,
+    CaseStatusHistory,
+    Customer,
+    Installation,
+    InstallationPhoto,
+    Payment,
+    PaymentStatus,
+    Quote,
+)
 from app.schemas.schemas import InstallationOut, InstallationPhotoOut, InstallationScheduleIn
 from app.services.notification_service import (
+    build_invoice_pdf,
     notify_email,
     notify_sms,
     notify_case_status_sms,
@@ -616,6 +628,42 @@ def send_completion_email(
         fallback_file="completion.html",
         fallback_subject="Your EV charger installation is completed",
     )
+    pdf_attachment = None
+    quote = db.execute(
+        select(Quote).where(Quote.case_id == case.id, Quote.is_active.is_(True)).limit(1)
+    ).scalar_one_or_none()
+    if quote:
+        amount_paid = float(
+            db.execute(
+                select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                    Payment.case_id == case.id, Payment.status == PaymentStatus.received
+                )
+            ).scalar_one()
+        )
+        items = [{"description": "EV charger installation", "quantity": "1", "unit_price": f"${float(quote.base_price):.2f}", "amount": float(quote.base_price)}]
+        if float(quote.extra_distance_cost) > 0:
+            items.append({
+                "description": f"Extra cable run ({quote.extra_distance_meters}m)",
+                "quantity": "1", "unit_price": f"${float(quote.extra_distance_cost):.2f}", "amount": float(quote.extra_distance_cost),
+            })
+        items.append({"description": "Permit fee", "quantity": "1", "unit_price": f"${float(quote.permit_fee):.2f}", "amount": float(quote.permit_fee)})
+        if float(quote.survey_credit) > 0:
+            items.append({"description": "Survey fee credit", "quantity": "1", "unit_price": f"-${float(quote.survey_credit):.2f}", "amount": -float(quote.survey_credit)})
+        pdf_attachment = build_invoice_pdf(
+            db,
+            kind_label="Final Invoice",
+            invoice_number=f"{case.reference_number}-FINAL",
+            reference_number=case.reference_number,
+            bill_to_name=customer.nickname,
+            bill_to_address=case.install_address,
+            bill_to_phone=customer.phone,
+            items=items,
+            subtotal=float(quote.subtotal),
+            gst_rate=float(quote.gst_rate),
+            gst_amount=float(quote.gst_amount),
+            total=float(quote.total),
+            amount_paid=amount_paid,
+        )
     notify_email(
         db,
         case_id=str(case.id),
@@ -623,6 +671,7 @@ def send_completion_email(
         template_name="completion",
         subject=subject,
         html=html,
+        pdf_attachment=pdf_attachment,
     )
     sms = render_sms_from_db_or_fallback(
         db,
