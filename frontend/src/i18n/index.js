@@ -644,7 +644,7 @@ const dictionaries = {
     'home.card.ev.name': '充电桩安装',
     'home.card.ev.tagline': '标准报价，从勘测到安装全程可查。',
     'home.card.ev.from': '获取免费报价',
-    'home.card.diagnostic.name': '户用光伏诊断',
+    'home.card.diagnostic.name': '户用光伏维修',
     'home.card.diagnostic.tagline': '不发电或发电异常？我们帮你查明原因。',
     'home.card.diagnostic.from': '${{price}}/小时起',
     'home.card.bird.name': '户用太阳能鸟网安装',
@@ -718,8 +718,8 @@ const dictionaries = {
     'svc.status.visit.completed': '已完成',
     'svc.status.visit.skipped': '已跳过',
 
-    'svc.diagnostic.card_name': '户用光伏诊断',
-    'svc.diagnostic.intro_title': '户用光伏诊断服务',
+    'svc.diagnostic.card_name': '户用光伏维修',
+    'svc.diagnostic.intro_title': '户用光伏维修服务',
     'svc.diagnostic.intro_body': '技师上门排查并修复系统故障——把系统从"坏了"修到"能用"。',
     'svc.diagnostic.intro_price_title': '收费标准',
     'svc.diagnostic.intro_price_body':
@@ -729,7 +729,7 @@ const dictionaries = {
     'svc.diagnostic.intro_how_2': '技师上门排查并修复故障',
     'svc.diagnostic.intro_how_3': '如涉及硬件问题，将另行报价，经你同意后处理',
     'svc.diagnostic.intro_home': '服务期间需成年人在场。',
-    'svc.diagnostic.cta': '预约诊断',
+    'svc.diagnostic.cta': '预约维修',
     'svc.diagnostic.inverter_info': '逆变器品牌/型号',
     'svc.diagnostic.inverter_info_ph': '例如：SolarEdge SE7600H',
     'svc.diagnostic.problem_label': '出现了什么问题？',
