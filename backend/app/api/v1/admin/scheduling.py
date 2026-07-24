@@ -20,7 +20,10 @@ from app.models.models import (
     AvailabilityOverride,
     AdminUser,
     Case,
+    CleaningVisit,
+    CleaningSubscription,
     Customer,
+    ServiceBooking,
     SystemSetting,
 )
 from app.services import booking_flow
@@ -128,13 +131,33 @@ def list_bookings(db: Session = Depends(get_db), admin: AdminUser = Depends(get_
     ).scalars().all()
     out = []
     for a in rows:
-        case = db.get(Case, a.case_id)
-        customer = db.get(Customer, case.customer_id) if case else None
+        # Appointment is polymorphic (exactly one of case_id / service_booking_id / cleaning_visit_id
+        # is set — enforced by ck_appointments_single_target); resolve whichever target applies so
+        # v3.0 service bookings show a real reference/customer instead of a bare "None".
+        reference_number = None
+        customer_name = None
+        if a.case_id:
+            case = db.get(Case, a.case_id)
+            customer = db.get(Customer, case.customer_id) if case else None
+            reference_number = getattr(case, "reference_number", None)
+            customer_name = customer.nickname if customer else None
+        elif a.service_booking_id:
+            booking = db.get(ServiceBooking, a.service_booking_id)
+            if booking:
+                reference_number = booking.reference_number
+                customer_name = booking.customer_name
+        elif a.cleaning_visit_id:
+            visit = db.get(CleaningVisit, a.cleaning_visit_id)
+            sub = db.get(CleaningSubscription, visit.subscription_id) if visit else None
+            if sub:
+                reference_number = sub.reference_number
+                customer_name = sub.customer_name
+
         out.append({
             "id": str(a.id),
-            "case_id": str(a.case_id),
-            "reference_number": getattr(case, "reference_number", None),
-            "customer": customer.nickname if customer else None,
+            "case_id": str(a.case_id) if a.case_id else None,
+            "reference_number": reference_number,
+            "customer": customer_name,
             "kind": a.kind.value,
             "start_at": a.start_at.isoformat(),
         })

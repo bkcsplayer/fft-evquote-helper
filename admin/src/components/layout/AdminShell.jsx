@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { api } from '../../services/api.js'
+import { ServiceIcon } from '../../utils/serviceIcons.jsx'
+
+const IconDiagnostic = (props) => <ServiceIcon kind="diagnostic" {...props} />
+const IconBirdNetting = (props) => <ServiceIcon kind="bird_netting" {...props} />
 
 const NAV_ITEMS = [
   {
@@ -33,7 +37,8 @@ const NAV_ITEMS = [
     section: 'Solar Services',
     accent: 'border-emerald-400',
     items: [
-      { to: '/admin/services/bookings', label: 'Bookings', icon: IconServicesBookings },
+      { to: '/admin/services/bookings?type=diagnostic', label: 'Diagnostic', icon: IconDiagnostic },
+      { to: '/admin/services/bookings?type=bird_netting', label: 'Bird Netting', icon: IconBirdNetting },
       { to: '/admin/services/cleaning', label: 'Cleaning', icon: IconServicesCleaning },
     ],
   },
@@ -157,17 +162,25 @@ export function AdminShell({ children }) {
 
 function SidebarLink({ to, end, icon, children }) {
   const IconComp = icon
+  const loc = useLocation()
+  // NavLink's default isActive only matches pathname, so two entries pointing at the same page
+  // with different `?type=` filters (e.g. Diagnostic vs Bird Netting) would both light up at
+  // once. If `to` carries a query string, require an exact match on path+search instead.
+  const hasQuery = to.includes('?')
+  const isActive = hasQuery ? `${loc.pathname}${loc.search}` === to : undefined
+
   return (
     <NavLink
       to={to}
       end={end}
-      className={({ isActive }) =>
-        `my-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150 ${
-          isActive
+      className={({ isActive: navActive }) => {
+        const active = hasQuery ? isActive : navActive
+        return `my-0.5 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-150 ${
+          active
             ? 'bg-zinc-900 text-white shadow-sm'
             : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'
         }`
-      }
+      }}
     >
       <IconComp className="h-4 w-4 shrink-0" />
       <span>{children}</span>
@@ -272,14 +285,6 @@ function IconServicesSchedule({ className }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-    </svg>
-  )
-}
-
-function IconServicesBookings({ className }) {
-  return (
-    <svg className={className} fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   )
 }
