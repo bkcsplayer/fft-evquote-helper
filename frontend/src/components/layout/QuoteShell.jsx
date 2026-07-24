@@ -18,7 +18,7 @@ export function QuoteShell({ children }) {
     <div className="min-h-screen">
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-md items-center justify-between px-4 py-4">
-          <Link to="/quote" className="flex items-center gap-2 text-sm font-semibold tracking-wide text-slate-900">
+          <Link to="/" className="flex items-center gap-2 text-sm font-semibold tracking-wide text-slate-900">
             <img src={logo} alt={brand?.brand_short || 'FFT'} className="h-6 w-6 rounded-md bg-slate-900/5 object-contain" />
             <span>{t('app.brand')}</span>
           </Link>

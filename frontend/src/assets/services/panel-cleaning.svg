@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 160" role="img" aria-label="Solar panel cleaning illustration">
+  <rect width="200" height="160" rx="20" fill="#ECFDF5" />
+  <path d="M20 100 100 44l80 56z" fill="#0F766E" />
+  <g fill="#34D399" stroke="#065F46" stroke-width="2">
+    <rect x="34" y="92" width="30" height="20" rx="2" />
+    <rect x="68" y="92" width="30" height="20" rx="2" />
+    <rect x="102" y="92" width="30" height="20" rx="2" />
+    <rect x="136" y="92" width="30" height="20" rx="2" />
+  </g>
+  <!-- brush + water droplets -->
+  <rect x="86" y="66" width="8" height="34" rx="4" fill="#0F172A" transform="rotate(20 90 83)" />
+  <rect x="96" y="62" width="26" height="12" rx="4" fill="#0F172A" transform="rotate(20 109 68)" />
+  <g fill="#38BDF8">
+    <circle cx="128" cy="78" r="4" />
+    <circle cx="138" cy="88" r="3" />
+    <circle cx="120" cy="90" r="3" />
+  </g>
+  <rect x="16" y="116" width="168" height="8" rx="4" fill="#A7F3D0" />
+</svg>

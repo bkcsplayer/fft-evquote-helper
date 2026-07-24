@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 160" role="img" aria-label="EV charger illustration">
+  <rect width="200" height="160" rx="20" fill="#ECFDF5" />
+  <circle cx="150" cy="38" r="16" fill="#FDE68A" />
+  <rect x="18" y="120" width="164" height="6" rx="3" fill="#A7F3D0" />
+  <!-- car -->
+  <path d="M30 118v-16a10 10 0 0 1 10-10h34l14-14h28l10 14h6a10 10 0 0 1 10 10v16z" fill="#0F766E" />
+  <rect x="30" y="102" width="112" height="16" rx="6" fill="#0F766E" />
+  <circle cx="54" cy="120" r="9" fill="#1E293B" />
+  <circle cx="118" cy="120" r="9" fill="#1E293B" />
+  <circle cx="54" cy="120" r="3.5" fill="#CBD5E1" />
+  <circle cx="118" cy="120" r="3.5" fill="#CBD5E1" />
+  <rect x="66" y="86" width="30" height="16" rx="3" fill="#99F6E4" />
+  <!-- charging pedestal -->
+  <rect x="150" y="70" width="24" height="50" rx="6" fill="#065F46" />
+  <rect x="156" y="78" width="12" height="10" rx="2" fill="#34D399" />
+  <path d="M150 96c-10 4-16 10-18 18" stroke="#059669" stroke-width="4" fill="none" stroke-linecap="round" />
+  <path d="M100 60l-6 12h8l-7 13" stroke="#F59E0B" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

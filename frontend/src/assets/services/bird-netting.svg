@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 160" role="img" aria-label="Solar bird netting illustration">
+  <rect width="200" height="160" rx="20" fill="#ECFDF5" />
+  <path d="M20 88 100 36l80 52z" fill="#0F766E" />
+  <rect x="30" y="80" width="140" height="14" rx="2" fill="#34D399" />
+  <!-- net grid under panel edge -->
+  <g stroke="#065F46" stroke-width="2.5" opacity="0.9">
+    <line x1="30" y1="94" x2="30" y2="126" />
+    <line x1="50" y1="94" x2="50" y2="126" />
+    <line x1="70" y1="94" x2="70" y2="126" />
+    <line x1="90" y1="94" x2="90" y2="126" />
+    <line x1="110" y1="94" x2="110" y2="126" />
+    <line x1="130" y1="94" x2="130" y2="126" />
+    <line x1="150" y1="94" x2="150" y2="126" />
+    <line x1="170" y1="94" x2="170" y2="126" />
+    <line x1="30" y1="100" x2="170" y2="100" />
+    <line x1="30" y1="112" x2="170" y2="112" />
+    <line x1="30" y1="124" x2="170" y2="124" />
+  </g>
+  <!-- bird blocked outside the net -->
+  <g fill="#0F172A">
+    <path d="M160 58c6-4 14-4 18 2 3 4 1 9-3 11-6 3-15 1-19-4l4-9z" />
+    <path d="M178 60l8-4-4 8-8 2z" />
+  </g>
+  <circle cx="176" cy="58" r="1.6" fill="#ECFDF5" />
+</svg>

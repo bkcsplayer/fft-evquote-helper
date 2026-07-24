@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { QuoteShell } from '../components/layout/QuoteShell.jsx'
+import { SignaturePad } from '../components/SignaturePad.jsx'
 import { api } from '../services/api.js'
 import { useI18n } from '../i18n/index.js'
 
@@ -27,8 +28,7 @@ export default function QuoteApprove() {
   const { t, lang, locale } = useI18n()
   const [agreed, setAgreed] = useState(false)
   const [signedName, setSignedName] = useState('')
-  const canvasRef = useRef(null)
-  const wrapRef = useRef(null)
+  const padRef = useRef(null)
   const [hasInk, setHasInk] = useState(false)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
@@ -69,116 +69,6 @@ export default function QuoteApprove() {
     }
   }, [token])
 
-  function resizeCanvas() {
-    const canvas = canvasRef.current
-    const wrap = wrapRef.current
-    if (!canvas || !wrap) return
-    const rect = wrap.getBoundingClientRect()
-    const cssW = Math.max(280, Math.floor(rect.width))
-    const cssH = 140
-    const dpr = window.devicePixelRatio || 1
-
-    // Preserve existing drawing when possible
-    const old = document.createElement('canvas')
-    old.width = canvas.width
-    old.height = canvas.height
-    const oldCtx = old.getContext('2d')
-    oldCtx.drawImage(canvas, 0, 0)
-
-    canvas.style.width = `${cssW}px`
-    canvas.style.height = `${cssH}px`
-    canvas.width = Math.floor(cssW * dpr)
-    canvas.height = Math.floor(cssH * dpr)
-
-    const ctx = canvas.getContext('2d')
-    ctx.scale(dpr, dpr)
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.strokeStyle = '#0f172a'
-    ctx.lineWidth = 2.2
-
-    // redraw scaled-ish (best-effort)
-    if (old.width && old.height) {
-      ctx.drawImage(old, 0, 0, old.width, old.height, 0, 0, canvas.width, canvas.height)
-    }
-  }
-
-  useEffect(() => {
-    resizeCanvas()
-    const onResize = () => resizeCanvas()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-
-  function clearSignature() {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    setHasInk(false)
-  }
-
-  function getCanvasPoint(e) {
-    const canvas = canvasRef.current
-    if (!canvas) return { x: 0, y: 0 }
-    const rect = canvas.getBoundingClientRect()
-    const clientX = e.touches?.[0]?.clientX ?? e.clientX
-    const clientY = e.touches?.[0]?.clientY ?? e.clientY
-    return { x: clientX - rect.left, y: clientY - rect.top }
-  }
-
-  function attachDrawingHandlers() {
-    const canvas = canvasRef.current
-    if (!canvas) return () => {}
-    const ctx = canvas.getContext('2d')
-    let drawing = false
-    let last = null
-
-    function start(e) {
-      e.preventDefault()
-      drawing = true
-      last = getCanvasPoint(e)
-      ctx.beginPath()
-      ctx.moveTo(last.x, last.y)
-    }
-    function move(e) {
-      if (!drawing) return
-      e.preventDefault()
-      const p = getCanvasPoint(e)
-      ctx.lineTo(p.x, p.y)
-      ctx.stroke()
-      last = p
-      setHasInk(true)
-    }
-    function end() {
-      drawing = false
-      last = null
-    }
-
-    canvas.addEventListener('mousedown', start)
-    canvas.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', end)
-
-    canvas.addEventListener('touchstart', start, { passive: false })
-    canvas.addEventListener('touchmove', move, { passive: false })
-    window.addEventListener('touchend', end)
-    window.addEventListener('touchcancel', end)
-
-    return () => {
-      canvas.removeEventListener('mousedown', start)
-      canvas.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', end)
-      canvas.removeEventListener('touchstart', start)
-      canvas.removeEventListener('touchmove', move)
-      window.removeEventListener('touchend', end)
-      window.removeEventListener('touchcancel', end)
-    }
-  }
-
-  useEffect(() => {
-    return attachDrawingHandlers()
-  }, [])
-
   async function onApprove() {
     setError('')
     const name = signedName.trim()
@@ -189,8 +79,7 @@ export default function QuoteApprove() {
 
     setBusy(true)
     try {
-      const canvas = canvasRef.current
-      const signatureDataUrl = canvas ? canvas.toDataURL('image/png') : ''
+      const signatureDataUrl = padRef.current?.getDataUrl() || ''
       // Snapshot the exact terms the customer read, in the language they chose (audit trail).
       const termsText = TERMS.map((term) => `${term.title}\n${term.body}`).join('\n\n')
       const res = await api.post(`/quotes/approve/${token}`, {
@@ -327,18 +216,14 @@ export default function QuoteApprove() {
 
             <div className="mt-3">
               <div className="text-sm font-medium text-slate-800">{t('quoteApprove.draw')}</div>
-              <div ref={wrapRef} className="mt-1 rounded-xl border bg-white p-2">
-                <canvas
-                  ref={canvasRef}
-                  className="block w-full touch-none"
-                  aria-label="Signature pad"
-                />
+              <div className="mt-1">
+                <SignaturePad ref={padRef} onInkChange={setHasInk} />
               </div>
               <div className="mt-2 flex items-center justify-between">
                 <div className="text-xs text-slate-500">{hasInk ? t('quoteApprove.sig_captured') : t('quoteApprove.sig_hint')}</div>
                 <button
                   type="button"
-                  onClick={clearSignature}
+                  onClick={() => padRef.current?.clear()}
                   className="rounded-lg border bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   {t('quoteApprove.clear')}
