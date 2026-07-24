@@ -32,7 +32,7 @@ export default function BirdNettingFlow() {
   }, [])
 
   const rollPrice = pricing?.bird_netting_roll_price ?? 599
-  const nestFee = pricing?.bird_netting_nest_fee ?? 199
+  const nestFee = pricing?.bird_netting_nest_fee ?? 99
 
   function validateStep1() {
     if (!name.trim() || !phone.trim() || !email.trim() || !address.trim() || !panelCount) return t('step2.err.submit')

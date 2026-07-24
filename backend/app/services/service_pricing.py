@@ -18,7 +18,7 @@ SERVICE_PRICING_KEY = "service_pricing"
 DEFAULT_SERVICE_PRICING: dict[str, Any] = {
     "diagnostic_hourly_rate": 179.00,
     "bird_netting_roll_price": 599.00,
-    "bird_netting_nest_fee": 199.00,
+    "bird_netting_nest_fee": 99.00,
     "cleaning_tier1_price": 599.00,   # <= tier1 max panels
     "cleaning_tier2_price": 799.00,   # tier1_max < panels <= tier2 max
     "cleaning_tier1_max_panels": 20,

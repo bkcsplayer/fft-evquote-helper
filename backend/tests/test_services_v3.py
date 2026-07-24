@@ -79,7 +79,7 @@ def test_service_pricing_exposed():
     body = r.json()
     assert body["diagnostic_hourly_rate"] == 179.0
     assert body["bird_netting_roll_price"] == 599.0
-    assert body["bird_netting_nest_fee"] == 199.0
+    assert body["bird_netting_nest_fee"] == 99.0
 
 
 @needs_stack
@@ -184,7 +184,7 @@ def test_bird_netting_quote_and_approve():
     )
     assert q.status_code == 200, q.text
     assert q.json()["status"] == "quoted"
-    assert q.json()["quote"]["total"] == 2 * 599.0 + 1 * 199.0
+    assert q.json()["quote"]["total"] == 2 * 599.0 + 1 * 99.0
 
     # Public: view + approve with a signature.
     view = httpx.get(_url(f"/api/v1/public/services/bird-netting/quote/{token}"), timeout=15)

@@ -51,7 +51,7 @@ export default function Settings() {
       setServicePricing({
         diagnostic_hourly_rate: sp.diagnostic_hourly_rate ?? 179,
         bird_netting_roll_price: sp.bird_netting_roll_price ?? 599,
-        bird_netting_nest_fee: sp.bird_netting_nest_fee ?? 199,
+        bird_netting_nest_fee: sp.bird_netting_nest_fee ?? 99,
         cleaning_tier1_price: sp.cleaning_tier1_price ?? 599,
         cleaning_tier2_price: sp.cleaning_tier2_price ?? 799,
         cleaning_tier1_max_panels: sp.cleaning_tier1_max_panels ?? 20,
