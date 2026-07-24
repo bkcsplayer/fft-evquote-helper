@@ -72,8 +72,16 @@ def available_slots(
     return out
 
 
-def list_available_slots(db: Session, config: dict[str, Any], kind: AppointmentKind) -> list[datetime]:
-    """DB-backed: available slot-starts for a booking kind, in the configured window/timezone."""
+def list_available_slots(
+    db: Session, config: dict[str, Any], kind: AppointmentKind | None = None
+) -> list[datetime]:
+    """DB-backed: available slot-starts in the configured window/timezone.
+
+    Capacity is a company-wide SHARED POOL, so the booked count is kind-agnostic (sums all
+    services). `kind` is accepted for call-site backward compatibility but does NOT scope the
+    count.
+    """
+    _ = kind  # shared pool: kind never scopes the capacity count
     tz = _tz(config)
     now_local = datetime.now(tz)
     cand = generate_candidate_slots(config, now_local)
@@ -94,7 +102,6 @@ def list_available_slots(db: Session, config: dict[str, Any], kind: AppointmentK
     booked_counts: dict = {}
     appts = db.execute(
         select(Appointment.start_at).where(
-            Appointment.kind == kind,
             Appointment.status == AppointmentStatus.booked,
             Appointment.start_at >= window_start,
             Appointment.start_at <= window_end,

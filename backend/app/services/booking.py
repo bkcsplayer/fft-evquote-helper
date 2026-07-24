@@ -1,9 +1,13 @@
 """Slot booking with atomic no-oversell guarantee.
 
+Capacity is a COMPANY-WIDE SHARED POOL per (day, hour): EV survey/install AND the three v3.0
+services (diagnostic / bird survey+install / cleaning) all draw from the same hourly quota.
+The count is therefore kind-agnostic.
+
 `book_slot` must run inside a request transaction. It locks the existing bookings for the target
-(kind, slot) with SELECT ... FOR UPDATE, re-counts under the lock, and only then inserts — so two
-concurrent callers cannot both grab the last seat (the second blocks until the first commits, then
-sees the new row and is rejected).
+slot with SELECT ... FOR UPDATE, re-counts under the lock (all kinds), and only then inserts — so
+two concurrent callers cannot both grab the last seat (the second blocks until the first commits,
+then sees the new row and is rejected). v3.0: each appointment consumes exactly 1 unit.
 """
 
 from __future__ import annotations
@@ -40,22 +44,26 @@ def capacity_for(db: Session, config: dict[str, Any], day, hour: int) -> int:
 def book_slot(
     db: Session,
     *,
-    case_id,
     kind: AppointmentKind,
     start_at: datetime,
     config: dict[str, Any],
     created_by: str = "customer",
+    case_id=None,
+    service_booking_id=None,
+    cleaning_visit_id=None,
 ) -> Appointment:
-    """Atomically book a slot. Raises SlotUnavailable if closed/full. Caller commits."""
+    """Atomically book a slot against the shared capacity pool. Raises SlotUnavailable if
+    closed/full. Caller commits. Exactly one target FK (case / service_booking / cleaning_visit)
+    must be provided; `kind` labels the appointment but does NOT scope the capacity count.
+    """
     cap = capacity_for(db, config, start_at.date(), start_at.hour)
     if cap <= 0:
         raise SlotUnavailable("This time is not available.")
 
-    # Lock existing active bookings for this exact slot+kind, then re-count under the lock.
+    # Shared pool: lock ALL active bookings for this exact slot (any kind/service), then re-count.
     existing = db.execute(
         select(Appointment)
         .where(
-            Appointment.kind == kind,
             Appointment.start_at == start_at,
             Appointment.status == AppointmentStatus.booked,
         )
@@ -66,6 +74,8 @@ def book_slot(
 
     appt = Appointment(
         case_id=case_id,
+        service_booking_id=service_booking_id,
+        cleaning_visit_id=cleaning_visit_id,
         kind=kind,
         start_at=start_at,
         status=AppointmentStatus.booked,
@@ -94,6 +104,8 @@ def reschedule(
     return book_slot(
         db,
         case_id=appt.case_id,
+        service_booking_id=appt.service_booking_id,
+        cleaning_visit_id=appt.cleaning_visit_id,
         kind=appt.kind,
         start_at=new_start_at,
         config=config,

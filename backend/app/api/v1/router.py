@@ -17,8 +17,10 @@ from app.api.v1.admin import settings as admin_settings
 from app.api.v1.admin import surveys as admin_surveys
 from app.api.v1.admin import surveys_photos as admin_surveys_photos
 from app.api.v1.admin import scheduling as admin_scheduling
+from app.api.v1.admin import services as admin_services
 from app.api.v1.admin import users as admin_users
 from app.api.v1.public import booking, branding, charger_brands, cases, payments, quotes, survey_photos
+from app.api.v1.public import services as public_services
 
 
 api_router = APIRouter(prefix="/api/v1")
@@ -31,6 +33,7 @@ api_router.include_router(cases.router, tags=["public"])
 api_router.include_router(quotes.router, tags=["public"])
 api_router.include_router(payments.router, tags=["public"])
 api_router.include_router(survey_photos.router, tags=["public"])
+api_router.include_router(public_services.router, tags=["public"])
 
 # Admin
 api_router.include_router(admin_auth.router, tags=["admin"])
@@ -51,4 +54,5 @@ api_router.include_router(admin_payments.router, tags=["admin"])
 api_router.include_router(admin_materials.router, tags=["admin"])
 api_router.include_router(admin_bom.router, tags=["admin"])
 api_router.include_router(admin_finance.router, tags=["admin"])
+api_router.include_router(admin_services.router, tags=["admin"])
 

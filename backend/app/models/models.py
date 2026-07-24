@@ -6,6 +6,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     Enum,
@@ -335,7 +336,16 @@ class Notification(Base, TimestampMixin):
     __tablename__ = "notifications"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id"), index=True)
+    # case_id nullable since v3.0 — new-service notifications target a service booking / subscription.
+    case_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cases.id"), index=True, nullable=True
+    )
+    service_booking_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("service_bookings.id"), index=True, nullable=True
+    )
+    cleaning_subscription_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cleaning_subscriptions.id"), index=True, nullable=True
+    )
     channel: Mapped[NotificationChannel] = mapped_column(
         Enum(NotificationChannel, name="notification_channel"), nullable=False
     )
@@ -386,8 +396,14 @@ class ChargerBrand(Base):
 
 # ── Slot-based booking (replaces the survey/install propose→confirm handshake) ──
 class AppointmentKind(str, enum.Enum):
+    # EV (existing) — target = case
     survey = "survey"
     install = "install"
+    # v3.0 new services — target = service_booking / cleaning_visit (shared capacity pool)
+    diagnostic = "diagnostic"        # solar diagnostic on-site visit
+    bird_survey = "bird_survey"      # bird-netting drone survey
+    bird_install = "bird_install"    # bird-netting installation
+    cleaning = "cleaning"            # panel-cleaning quarterly visit
 
 
 class AppointmentStatus(str, enum.Enum):
@@ -397,10 +413,29 @@ class AppointmentStatus(str, enum.Enum):
 
 
 class Appointment(Base, TimestampMixin):
+    """Polymorphic scheduling row. Exactly one target FK is set (case / service_booking /
+    cleaning_visit). Capacity is a company-wide shared pool per (day, hour) — the count is
+    kind-agnostic (see services/booking.py). v3.0: each appointment consumes 1 unit.
+    """
+
     __tablename__ = "appointments"
+    __table_args__ = (
+        CheckConstraint(
+            "(case_id IS NOT NULL)::int + (service_booking_id IS NOT NULL)::int"
+            " + (cleaning_visit_id IS NOT NULL)::int = 1",
+            name="ck_appointments_single_target",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    case_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id"), index=True, nullable=False)
+    # EV target (nullable since v3.0 — new services target service_booking / cleaning_visit instead)
+    case_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id"), index=True, nullable=True)
+    service_booking_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("service_bookings.id"), index=True, nullable=True
+    )
+    cleaning_visit_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cleaning_visits.id"), index=True, nullable=True
+    )
     kind: Mapped[AppointmentKind] = mapped_column(Enum(AppointmentKind, name="appointment_kind"), nullable=False)
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     duration_min: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
@@ -560,4 +595,187 @@ class CaseBomLine(Base, TimestampMixin):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     case: Mapped["Case"] = relationship(back_populates="bom_lines")
+
+
+# ────────────────────────────────────────────────────────────────────────────────────────
+# v3.0 FutureFrontier four-service portal — new services (independent of the EV Case model).
+# Diagnostic + Bird Netting share `service_bookings`; Cleaning uses subscriptions + visits.
+# Scheduling for all of these reuses the generalized `Appointment` shared-capacity pool.
+# ────────────────────────────────────────────────────────────────────────────────────────
+class ServiceType(str, enum.Enum):
+    diagnostic = "diagnostic"
+    bird_netting = "bird_netting"
+
+
+class ServiceBookingStatus(str, enum.Enum):
+    """Union of diagnostic + bird-netting lifecycles. Valid subset depends on service_type;
+    transitions are guarded in services/service_booking_flow.py.
+
+    diagnostic:   submitted → scheduled → in_progress → completed | cancelled
+    bird_netting: submitted → survey_scheduled → quoted → approved → install_scheduled
+                            → completed | cancelled
+    """
+
+    submitted = "submitted"
+    scheduled = "scheduled"                # diagnostic
+    survey_scheduled = "survey_scheduled"  # bird netting (drone survey booked)
+    quoted = "quoted"                      # bird netting
+    approved = "approved"                  # bird netting (customer signed)
+    in_progress = "in_progress"            # diagnostic
+    install_scheduled = "install_scheduled"  # bird netting
+    completed = "completed"
+    cancelled = "cancelled"
+
+
+class QuoteStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class CleaningTier(str, enum.Enum):
+    tier1 = "tier1"    # <= tier1 max panels
+    tier2 = "tier2"    # tier1_max < panels <= tier2_max
+    custom = "custom"  # > tier2_max — admin sets price
+
+
+class CleaningPricingStatus(str, enum.Enum):
+    quoted = "quoted"                # annual_price is set
+    pending_quote = "pending_quote"  # custom tier awaiting admin price
+
+
+class CleaningPaymentStatus(str, enum.Enum):
+    unpaid = "unpaid"
+    paid = "paid"
+    refunded = "refunded"
+
+
+class CleaningVisitStatus(str, enum.Enum):
+    pending = "pending"
+    notified = "notified"
+    completed = "completed"
+    skipped = "skipped"
+
+
+class ServiceBooking(Base, TimestampMixin):
+    """One-off Diagnostic or Bird-Netting job. Independent of the EV Case model."""
+
+    __tablename__ = "service_bookings"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    reference_number: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
+    service_type: Mapped[ServiceType] = mapped_column(Enum(ServiceType, name="service_type"), nullable=False)
+    status: Mapped[ServiceBookingStatus] = mapped_column(
+        Enum(ServiceBookingStatus, name="service_booking_status"),
+        nullable=False,
+        default=ServiceBookingStatus.submitted,
+    )
+
+    customer_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[str] = mapped_column(Text, nullable=False)
+    panel_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    preferred_window: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # diagnostic-only inputs
+    inverter_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+    problem_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    problem_tags: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    photo_urls: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+
+    # scheduling mirror (source of truth is the active Appointment)
+    technician: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # completion (diagnostic)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    actual_hours: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    hardware_involved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # price snapshot (diagnostic hourly rate at submission time)
+    hourly_rate_snapshot: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+
+    access_token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    disclaimer_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    quote: Mapped["BirdNettingQuote | None"] = relationship(back_populates="booking")
+
+
+class BirdNettingQuote(Base, TimestampMixin):
+    """Drone-survey-based quote for a bird-netting booking. Prices are snapshotted at quote time."""
+
+    __tablename__ = "bird_netting_quotes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    booking_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("service_bookings.id"), unique=True, index=True, nullable=False
+    )
+    roll_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    nest_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    roll_price_snapshot: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    nest_fee_snapshot: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    total: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    status: Mapped[QuoteStatus] = mapped_column(
+        Enum(QuoteStatus, name="quote_status"), nullable=False, default=QuoteStatus.pending
+    )
+    signature_data: Mapped[str | None] = mapped_column(Text, nullable=True)
+    signed_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    booking: Mapped["ServiceBooking"] = relationship(back_populates="quote")
+
+
+class CleaningSubscription(Base, TimestampMixin):
+    """Annual panel-cleaning subscription (4 quarterly visits). No online payment in v3.0."""
+
+    __tablename__ = "cleaning_subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    reference_number: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
+    customer_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[str] = mapped_column(Text, nullable=False)
+    panel_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tier: Mapped[CleaningTier] = mapped_column(Enum(CleaningTier, name="cleaning_tier"), nullable=False)
+    annual_price: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    pricing_status: Mapped[CleaningPricingStatus] = mapped_column(
+        Enum(CleaningPricingStatus, name="cleaning_pricing_status"),
+        nullable=False,
+        default=CleaningPricingStatus.quoted,
+    )
+    payment_status: Mapped[CleaningPaymentStatus] = mapped_column(
+        Enum(CleaningPaymentStatus, name="cleaning_payment_status"),
+        nullable=False,
+        default=CleaningPaymentStatus.unpaid,
+    )
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    access_token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    disclaimer_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    visits: Mapped[list["CleaningVisit"]] = relationship(back_populates="subscription")
+
+
+class CleaningVisit(Base, TimestampMixin):
+    """One of the 4 quarterly visits under a cleaning subscription."""
+
+    __tablename__ = "cleaning_visits"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cleaning_subscriptions.id"), index=True, nullable=False
+    )
+    quarter: Mapped[int] = mapped_column(Integer, nullable=False)  # 1..4
+    scheduled_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[CleaningVisitStatus] = mapped_column(
+        Enum(CleaningVisitStatus, name="cleaning_visit_status"),
+        nullable=False,
+        default=CleaningVisitStatus.pending,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    subscription: Mapped["CleaningSubscription"] = relationship(back_populates="visits")
 

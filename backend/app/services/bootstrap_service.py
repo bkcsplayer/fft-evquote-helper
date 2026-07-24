@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models.models import AdminRole, AdminUser, ChargerBrand, SystemSetting
 from app.services.security import hash_password
+from app.services.service_pricing import DEFAULT_SERVICE_PRICING, SERVICE_PRICING_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,54 @@ DEFAULT_ETRANSFER_SETTINGS_VALUE = {
     "instructions": "Please send an Interac e-transfer for the survey deposit amount. Include your case reference number in the message.",
 }
 
+# v3.0 new-service notification templates (DB-editable). Bodies mirror the code fallbacks in
+# service_booking_flow so admins can edit them; merge-without-overwrite on boot.
+SERVICE_EMAIL_TEMPLATES = {
+    "service_submission_confirm": {
+        "subject": "We received your service booking",
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Booking received</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, we received your {{ service_label }} booking. Reference <strong>{{ reference_number }}</strong>.</p><p style="margin:0 0 12px 0;">Requested time: <strong>{{ scheduled_text }}</strong></p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">Track status</a></p>{% endblock %}',
+    },
+    "service_scheduled": {
+        "subject": "Your service appointment is confirmed",
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Appointment confirmed</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your appointment is confirmed for <strong>{{ scheduled_text }}</strong>.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">View status</a></p>{% endblock %}',
+    },
+    "bird_quote_ready": {
+        "subject": "Your bird-netting quote is ready",
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Your quote is ready</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your bird-netting quote is ready: {{ roll_count }} roll(s), {{ nest_count }} nest(s), total <strong>${{ total }}</strong>.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ quote_url }}">Review &amp; approve</a></p>{% endblock %}',
+    },
+    "bird_install_scheduled": {
+        "subject": "Your bird-netting installation is scheduled",
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Installation scheduled</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your bird-netting installation is scheduled for <strong>{{ scheduled_text }}</strong>. You do not need to be home.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">View status</a></p>{% endblock %}',
+    },
+    "service_completed": {
+        "subject": "Your service is complete",
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Service complete</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your service is complete. Thank you!</p>{% endblock %}',
+    },
+    "cleaning_subscription_confirm": {
+        "subject": "Your solar panel cleaning subscription is confirmed",
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Subscription confirmed</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, thank you for subscribing to quarterly panel cleaning. Annual price: <strong>${{ annual_price }}</strong>.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">View subscription</a></p>{% endblock %}',
+    },
+    "cleaning_visit_upcoming": {
+        "subject": "Upcoming solar panel cleaning",
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Upcoming cleaning</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your panel cleaning (Q{{ quarter }}) is scheduled for <strong>{{ scheduled_text }}</strong>. You do not need to be home.</p>{% endblock %}',
+    },
+    "cleaning_visit_completed": {
+        "subject": "Your panel cleaning is complete",
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Cleaning complete</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your Q{{ quarter }} panel cleaning is complete. Thank you!</p>{% endblock %}',
+    },
+}
+
+SERVICE_SMS_TEMPLATES = {
+    "service_submission_confirm": {"body": "{{ brand_name }}\n{{ service_label }} booked\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}\nTrack: {{ status_url }}"},
+    "service_scheduled": {"body": "{{ brand_name }}\nAppointment confirmed\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}\nTrack: {{ status_url }}"},
+    "bird_quote_ready": {"body": "{{ brand_name }}\nBird-netting quote ready\nTotal: ${{ total }}\nRef: {{ reference_number }}\nApprove: {{ quote_url }}"},
+    "bird_install_scheduled": {"body": "{{ brand_name }}\nInstallation scheduled\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}\nTrack: {{ status_url }}"},
+    "service_completed": {"body": "{{ brand_name }}\nService complete\nRef: {{ reference_number }}\nThank you!"},
+    "cleaning_subscription_confirm": {"body": "{{ brand_name }}\nCleaning subscription confirmed\nAnnual: ${{ annual_price }}\nRef: {{ reference_number }}\nView: {{ status_url }}"},
+    "cleaning_visit_upcoming": {"body": "{{ brand_name }}\nUpcoming cleaning (Q{{ quarter }})\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}"},
+    "cleaning_visit_completed": {"body": "{{ brand_name }}\nCleaning complete (Q{{ quarter }})\nRef: {{ reference_number }}"},
+}
+
 DEFAULT_BRAND_PROFILE_KEY = "brand_profile"
 
 
@@ -138,11 +187,60 @@ OLD_SMS_SURVEY_DEPOSIT_RECEIVED_BODY = "[FFT] Deposit received. Thank you! Case:
 def ensure_defaults(db: Session) -> None:
     _ensure_charger_brands(db)
     _ensure_system_settings(db)
+    _ensure_service_pricing(db)
     _ensure_etransfer_settings(db)
     _ensure_message_templates(db)
+    _ensure_service_templates(db)
     _ensure_brand_profile(db)
     _ensure_bootstrap_super_admin(db)
     _ensure_dev_super_admin(db)
+
+
+def _ensure_service_pricing(db: Session) -> None:
+    row = db.execute(
+        select(SystemSetting).where(SystemSetting.key == SERVICE_PRICING_KEY)
+    ).scalar_one_or_none()
+    if not row:
+        db.add(SystemSetting(key=SERVICE_PRICING_KEY, value=dict(DEFAULT_SERVICE_PRICING)))
+        db.commit()
+        return
+    changed = False
+    for k, v in DEFAULT_SERVICE_PRICING.items():
+        if k not in (row.value or {}):
+            row.value[k] = v
+            changed = True
+    if changed:
+        db.add(row)
+        db.commit()
+
+
+def _ensure_service_templates(db: Session) -> None:
+    """Seed v3.0 new-service email/sms templates; merge-without-overwrite (preserves admin edits)."""
+    email_row = db.execute(
+        select(SystemSetting).where(SystemSetting.key == DEFAULT_EMAIL_TEMPLATES_KEY)
+    ).scalar_one_or_none()
+    if email_row:
+        changed = False
+        for k, v in SERVICE_EMAIL_TEMPLATES.items():
+            if k not in (email_row.value or {}):
+                email_row.value[k] = v
+                changed = True
+        if changed:
+            db.add(email_row)
+            db.commit()
+
+    sms_row = db.execute(
+        select(SystemSetting).where(SystemSetting.key == DEFAULT_SMS_TEMPLATES_KEY)
+    ).scalar_one_or_none()
+    if sms_row:
+        changed = False
+        for k, v in SERVICE_SMS_TEMPLATES.items():
+            if k not in (sms_row.value or {}):
+                sms_row.value[k] = v
+                changed = True
+        if changed:
+            db.add(sms_row)
+            db.commit()
 
 
 def _ensure_charger_brands(db: Session) -> None:

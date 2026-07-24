@@ -296,6 +296,132 @@ def notify_admin_event(
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────────
+# v3.0 new-service notifications (diagnostic / bird-netting / cleaning). Target a service booking
+# or a cleaning subscription instead of a case. Best-effort: never block a booking; row recorded.
+# ─────────────────────────────────────────────────────────────────────────────────
+def notify_service(
+    db: Session,
+    *,
+    template_key: str,
+    to_email: str | None,
+    to_phone: str | None,
+    ctx: dict[str, Any],
+    email_subject_fallback: str,
+    email_html_fallback: str,
+    sms_fallback: str,
+    service_booking_id: str | None = None,
+    cleaning_subscription_id: str | None = None,
+) -> None:
+    """Render + send email and/or SMS for a new-service event, from DB-overridable templates.
+
+    Email uses `email_templates[template_key]` (an inline HTML string, `{% extends "base.html" %}`
+    aware) else `email_html_fallback`. SMS uses `sms_templates[template_key]` else `sms_fallback`.
+    Never raises — a send/render failure is logged and recorded as a failed Notification row.
+    """
+    merged = _with_brand_profile(db, ctx)
+
+    if to_email:
+        try:
+            templates = _get_system_setting(db, "email_templates") or {}
+            tpl = templates.get(template_key)
+            if isinstance(tpl, dict) and tpl.get("html"):
+                subject = str(tpl.get("subject") or email_subject_fallback)
+                html = _templates_env().from_string(str(tpl["html"])).render(**merged)
+            else:
+                subject = email_subject_fallback
+                html = _templates_env().from_string(email_html_fallback).render(**merged)
+            _send_service_email(
+                db,
+                to_email=to_email,
+                template_name=template_key,
+                subject=subject,
+                html=html,
+                service_booking_id=service_booking_id,
+                cleaning_subscription_id=cleaning_subscription_id,
+            )
+        except Exception:
+            logger.exception("notify_service email failed (template=%s)", template_key)
+
+    if to_phone:
+        try:
+            templates = _get_system_setting(db, "sms_templates") or {}
+            tpl = templates.get(template_key)
+            src = tpl["body"] if isinstance(tpl, dict) and tpl.get("body") else sms_fallback
+            body = _templates_env().from_string(str(src)).render(**merged)
+            _send_service_sms(
+                db,
+                to_phone=to_phone,
+                template_name=template_key,
+                body=body,
+                service_booking_id=service_booking_id,
+                cleaning_subscription_id=cleaning_subscription_id,
+            )
+        except Exception:
+            logger.exception("notify_service sms failed (template=%s)", template_key)
+
+
+def _send_service_email(
+    db: Session,
+    *,
+    to_email: str,
+    template_name: str,
+    subject: str,
+    html: str,
+    service_booking_id: str | None,
+    cleaning_subscription_id: str | None,
+) -> Notification | None:
+    n = Notification(
+        service_booking_id=service_booking_id,
+        cleaning_subscription_id=cleaning_subscription_id,
+        channel=NotificationChannel.email,
+        recipient=to_email,
+        template_name=template_name,
+        subject=subject,
+        content=html,
+        status=NotificationStatus.pending,
+    )
+    try:
+        send_email(to_email=to_email, subject=subject, html=html)
+        n.status = NotificationStatus.sent
+        n.sent_at = datetime.now(timezone.utc)
+    except Exception as e:
+        n.status = NotificationStatus.failed
+        n.error_message = str(e)
+        logger.warning("Service email send failed (template=%s): %s", template_name, e)
+    return _record_notification(db, n)
+
+
+def _send_service_sms(
+    db: Session,
+    *,
+    to_phone: str,
+    template_name: str,
+    body: str,
+    service_booking_id: str | None,
+    cleaning_subscription_id: str | None,
+) -> Notification | None:
+    n = Notification(
+        service_booking_id=service_booking_id,
+        cleaning_subscription_id=cleaning_subscription_id,
+        channel=NotificationChannel.sms,
+        recipient=to_phone,
+        template_name=template_name,
+        subject=None,
+        content=body,
+        status=NotificationStatus.pending,
+    )
+    try:
+        send_sms(to_phone=to_phone, body=body)
+        n.status = NotificationStatus.sent
+        n.sent_at = datetime.now(timezone.utc)
+    except Exception as e:
+        n.status = NotificationStatus.failed
+        n.error_message = str(e)
+        logger.warning("Service SMS send failed (template=%s): %s", template_name, e)
+    return _record_notification(db, n)
+
+
 def notify_case_status_sms(
     db: Session,
     *,
