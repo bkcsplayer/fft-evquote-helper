@@ -4,6 +4,7 @@ import logging
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import get_settings
 from app.models.models import AdminRole, AdminUser, ChargerBrand, SystemSetting
@@ -210,6 +211,7 @@ def _ensure_service_pricing(db: Session) -> None:
             row.value[k] = v
             changed = True
     if changed:
+        flag_modified(row, "value")
         db.add(row)
         db.commit()
 
@@ -226,6 +228,7 @@ def _ensure_service_templates(db: Session) -> None:
                 email_row.value[k] = v
                 changed = True
         if changed:
+            flag_modified(email_row, "value")
             db.add(email_row)
             db.commit()
 
@@ -239,6 +242,7 @@ def _ensure_service_templates(db: Session) -> None:
                 sms_row.value[k] = v
                 changed = True
         if changed:
+            flag_modified(sms_row, "value")
             db.add(sms_row)
             db.commit()
 
@@ -274,6 +278,7 @@ def _ensure_etransfer_settings(db: Session) -> None:
             row.value[k] = v
             changed = True
     if changed:
+        flag_modified(row, "value")
         db.add(row)
         db.commit()
 
@@ -314,6 +319,7 @@ def _ensure_message_templates(db: Session) -> None:
         except Exception:
             pass
         if changed:
+            flag_modified(email_row, "value")
             db.add(email_row)
             db.commit()
 
@@ -372,6 +378,7 @@ def _ensure_message_templates(db: Session) -> None:
         except Exception:
             pass
         if changed:
+            flag_modified(sms_row, "value")
             db.add(sms_row)
             db.commit()
 
@@ -393,6 +400,7 @@ def _ensure_brand_profile(db: Session) -> None:
             row.value[k] = v
             changed = True
     if changed:
+        flag_modified(row, "value")
         db.add(row)
         db.commit()
 

@@ -296,3 +296,28 @@ def test_unified_schedule_aggregates_services():
     # Every item carries a service classification derived from its appointment kind.
     for it in items:
         assert it["service"] in {"ev", "diagnostic", "bird_netting", "cleaning", "other"}
+
+
+@needs_stack
+def test_service_notification_templates_seeded():
+    # Regression for a merge-without-overwrite bug: bootstrap_service mutated SystemSetting.value
+    # (a plain JSONB dict) in place, which SQLAlchemy never tracks as dirty, so new default keys
+    # silently never reached an *existing* row (only fresh inserts worked). Fixed via flag_modified.
+    headers = _admin_headers()
+    r = httpx.get(_url("/api/v1/admin/settings"), headers=headers, timeout=20)
+    assert r.status_code == 200
+    rows = {row["key"]: row["value"] for row in r.json()}
+    email_keys = set(rows.get("email_templates") or {})
+    sms_keys = set(rows.get("sms_templates") or {})
+    expected = {
+        "service_submission_confirm",
+        "service_scheduled",
+        "bird_quote_ready",
+        "bird_install_scheduled",
+        "service_completed",
+        "cleaning_subscription_confirm",
+        "cleaning_visit_upcoming",
+        "cleaning_visit_completed",
+    }
+    assert expected <= email_keys, f"missing from email_templates: {expected - email_keys}"
+    assert expected <= sms_keys, f"missing from sms_templates: {expected - sms_keys}"
