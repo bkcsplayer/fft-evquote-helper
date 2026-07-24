@@ -93,13 +93,14 @@ export default function App() {
         />
 
         <Route
-          path="/admin/services/schedule"
+          path="/admin/calendar"
           element={
             <RequireAuth>
               <UnifiedSchedule />
             </RequireAuth>
           }
         />
+        <Route path="/admin/services/schedule" element={<Navigate to="/admin/calendar" replace />} />
         <Route
           path="/admin/services/bookings"
           element={

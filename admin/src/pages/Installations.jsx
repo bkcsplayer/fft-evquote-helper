@@ -19,7 +19,7 @@ export default function Installations() {
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('all')
   const [actionCaseId, setActionCaseId] = useState('')
-  const [view, setView] = useState('calendar')
+  const [view, setView] = useState('list')
 
   async function load() {
     setLoading(true); setError('')
@@ -109,7 +109,7 @@ export default function Installations() {
         <div className="flex items-end justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">Installations</h1>
-            <p className="mt-1 text-sm text-slate-500">Calendar feed & list view.</p>
+            <p className="mt-1 text-sm text-slate-500">EV installation work queue — completion emails & pending requests. Cross-service calendar lives in Schedule → Calendar.</p>
           </div>
           <button type="button" onClick={load} className="rounded-lg border bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-95">
             Refresh

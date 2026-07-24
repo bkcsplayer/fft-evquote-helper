@@ -43,10 +43,14 @@ export default function UnifiedSchedule() {
         id: it.id,
         start: new Date(it.start_at),
         href: it.link || '#',
-        tone: toneForServiceKind(it.service),
+        // Pending = customer proposed a time, not yet confirmed by admin (no slot held yet).
+        // Amber, distinct from the service color, so it reads as "needs action" at a glance.
+        tone: it.pending ? 'amber' : toneForServiceKind(it.service),
         title: it.title || '—',
         subtitle: it.ref || undefined,
-        pill: <Pill tone={toneForServiceKind(it.service)}>{serviceKindLabel(it.service)}</Pill>,
+        pill: it.pending
+          ? <Pill tone="amber">Requested</Pill>
+          : <Pill tone={toneForServiceKind(it.service)}>{serviceKindLabel(it.service)}</Pill>,
       }))
   }, [items, visible])
 
@@ -55,8 +59,8 @@ export default function UnifiedSchedule() {
       <div className="animate-fade-in">
         <div className="flex items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">Unified Schedule</h1>
-            <p className="mt-1 text-sm text-slate-500">All four services, one calendar. EV rows are read-only here.</p>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">Calendar</h1>
+            <p className="mt-1 text-sm text-slate-500">All four service lines, one calendar. Amber = an EV time request awaiting confirmation on Surveys / Installations.</p>
           </div>
           <button type="button" onClick={load} className="rounded-lg border bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-95">
             Refresh

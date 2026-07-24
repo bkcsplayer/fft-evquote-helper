@@ -18,7 +18,7 @@ export default function Surveys() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [filter, setFilter] = useState('all')
-  const [view, setView] = useState('calendar')
+  const [view, setView] = useState('list')
 
   async function load() {
     setLoading(true); setError('')
@@ -102,7 +102,7 @@ export default function Surveys() {
         <div className="flex items-end justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">Surveys</h1>
-            <p className="mt-1 text-sm text-slate-500">Calendar feed & list view.</p>
+            <p className="mt-1 text-sm text-slate-500">EV survey work queue — deposits & pending requests. Cross-service calendar lives in Schedule → Calendar.</p>
           </div>
           <button type="button" onClick={load} className="rounded-lg border bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-all hover:bg-slate-50 active:scale-95">
             Refresh

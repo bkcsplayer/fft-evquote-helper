@@ -4,20 +4,31 @@ import { api } from '../../services/api.js'
 
 const NAV_ITEMS = [
   {
-    section: 'Operations',
+    section: 'Overview',
     items: [
       { to: '/admin', label: 'Dashboard', icon: IconDashboard, end: true },
-      { to: '/admin/cases', label: 'Cases', icon: IconCases },
-      { to: '/admin/surveys', label: 'Surveys', icon: IconSurveys },
-      { to: '/admin/installations', label: 'Installations', icon: IconInstallations },
-      { to: '/admin/permits', label: 'Permits', icon: IconPermits },
-      { to: '/admin/scheduling', label: 'Scheduling', icon: IconScheduling },
     ],
   },
   {
-    section: 'Services',
+    // Shared across all four service lines — one capacity pool, one calendar.
+    section: 'Schedule',
     items: [
-      { to: '/admin/services/schedule', label: 'Unified Schedule', icon: IconServicesSchedule },
+      { to: '/admin/calendar', label: 'Calendar', icon: IconSurveys },
+      { to: '/admin/scheduling', label: 'Availability', icon: IconServicesSchedule },
+    ],
+  },
+  {
+    section: 'EV Chargers',
+    items: [
+      { to: '/admin/cases', label: 'Cases', icon: IconCases },
+      { to: '/admin/surveys', label: 'Surveys', icon: IconScheduling },
+      { to: '/admin/installations', label: 'Installations', icon: IconInstallations },
+      { to: '/admin/permits', label: 'Permits', icon: IconPermits },
+    ],
+  },
+  {
+    section: 'Solar Services',
+    items: [
       { to: '/admin/services/bookings', label: 'Bookings', icon: IconServicesBookings },
       { to: '/admin/services/cleaning', label: 'Cleaning', icon: IconServicesCleaning },
     ],
