@@ -5,8 +5,9 @@ import { api } from '../services/api.js'
 import { Card, SectionHeader } from '../components/ui/Card.jsx'
 import { StatusTag } from '../components/ui/StatusTag.jsx'
 import { SkeletonKpi } from '../components/ui/Skeleton.jsx'
-import { describeActivity, statusLabel, toneForCaseStatus } from '../utils/caseStatus.js'
-import { accentClass, barClass, dotClass } from '../utils/tone.js'
+import { describeActivity, toneForCaseStatus } from '../utils/caseStatus.js'
+import { accentClass, dotClass, pillClass } from '../utils/tone.js'
+import { ServiceIcon } from '../utils/serviceIcons.jsx'
 
 function moneyCAD(amount) {
   if (amount === null || amount === undefined) return '—'
@@ -63,6 +64,7 @@ export default function Dashboard() {
   const evLoading = !stats && !evError
   const svcLoading = !svc && !svcError
   const counts = stats?.status_counts || {}
+  const evCasesTotal = Object.values(counts).reduce((a, b) => a + Number(b || 0), 0)
 
   const hasFullRevenue = !!stats && !!svc
   const combinedRevenue = (Number(stats?.revenue_month) || 0)
@@ -91,20 +93,18 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* §1 Company topline */}
+        {/* §A Company — cross-line data only; per-line revenue lives on each service block below */}
         <Card className="p-5">
-          <SectionHeader eyebrow="Company" title="Revenue this month, across every service line" />
+          <SectionHeader eyebrow="Company" title="Across every service line" />
           {evLoading && svcLoading ? (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {Array.from({ length: 5 }).map((_, i) => <SkeletonKpi key={i} />)}
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => <SkeletonKpi key={i} />)}
             </div>
           ) : (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <Kpi label={hasFullRevenue ? 'Combined revenue' : 'Combined revenue (partial)'} value={moneyCAD(combinedRevenue)} tone="emerald" />
-              <Kpi label="EV" value={stats ? moneyCAD(stats.revenue_month) : '—'} tone="indigo" />
-              <Kpi label="Diagnostic" value={svc ? moneyCAD(svc.per_service.diagnostic.revenue_this_month) : '—'} tone="amber" />
-              <Kpi label="Bird Netting" value={svc ? moneyCAD(svc.per_service.bird_netting.revenue_this_month) : '—'} tone="teal" />
-              <Kpi label="Cleaning" value={svc ? moneyCAD(svc.per_service.cleaning.revenue_this_month) : '—'} tone="emerald" />
+              <Kpi label="Service bookings (month)" value={svc ? svc.combined.new_bookings_this_month : '—'} tone="teal" to="/admin/services/bookings" />
+              <Kpi label="EV cases (total)" value={stats ? evCasesTotal : '—'} tone="indigo" to="/admin/cases" />
             </div>
           )}
         </Card>
@@ -128,137 +128,107 @@ export default function Dashboard() {
           {svcError ? <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{svcError}</div> : null}
         </Card>
 
-        {/* §3 EV Chargers — same 4 blocks as before, internals untouched, just grouped */}
-        <div>
-          <SectionHeader eyebrow="EV Chargers" title="Full pipeline" />
-          {evError ? (
-            <Card className="mt-4 p-5"><div className="text-sm font-medium text-rose-700">{evError}</div></Card>
-          ) : (
-            <div className="mt-4 space-y-5">
-              <Card className="p-5">
-                <SectionHeader eyebrow="Live Pipeline" title="Cases at each stage — click to drill in" />
-                <div className="mt-4">
-                  {evLoading ? (
-                    <div className="flex gap-2 overflow-hidden">
-                      {Array.from({ length: 7 }).map((_, i) => <div key={i} className="h-20 flex-1 animate-pulse rounded-xl bg-slate-100" />)}
-                    </div>
-                  ) : (
-                    <LivePipeline counts={counts} />
-                  )}
-                </div>
-              </Card>
-
-              <Card className="p-5">
-                <SectionHeader eyebrow="KPI Snapshot" title="What needs attention now" action={<span className="text-xs text-slate-400">Live</span>} />
-                {evLoading ? (
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    {Array.from({ length: 9 }).map((_, i) => <SkeletonKpi key={i} />)}
-                  </div>
-                ) : (
-                  <>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <Kpi label="Pending" value={stats.pending_cases} tone="slate" to="/admin/cases?status=pending" />
-                      <Kpi label="To quote" value={stats.cases_to_quote} tone="amber" />
-                      <Kpi label="Waiting approval" value={stats.quoted_waiting_approval} tone="amber" to="/admin/cases?status=quoted" />
-                      <Kpi label="Installs scheduled" value={stats.installations_scheduled} tone="teal" to="/admin/cases?status=installation_scheduled" />
-                      <Kpi label="Surveys next 7d" value={stats.surveys_next_7_days} tone="teal" />
-                      <Kpi label="Permits: revision" value={stats.permits_revision_required} tone="amber" to="/admin/permits?quick=needs_action" />
-                    </div>
-                    <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <Kpi label="Pipeline value" value={moneyCAD(stats.pipeline_value)} tone="teal" />
-                      <Kpi label="Revenue (month)" value={moneyCAD(stats.revenue_month)} tone="emerald" />
-                      <Kpi label="Revenue (quarter)" value={moneyCAD(stats.revenue_quarter)} tone="emerald" />
-                      <Kpi label="Completed (month)" value={stats.completed_month_count} tone="emerald" />
-                    </div>
-                  </>
-                )}
-              </Card>
-
-              <div className="grid gap-5 lg:grid-cols-12">
-                <Card className="p-5 lg:col-span-7">
-                  <SectionHeader eyebrow="Cases by Status" title="Pipeline distribution" />
-                  <div className="mt-4">
-                    {evLoading ? (
-                      <div className="space-y-3">
-                        {Array.from({ length: 7 }).map((_, i) => (
-                          <div key={i} className="flex items-center gap-3">
-                            <div className="h-3 w-24 animate-pulse rounded bg-slate-200" />
-                            <div className="h-3 flex-1 animate-pulse rounded-full bg-slate-200" />
-                            <div className="h-3 w-16 animate-pulse rounded bg-slate-200" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <StatusGroups counts={counts} />
-                    )}
-                  </div>
-                </Card>
-
-                <Card className="p-5 lg:col-span-5">
-                  <SectionHeader eyebrow="Recent Activity" title="Who did what, just now" />
-                  <div className="mt-4">
-                    {evLoading ? (
-                      <div className="space-y-3">
-                        {Array.from({ length: 5 }).map((_, i) => (
-                          <div key={i} className="h-12 animate-pulse rounded-xl bg-slate-100" />
-                        ))}
-                      </div>
-                    ) : activity.length === 0 ? (
-                      <p className="py-8 text-center text-sm text-slate-400">No activity yet.</p>
-                    ) : (
-                      <ActivityTimeline rows={activity.slice(0, 8)} />
-                    )}
-                  </div>
-                </Card>
-              </div>
+        {/* §C EV Chargers — one big service block. Wider than the solar blocks below (the pipeline
+            strip needs the width); trimmed to drop what's already visible on the pipeline strip
+            or in Needs Attention above, instead of cramming every KPI from the old 4-card layout in. */}
+        {evError ? (
+          <Card className="p-5"><div className="text-sm font-medium text-rose-700">{evError}</div></Card>
+        ) : (
+          <Card className="p-5">
+            <div className="flex items-center justify-between gap-3">
+              <ServiceBlockHeader kind="ev" tone="indigo" title="EV Chargers" />
+              <Link to="/admin/cases" className="text-xs font-semibold text-indigo-700 hover:underline">All cases &rarr;</Link>
             </div>
-          )}
-        </div>
 
-        {/* §4 Solar Services — repair, bird netting & cleaning */}
-        <div>
-          <SectionHeader eyebrow="Solar Services" title="Diagnostic, bird netting & cleaning" />
-          {svcError ? (
-            <Card className="mt-4 p-5"><div className="text-sm font-medium text-rose-700">{svcError}</div></Card>
-          ) : (
-            <Card className="mt-4 p-5">
-              {svcLoading ? (
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {Array.from({ length: 3 }).map((_, i) => <SkeletonKpi key={i} />)}
+            <div className="mt-4">
+              {evLoading ? (
+                <div className="flex gap-2 overflow-hidden">
+                  {Array.from({ length: 7 }).map((_, i) => <div key={i} className="h-20 flex-1 animate-pulse rounded-xl bg-slate-100" />)}
                 </div>
               ) : (
-                <>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Kpi label="New bookings" value={svc.combined.new_bookings_this_month} tone="teal" to="/admin/services/bookings" />
-                    <Kpi label="Active cleaning subs" value={svc.combined.active_cleaning_subscriptions} tone="emerald" to="/admin/services/cleaning" />
-                  </div>
-                  <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-3">
-                    <ServiceMiniCard label="Diagnostic" tone="amber" data={svc.per_service.diagnostic} to="/admin/services/bookings?type=diagnostic" />
-                    <ServiceMiniCard label="Bird Netting" tone="teal" data={svc.per_service.bird_netting} to="/admin/services/bookings?type=bird_netting" />
-                    <ServiceMiniCard label="Cleaning" tone="emerald" data={svc.per_service.cleaning} to="/admin/services/cleaning" />
-                  </div>
-                </>
+                <LivePipeline counts={counts} />
               )}
-            </Card>
-          )}
-        </div>
+            </div>
+
+            {evLoading ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                {Array.from({ length: 5 }).map((_, i) => <SkeletonKpi key={i} />)}
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                <Kpi label="Revenue (month)" value={moneyCAD(stats.revenue_month)} tone="emerald" />
+                <Kpi label="Revenue (quarter)" value={moneyCAD(stats.revenue_quarter)} tone="emerald" />
+                <Kpi label="Pipeline value" value={moneyCAD(stats.pipeline_value)} tone="teal" />
+                <Kpi label="Completed (month)" value={stats.completed_month_count} tone="emerald" />
+                <Kpi label="Surveys next 7d" value={stats.surveys_next_7_days} tone="teal" />
+              </div>
+            )}
+
+            <div className="mt-5 border-t pt-4">
+              <SectionHeader eyebrow="Recent Activity" title="Who did what, just now" />
+              <div className="mt-3">
+                {evLoading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="h-12 animate-pulse rounded-xl bg-slate-100" />
+                    ))}
+                  </div>
+                ) : activity.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-slate-400">No activity yet.</p>
+                ) : (
+                  <ActivityTimeline rows={activity.slice(0, 5)} />
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* §D Diagnostic / Bird Netting / Cleaning — one block per service, same shape */}
+        {svcError ? (
+          <Card className="p-5"><div className="text-sm font-medium text-rose-700">{svcError}</div></Card>
+        ) : (
+          <div className="grid gap-5 sm:grid-cols-3">
+            {svcLoading ? (
+              Array.from({ length: 3 }).map((_, i) => <SkeletonKpi key={i} />)
+            ) : (
+              <>
+                <ServiceBlock kind="diagnostic" tone="amber" title="Diagnostic" data={svc.per_service.diagnostic} to="/admin/services/bookings?type=diagnostic" />
+                <ServiceBlock kind="bird_netting" tone="teal" title="Bird Netting" data={svc.per_service.bird_netting} to="/admin/services/bookings?type=bird_netting" />
+                <ServiceBlock kind="cleaning" tone="emerald" title="Cleaning" data={svc.per_service.cleaning} to="/admin/services/cleaning" extraLabel="Active subscriptions" extraValue={svc.combined.active_cleaning_subscriptions} />
+              </>
+            )}
+          </div>
+        )}
       </div>
     </AdminShell>
   )
 }
 
-function ServiceMiniCard({ label, tone, data, to }) {
+function ServiceBlockHeader({ kind, tone, title }) {
   return (
-    <Link to={to} className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex items-center gap-2">
-        <span className={`h-2.5 w-2.5 rounded-full ${dotClass(tone)}`} />
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</div>
-      </div>
-      <div className="mt-1.5 flex items-baseline gap-2">
+    <div className="flex items-center gap-2.5">
+      <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${pillClass(tone)}`}>
+        <ServiceIcon kind={kind} className="h-4.5 w-4.5" />
+      </span>
+      <div className="text-sm font-bold tracking-tight text-slate-900">{title}</div>
+    </div>
+  )
+}
+
+function ServiceBlock({ kind, tone, title, data, to, extraLabel, extraValue }) {
+  return (
+    <Link to={to} className="block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+      <ServiceBlockHeader kind={kind} tone={tone} title={title} />
+      <div className="mt-4 flex items-baseline gap-2">
         <span className="text-2xl font-bold tracking-tight text-slate-900">{data.count_this_month}</span>
-        <span className="text-xs font-medium text-slate-500">orders</span>
+        <span className="text-xs font-medium text-slate-500">orders this month</span>
       </div>
       <div className="mt-0.5 text-sm font-semibold text-emerald-700">{moneyCAD(data.revenue_this_month)}</div>
+      {extraLabel ? (
+        <div className="mt-3 border-t pt-3 text-xs text-slate-500">
+          {extraLabel}: <span className="font-bold text-slate-900">{extraValue}</span>
+        </div>
+      ) : null}
     </Link>
   )
 }
@@ -300,59 +270,6 @@ function LivePipeline({ counts }) {
                 </svg>
               </div>
             ) : null}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-const STATUS_GROUPS = [
-  { label: 'Intake', statuses: ['pending'] },
-  { label: 'Survey', statuses: ['survey_scheduled', 'survey_completed'] },
-  { label: 'Quote', statuses: ['quoting', 'quoted'] },
-  { label: 'Approved', statuses: ['customer_approved'] },
-  { label: 'Permit', statuses: ['permit_applied', 'permit_approved'] },
-  { label: 'Install', statuses: ['installation_scheduled', 'installed'] },
-  { label: 'Closed', statuses: ['completed', 'cancelled'] },
-]
-
-function StatusGroups({ counts }) {
-  const grand = Object.values(counts).reduce((a, b) => a + Number(b || 0), 0) || 1
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between text-xs text-slate-500">
-        <span className="font-semibold uppercase tracking-wider">Stage</span>
-        <span className="font-semibold uppercase tracking-wider">{grand} total</span>
-      </div>
-      {STATUS_GROUPS.map((g) => {
-        const subs = g.statuses
-          .map((s) => ({ s, v: Number(counts?.[s] || 0), tone: toneForCaseStatus(s) }))
-          .filter((x) => x.v > 0)
-        const total = g.statuses.reduce((a, s) => a + Number(counts?.[s] || 0), 0)
-        const widthPct = Math.round((total / grand) * 100)
-        const sumPositive = subs.reduce((a, b) => a + b.v, 0) || 1
-        const title = g.statuses.map((s) => `${statusLabel(s)}: ${Number(counts?.[s] || 0)}`).join('  •  ')
-        return (
-          <div key={g.label} className="flex items-center gap-3" title={title}>
-            <div className="w-20 shrink-0 text-xs font-semibold uppercase tracking-wider text-slate-600">{g.label}</div>
-            <div className="h-3 flex-1 overflow-hidden rounded-full bg-slate-100">
-              <div className="flex h-3" style={{ width: `${widthPct}%` }}>
-                {subs.map((sub) => (
-                  // flexGrow weights avoid per-segment rounding gaps (segments always fill exactly).
-                  <div
-                    key={sub.s}
-                    className={`${barClass(sub.tone)} transition-all duration-500`}
-                    style={{ flexGrow: sub.v / sumPositive }}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="w-20 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">
-              {total}
-              <span className="ml-1 font-medium text-slate-400">{Math.round((total / grand) * 100)}%</span>
-            </div>
           </div>
         )
       })}
