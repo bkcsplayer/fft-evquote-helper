@@ -420,18 +420,23 @@ def services_dashboard(db: Session = Depends(get_db), admin: AdminUser = Depends
         )
     ).scalars().all()
 
-    # per-service revenue this month (best-effort snapshot math)
+    # per-service revenue this month (best-effort snapshot math) + status/tier breakdowns for the
+    # dashboard's per-service blocks — each service's own lifecycle, not a new business concept.
     diag_rev = 0.0
     diag_count = 0
+    diag_status_counts: dict[str, int] = {}
     bird_rev = 0.0
     bird_count = 0
+    bird_status_counts: dict[str, int] = {}
     for b in db.execute(select(ServiceBooking)).scalars().all():
         if b.service_type == ServiceType.diagnostic:
+            diag_status_counts[b.status.value] = diag_status_counts.get(b.status.value, 0) + 1
             if b.completed_at and b.completed_at >= month_start:
                 diag_count += 1
                 if b.actual_hours and b.hourly_rate_snapshot:
                     diag_rev += float(b.actual_hours) * float(b.hourly_rate_snapshot)
         else:
+            bird_status_counts[b.status.value] = bird_status_counts.get(b.status.value, 0) + 1
             q = db.execute(select(BirdNettingQuote).where(BirdNettingQuote.booking_id == b.id)).scalar_one_or_none()
             if q and q.approved_at and q.approved_at >= month_start:
                 bird_count += 1
@@ -439,11 +444,17 @@ def services_dashboard(db: Session = Depends(get_db), admin: AdminUser = Depends
 
     clean_rev = 0.0
     clean_count = 0
+    clean_pricing_counts: dict[str, int] = {}
     for s in subs:
+        clean_pricing_counts[s.pricing_status.value] = clean_pricing_counts.get(s.pricing_status.value, 0) + 1
         if s.created_at and s.created_at >= month_start:
             clean_count += 1
             if s.annual_price is not None:
                 clean_rev += float(s.annual_price)
+
+    clean_visit_counts: dict[str, int] = {}
+    for v in db.execute(select(CleaningVisit)).scalars().all():
+        clean_visit_counts[v.status.value] = clean_visit_counts.get(v.status.value, 0) + 1
 
     return {
         "combined": {
@@ -452,8 +463,21 @@ def services_dashboard(db: Session = Depends(get_db), admin: AdminUser = Depends
             "pending_bird_quotes": len(pending_bird_quotes),
         },
         "per_service": {
-            "diagnostic": {"count_this_month": diag_count, "revenue_this_month": round(diag_rev, 2)},
-            "bird_netting": {"count_this_month": bird_count, "revenue_this_month": round(bird_rev, 2)},
-            "cleaning": {"count_this_month": clean_count, "revenue_this_month": round(clean_rev, 2)},
+            "diagnostic": {
+                "count_this_month": diag_count,
+                "revenue_this_month": round(diag_rev, 2),
+                "status_counts": diag_status_counts,
+            },
+            "bird_netting": {
+                "count_this_month": bird_count,
+                "revenue_this_month": round(bird_rev, 2),
+                "status_counts": bird_status_counts,
+            },
+            "cleaning": {
+                "count_this_month": clean_count,
+                "revenue_this_month": round(clean_rev, 2),
+                "pricing_status_counts": clean_pricing_counts,
+                "visit_status_counts": clean_visit_counts,
+            },
         },
     }

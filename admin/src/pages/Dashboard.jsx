@@ -38,6 +38,30 @@ const PIPELINE = [
   { label: 'Done', statuses: ['completed'], primary: 'completed' },
 ]
 
+// Each service's own (simpler) lifecycle — mirrors ServiceBookingStatus in backend/app/models/models.py.
+const DIAGNOSTIC_STAGES = [
+  { label: 'Submitted', key: 'submitted' },
+  { label: 'Scheduled', key: 'scheduled' },
+  { label: 'In progress', key: 'in_progress' },
+  { label: 'Completed', key: 'completed' },
+  { label: 'Cancelled', key: 'cancelled' },
+]
+const BIRD_STAGES = [
+  { label: 'Submitted', key: 'submitted' },
+  { label: 'Survey', key: 'survey_scheduled' },
+  { label: 'Quoted', key: 'quoted' },
+  { label: 'Approved', key: 'approved' },
+  { label: 'Install', key: 'install_scheduled' },
+  { label: 'Completed', key: 'completed' },
+  { label: 'Cancelled', key: 'cancelled' },
+]
+const CLEANING_VISIT_STAGES = [
+  { label: 'Pending', key: 'pending' },
+  { label: 'Notified', key: 'notified' },
+  { label: 'Completed', key: 'completed' },
+  { label: 'Skipped', key: 'skipped' },
+]
+
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [activity, setActivity] = useState([])
@@ -192,9 +216,22 @@ export default function Dashboard() {
               Array.from({ length: 3 }).map((_, i) => <SkeletonKpi key={i} />)
             ) : (
               <>
-                <ServiceBlock kind="diagnostic" tone="amber" title="Diagnostic" data={svc.per_service.diagnostic} to="/admin/services/bookings?type=diagnostic" />
-                <ServiceBlock kind="bird_netting" tone="teal" title="Bird Netting" data={svc.per_service.bird_netting} to="/admin/services/bookings?type=bird_netting" />
-                <ServiceBlock kind="cleaning" tone="emerald" title="Cleaning" data={svc.per_service.cleaning} to="/admin/services/cleaning" extraLabel="Active subscriptions" extraValue={svc.combined.active_cleaning_subscriptions} />
+                <ServiceBlock
+                  kind="diagnostic" tone="amber" title="Diagnostic"
+                  data={svc.per_service.diagnostic} to="/admin/services/bookings?type=diagnostic"
+                  stages={DIAGNOSTIC_STAGES} statusCounts={svc.per_service.diagnostic.status_counts}
+                />
+                <ServiceBlock
+                  kind="bird_netting" tone="teal" title="Bird Netting"
+                  data={svc.per_service.bird_netting} to="/admin/services/bookings?type=bird_netting"
+                  stages={BIRD_STAGES} statusCounts={svc.per_service.bird_netting.status_counts}
+                />
+                <ServiceBlock
+                  kind="cleaning" tone="emerald" title="Cleaning"
+                  data={svc.per_service.cleaning} to="/admin/services/cleaning"
+                  stages={CLEANING_VISIT_STAGES} statusCounts={svc.per_service.cleaning.visit_status_counts}
+                  extraLabel="Active subscriptions" extraValue={svc.combined.active_cleaning_subscriptions}
+                />
               </>
             )}
           </div>
@@ -215,21 +252,45 @@ function ServiceBlockHeader({ kind, tone, title }) {
   )
 }
 
-function ServiceBlock({ kind, tone, title, data, to, extraLabel, extraValue }) {
+function ServiceBlock({ kind, tone, title, data, to, stages, statusCounts, extraLabel, extraValue }) {
   return (
     <Link to={to} className="block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
       <ServiceBlockHeader kind={kind} tone={tone} title={title} />
+
       <div className="mt-4 flex items-baseline gap-2">
         <span className="text-2xl font-bold tracking-tight text-slate-900">{data.count_this_month}</span>
         <span className="text-xs font-medium text-slate-500">orders this month</span>
       </div>
       <div className="mt-0.5 text-sm font-semibold text-emerald-700">{moneyCAD(data.revenue_this_month)}</div>
+
+      {stages ? (
+        <div className="mt-3 border-t pt-3">
+          <MiniStageStrip stages={stages} counts={statusCounts} tone={tone} />
+        </div>
+      ) : null}
+
       {extraLabel ? (
         <div className="mt-3 border-t pt-3 text-xs text-slate-500">
           {extraLabel}: <span className="font-bold text-slate-900">{extraValue}</span>
         </div>
       ) : null}
     </Link>
+  )
+}
+
+// Compact status/stage breakdown for a service block — same idea as LivePipeline (EV) but
+// non-interactive and small, since these 3 blocks stay a fraction of the EV block's size.
+function MiniStageStrip({ stages, counts, tone }) {
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+      {stages.map((s) => (
+        <div key={s.key} className="flex items-center gap-1 text-xs">
+          <span className={`h-1.5 w-1.5 rounded-full ${dotClass(tone)}`} />
+          <span className="text-slate-500">{s.label}</span>
+          <span className="font-bold tabular-nums text-slate-900">{Number(counts?.[s.key] || 0)}</span>
+        </div>
+      ))}
+    </div>
   )
 }
 
