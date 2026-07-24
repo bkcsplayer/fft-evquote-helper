@@ -4,6 +4,7 @@ import { CalendarGrid } from '../../components/ui/CalendarGrid.jsx'
 import { Pill, PillButton } from '../../components/ui/Pill.jsx'
 import { api } from '../../services/api.js'
 import { serviceKindLabel, toneForServiceKind } from '../../utils/serviceTone.js'
+import { ServiceIcon } from '../../utils/serviceIcons.jsx'
 
 const SERVICES = ['ev', 'diagnostic', 'bird_netting', 'cleaning']
 
@@ -46,7 +47,12 @@ export default function UnifiedSchedule() {
         // Pending = customer proposed a time, not yet confirmed by admin (no slot held yet).
         // Amber, distinct from the service color, so it reads as "needs action" at a glance.
         tone: it.pending ? 'amber' : toneForServiceKind(it.service),
-        title: it.title || '—',
+        title: (
+          <span className="inline-flex items-center gap-1.5">
+            <ServiceIcon kind={it.service} />
+            <span>{it.title || '—'}</span>
+          </span>
+        ),
         subtitle: it.ref || undefined,
         pill: it.pending
           ? <Pill tone="amber">Requested</Pill>
@@ -86,7 +92,10 @@ export default function UnifiedSchedule() {
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Show:</span>
             {SERVICES.map((s) => (
               <PillButton key={s} active={visible.has(s)} tone={toneForServiceKind(s)} onClick={() => toggle(s)}>
-                {serviceKindLabel(s)}
+                <span className="inline-flex items-center gap-1.5">
+                  <ServiceIcon kind={s} />
+                  {serviceKindLabel(s)}
+                </span>
               </PillButton>
             ))}
           </div>

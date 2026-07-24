@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import logging
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -41,15 +40,20 @@ def _absolute_logo_url(logo_url: str | None) -> str | None:
 
 
 _LOGO_MIME = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}
+LOGO_CID = "brand-logo"
 
 
-def _brand_logo_data_uri(logo_url: str | None) -> str | None:
+def _brand_logo_inline_asset(logo_url: str | None) -> tuple[bytes, str] | None:
     """
-    Inline the brand logo as a base64 data: URI so it renders in every email client with zero
-    network dependency — unlike an external <img src>, this works in local dev (recipients can
-    never reach a `localhost` URL) and isn't affected by clients that block remote images by
-    default. Only applies to our own uploads (served under /uploads/branding/...); anything else
-    falls back to the URL-based approach in _absolute_logo_url.
+    Read the brand logo off disk for a CID inline attachment: (image bytes, MIME subtype).
+
+    Gmail (and several other clients) strip `data:` URI images from message bodies, so a
+    base64-inlined <img src="data:..."> silently renders as broken there even though it's
+    valid HTML. A CID-referenced inline attachment (multipart/related, Content-ID header) is
+    the universally-supported alternative — same zero-network-dependency benefit, but actually
+    renders in Gmail/Outlook/Apple Mail. Only applies to our own uploads (served under
+    /uploads/branding/...); anything else falls back to the URL-based approach in
+    _absolute_logo_url.
     """
     url = (logo_url or "").strip()
     marker = "/uploads/"
@@ -65,8 +69,8 @@ def _brand_logo_data_uri(logo_url: str | None) -> str | None:
         mime = _LOGO_MIME.get(ext)
         if not mime:
             return None
-        data = base64.b64encode(path.read_bytes()).decode("ascii")
-        return f"data:{mime};base64,{data}"
+        subtype = "jpeg" if ext == "jpg" else ext
+        return path.read_bytes(), subtype
     except Exception:
         return None
 
@@ -96,6 +100,14 @@ def _templates_env() -> Environment:
         loader=FileSystemLoader("app/templates"),
         autoescape=select_autoescape(["html", "xml"]),
     )
+
+
+def _resolve_inline_logo(db: Session) -> tuple[bytes, str] | None:
+    """Re-read the brand logo bytes for attaching to an outgoing email as a CID part."""
+    profile = _get_system_setting(db, "brand_profile") or {}
+    if not isinstance(profile, dict):
+        return None
+    return _brand_logo_inline_asset(str(profile.get("logo_url") or "").strip())
 
 
 def render_template(template_name: str, ctx: dict[str, Any]) -> str:
@@ -130,9 +142,8 @@ def _with_brand_profile(db: Session, ctx: dict[str, Any]) -> dict[str, Any]:
     if support_phone:
         out["support_phone"] = support_phone
     if logo_url:
-        data_uri = _brand_logo_data_uri(logo_url)
-        if data_uri:
-            out["logo_url"] = data_uri
+        if _brand_logo_inline_asset(logo_url):
+            out["logo_url"] = f"cid:{LOGO_CID}"
         else:
             abs_logo = _absolute_logo_url(logo_url)
             # Avoid a localhost asset in production emails (won't load externally; can hurt deliverability).
@@ -198,7 +209,13 @@ def notify_email(
     )
 
     try:
-        send_email(to_email=to_email, subject=subject, html=html)
+        inline_images = None
+        if f"cid:{LOGO_CID}" in html:
+            asset = _resolve_inline_logo(db)
+            if asset:
+                data, subtype = asset
+                inline_images = [(LOGO_CID, data, subtype)]
+        send_email(to_email=to_email, subject=subject, html=html, inline_images=inline_images)
         n.status = NotificationStatus.sent
         n.sent_at = datetime.now(timezone.utc)
     except Exception as e:
@@ -426,7 +443,13 @@ def _send_service_email(
         status=NotificationStatus.pending,
     )
     try:
-        send_email(to_email=to_email, subject=subject, html=html)
+        inline_images = None
+        if f"cid:{LOGO_CID}" in html:
+            asset = _resolve_inline_logo(db)
+            if asset:
+                data, subtype = asset
+                inline_images = [(LOGO_CID, data, subtype)]
+        send_email(to_email=to_email, subject=subject, html=html, inline_images=inline_images)
         n.status = NotificationStatus.sent
         n.sent_at = datetime.now(timezone.utc)
     except Exception as e:

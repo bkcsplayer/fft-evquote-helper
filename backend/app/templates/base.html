@@ -39,6 +39,9 @@
         .email-shell { width: 100% !important; }
         .email-card { border-radius: 0 !important; }
         .content-pad { padding-left: 24px !important; padding-right: 24px !important; }
+        .hero-title { font-size: 30px !important; line-height: 36px !important; }
+        .detail-icon { width: 46px !important; }
+        .detail-value { font-size: 16px !important; }
       }
     </style>
   </head>
@@ -53,60 +56,43 @@
 
             <!-- Header -->
             <tr>
-              <td class="content-pad" style="padding:40px 44px 8px 44px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                  <tr>
-                    <td valign="middle">
-                      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                        <tr>
-                          <td valign="middle" style="padding-right:12px;">
-                            {% if logo_url %}
-                              <img src="{{ logo_url }}" width="44" height="44" alt="{{ brand_short }}" style="display:block; width:44px; height:44px; border-radius:12px; object-fit:contain; background:#f5f5f7; border:1px solid #e5e5ea;" />
-                            {% else %}
-                              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                                <tr>
-                                  <td align="center" valign="middle" style="width:44px; height:44px; border-radius:12px; background:var(--accent); color:#ffffff; font-size:13px; line-height:44px; font-weight:800;">{{ brand_short }}</td>
-                                </tr>
-                              </table>
-                            {% endif %}
-                          </td>
-                          <td valign="middle">
-                            <div style="font-weight:800; font-size:16px; letter-spacing:-0.2px; color:#1d1d1f;">{{ brand_name }}</div>
-                            <div style="font-size:12px; color:#86868b; margin-top:1px;">{{ brand_tagline }}</div>
-                          </td>
-                        </tr>
-                      </table>
-                    </td>
-                    {% if top_chip %}
-                    <td align="right" valign="middle">
-                      <span class="chip">{{ top_chip }}</span>
-                    </td>
-                    {% endif %}
-                  </tr>
-                </table>
+              <td class="content-pad" align="center" style="padding:46px 48px 14px 48px;">
+                {% if logo_url %}
+                  <img src="{{ logo_url }}" width="58" height="58" alt="{{ brand_short }}" style="display:block; width:58px; height:58px; border-radius:17px; object-fit:contain; background:#f5f5f7; border:1px solid #e5e5ea;" />
+                {% else %}
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td align="center" valign="middle" style="width:58px; height:58px; border-radius:17px; background:var(--accent); color:#ffffff; font-size:18px; line-height:58px; font-weight:700; letter-spacing:-0.3px;">{{ brand_short }}</td>
+                    </tr>
+                  </table>
+                {% endif %}
+
+                {% if top_chip %}
+                <div style="margin-top:16px;"><span class="chip">{{ top_chip }}</span></div>
+                {% endif %}
 
                 {% if heading %}
-                <h1 style="margin:26px 0 0 0; font-size:28px; line-height:34px; font-weight:800; letter-spacing:-0.6px; color:#1d1d1f;">{{ heading }}</h1>
+                <h1 class="hero-title" style="margin:20px 0 0 0; font-size:32px; line-height:38px; font-weight:700; letter-spacing:-0.8px; color:#1d1d1f;">{{ heading }}</h1>
                 {% endif %}
               </td>
             </tr>
 
             {% if highlights %}
             <tr>
-              <td class="content-pad" style="padding:18px 44px 0 44px;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e5ea; border-radius:18px; background:#fbfbfd;">
+              <td class="content-pad" style="padding:22px 48px 0 48px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e5e5ea; border-radius:22px; background:#fbfbfd; overflow:hidden;">
                   {% for h in highlights %}
                   <tr>
-                    <td width="52" align="center" valign="middle" style="padding:16px 4px 16px 16px;">
-                      <div style="width:34px; height:34px; border-radius:11px; background:#ffffff; border:1px solid #e5e5ea; text-align:center; line-height:34px;">{{ h.icon|safe }}</div>
+                    <td class="detail-icon" width="64" align="center" valign="middle" style="width:64px; padding:22px 8px 22px 22px;">
+                      <div style="width:40px; height:40px; border:1px solid #dedee3; border-radius:12px; background:#ffffff; text-align:center; font-size:20px; line-height:40px;">{{ h.icon|safe }}</div>
                     </td>
-                    <td valign="middle" style="padding:16px 16px 16px 10px;">
-                      <div style="font-size:12px; font-weight:700; color:#86868b;">{{ h.title }}</div>
-                      <div style="font-size:15px; font-weight:600; color:#1d1d1f; margin-top:2px;">{{ h.text }}</div>
+                    <td valign="middle" style="padding:22px 22px 22px 8px;">
+                      <div style="font-size:13px; line-height:18px; font-weight:600; color:#86868b; margin-bottom:4px;">{{ h.title }}</div>
+                      <div class="detail-value" style="font-size:17px; line-height:24px; font-weight:500; color:#1d1d1f;">{{ h.text }}</div>
                     </td>
                   </tr>
                   {% if not loop.last %}
-                  <tr><td colspan="2" style="padding:0 16px;"><div class="divider">&nbsp;</div></td></tr>
+                  <tr><td colspan="2" style="padding:0 22px;"><div class="divider">&nbsp;</div></td></tr>
                   {% endif %}
                   {% endfor %}
                 </table>
@@ -116,21 +102,22 @@
 
             <!-- Content -->
             <tr>
-              <td class="content-pad" style="padding:26px 44px 8px 44px; font-size:15px; line-height:24px;">
+              <td class="content-pad" style="padding:28px 48px 8px 48px; font-size:15px; line-height:24px;">
                 {% block content %}{% endblock %}
               </td>
             </tr>
 
             <!-- Footer -->
             <tr>
-              <td class="content-pad" style="padding:30px 44px 34px 44px;">
-                <div class="divider" style="margin-bottom:20px;">&nbsp;</div>
-                <div class="small muted">
+              <td align="center" style="padding:24px 24px 28px 24px; margin-top:22px; border-top:1px solid #e5e5ea; background:#fbfbfd;">
+                <p style="margin:0; font-size:12px; line-height:18px; color:#86868b;">
+                  Sent automatically by <strong style="color:#6e6e73;">{{ brand_name }}</strong>
+                </p>
+                <p style="margin:6px 0 0 0; font-size:12px; line-height:18px; color:#86868b;">
                   Questions?
                   {% if support_email %}Email <a href="mailto:{{ support_email }}">{{ support_email }}</a>{% endif %}
                   {% if support_phone %}{% if support_email %} or{% endif %} call <a href="tel:{{ support_phone }}">{{ support_phone }}</a>{% endif %}.
-                </div>
-                <div class="small" style="color:#86868b; margin-top:6px;">&copy; {{ year }} {{ brand_name }}</div>
+                </p>
               </td>
             </tr>
 

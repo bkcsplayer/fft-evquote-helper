@@ -5,6 +5,7 @@ import { api } from '../../services/api.js'
 const NAV_ITEMS = [
   {
     section: 'Overview',
+    accent: 'border-zinc-300',
     items: [
       { to: '/admin', label: 'Dashboard', icon: IconDashboard, end: true },
     ],
@@ -12,6 +13,7 @@ const NAV_ITEMS = [
   {
     // Shared across all four service lines — one capacity pool, one calendar.
     section: 'Schedule',
+    accent: 'border-teal-400',
     items: [
       { to: '/admin/calendar', label: 'Calendar', icon: IconSurveys },
       { to: '/admin/scheduling', label: 'Availability', icon: IconServicesSchedule },
@@ -19,6 +21,7 @@ const NAV_ITEMS = [
   },
   {
     section: 'EV Chargers',
+    accent: 'border-indigo-400',
     items: [
       { to: '/admin/cases', label: 'Cases', icon: IconCases },
       { to: '/admin/surveys', label: 'Surveys', icon: IconScheduling },
@@ -28,6 +31,7 @@ const NAV_ITEMS = [
   },
   {
     section: 'Solar Services',
+    accent: 'border-emerald-400',
     items: [
       { to: '/admin/services/bookings', label: 'Bookings', icon: IconServicesBookings },
       { to: '/admin/services/cleaning', label: 'Cleaning', icon: IconServicesCleaning },
@@ -35,6 +39,7 @@ const NAV_ITEMS = [
   },
   {
     section: 'Admin',
+    accent: 'border-slate-400',
     items: [
       { to: '/admin/referrers', label: 'Referrers', icon: IconReferrers },
       { to: '/admin/settings', label: 'Settings', icon: IconSettings },
@@ -90,11 +95,16 @@ export function AdminShell({ children }) {
           </div>
         </div>
 
-        {/* Nav sections */}
+        {/* Nav sections — each is its own bordered block so the 4 task groups read as
+            clearly separate areas, not one long undifferentiated list (matters most on
+            the mobile slide-out where there's no sidebar chrome to lean on for structure). */}
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           {NAV_ITEMS.map((group) => (
-            <div key={group.section} className="mb-5">
-              <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+            <div
+              key={group.section}
+              className={`mb-3 rounded-xl border border-zinc-100 border-l-[3px] ${group.accent} bg-zinc-50/70 p-2`}
+            >
+              <div className="mb-1 px-1.5 pt-0.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
                 {group.section}
               </div>
               {group.items.map((item) => (

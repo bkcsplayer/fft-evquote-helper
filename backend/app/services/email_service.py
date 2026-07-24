@@ -31,7 +31,19 @@ def _html_to_text(html: str) -> str:
     return s.strip()
 
 
-def send_email(*, to_email: str, subject: str, html: str) -> None:
+def send_email(
+    *,
+    to_email: str,
+    subject: str,
+    html: str,
+    inline_images: list[tuple[str, bytes, str]] | None = None,
+) -> None:
+    """
+    inline_images: list of (content_id, image_bytes, mime_subtype) referenced from `html` via
+    `cid:<content_id>` — e.g. the brand logo. Attached as multipart/related parts on the HTML
+    alternative so they render inline with zero external network dependency, in clients (Gmail
+    included) that block or strip `data:` URI images.
+    """
     settings = get_settings()
     if not (settings.smtp_host and settings.smtp_port):
         raise RuntimeError("SMTP not configured")
@@ -51,6 +63,11 @@ def send_email(*, to_email: str, subject: str, html: str) -> None:
     text = _html_to_text(html) or f"{subject}\n"
     msg.set_content(text, subtype="plain", charset="utf-8")
     msg.add_alternative(html or "", subtype="html", charset="utf-8")
+
+    if inline_images:
+        html_part = msg.get_payload()[-1]
+        for content_id, data, subtype in inline_images:
+            html_part.add_related(data, maintype="image", subtype=subtype, cid=f"<{content_id}>")
 
     smtp_cls = smtplib.SMTP_SSL if settings.smtp_use_ssl else smtplib.SMTP
     with smtp_cls(settings.smtp_host, int(settings.smtp_port), timeout=20) as server:
