@@ -12,6 +12,10 @@ import Scheduling from './pages/Scheduling.jsx'
 import Settings from './pages/Settings.jsx'
 import Surveys from './pages/Surveys.jsx'
 import Users from './pages/Users.jsx'
+import UnifiedSchedule from './pages/services/UnifiedSchedule.jsx'
+import ServiceBookings from './pages/services/ServiceBookings.jsx'
+import ServiceBookingDetail from './pages/services/ServiceBookingDetail.jsx'
+import CleaningSubscriptions from './pages/services/CleaningSubscriptions.jsx'
 
 export default function App() {
   return (
@@ -84,6 +88,39 @@ export default function App() {
           element={
             <RequireAuth>
               <Scheduling />
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/admin/services/schedule"
+          element={
+            <RequireAuth>
+              <UnifiedSchedule />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/services/bookings"
+          element={
+            <RequireAuth>
+              <ServiceBookings />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/services/bookings/:id"
+          element={
+            <RequireAuth>
+              <ServiceBookingDetail />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/services/cleaning"
+          element={
+            <RequireAuth>
+              <CleaningSubscriptions />
             </RequireAuth>
           }
         />

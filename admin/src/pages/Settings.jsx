@@ -18,6 +18,7 @@ export default function Settings() {
   const [brands, setBrands] = useState([])
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [servicePricing, setServicePricing] = useState(null)
 
   const [newBrandName, setNewBrandName] = useState('')
   const [newBrandOrder, setNewBrandOrder] = useState('0')
@@ -45,6 +46,17 @@ export default function Settings() {
       setWarrantyYears(String(bp?.warranty_years || 1))
 
       setBrands(b.data || [])
+
+      const sp = (s.data || []).find((x) => x.key === 'service_pricing')?.value || {}
+      setServicePricing({
+        diagnostic_hourly_rate: sp.diagnostic_hourly_rate ?? 179,
+        bird_netting_roll_price: sp.bird_netting_roll_price ?? 599,
+        bird_netting_nest_fee: sp.bird_netting_nest_fee ?? 199,
+        cleaning_tier1_price: sp.cleaning_tier1_price ?? 599,
+        cleaning_tier2_price: sp.cleaning_tier2_price ?? 799,
+        cleaning_tier1_max_panels: sp.cleaning_tier1_max_panels ?? 20,
+        cleaning_tier2_max_panels: sp.cleaning_tier2_max_panels ?? 35,
+      })
     } catch (e) { setError(e?.response?.data?.detail || 'Failed to load settings') }
   }
 
@@ -102,6 +114,18 @@ export default function Settings() {
     setBusy(true); setError('')
     try { const fd = new FormData(); fd.append('file', file); const res = await api.post('/settings/brand-logo', fd); const nextUrl = res?.data?.logo_url || ''; if (nextUrl) setLogoUrl(nextUrl); await load() }
     catch (e) { setError(e?.response?.data?.detail || e.message || 'Failed to upload logo') }
+    finally { setBusy(false) }
+  }
+
+  function setSp(k, v) { setServicePricing((p) => ({ ...p, [k]: v })) }
+
+  async function saveServicePricing() {
+    setBusy(true); setError('')
+    try {
+      const payload = Object.fromEntries(Object.entries(servicePricing).map(([k, v]) => [k, Number(v)]))
+      await api.put('/settings/service_pricing', { value: payload })
+      await load()
+    } catch (e) { setError(e?.response?.data?.detail || e.message || 'Failed to save service pricing') }
     finally { setBusy(false) }
   }
 
@@ -229,6 +253,40 @@ export default function Settings() {
               </table>
             </div>
           </div>
+
+          {/* Service Pricing (v3.0 four-service portal) */}
+          {servicePricing ? (
+            <div className="rounded-3xl border border-zinc-100 bg-white p-5 shadow-sm">
+              <h2 className="text-sm font-bold text-slate-900">Service pricing</h2>
+              <p className="mt-1 text-xs text-slate-500">Diagnostic / bird-netting / cleaning. New orders read these live; existing orders keep their price snapshot.</p>
+              <div className="mt-4 space-y-3">
+                <label className="block"><span className="text-xs font-semibold text-slate-700">Diagnostic hourly rate ($)</span>
+                  <input value={servicePricing.diagnostic_hourly_rate} onChange={(e) => setSp('diagnostic_hourly_rate', e.target.value.replace(/[^\d.]/g, ''))} className={inputClass} /></label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block"><span className="text-xs font-semibold text-slate-700">Bird netting: $/roll</span>
+                    <input value={servicePricing.bird_netting_roll_price} onChange={(e) => setSp('bird_netting_roll_price', e.target.value.replace(/[^\d.]/g, ''))} className={inputClass} /></label>
+                  <label className="block"><span className="text-xs font-semibold text-slate-700">Bird netting: $/nest</span>
+                    <input value={servicePricing.bird_netting_nest_fee} onChange={(e) => setSp('bird_netting_nest_fee', e.target.value.replace(/[^\d.]/g, ''))} className={inputClass} /></label>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block"><span className="text-xs font-semibold text-slate-700">Cleaning tier 1 ($/yr)</span>
+                    <input value={servicePricing.cleaning_tier1_price} onChange={(e) => setSp('cleaning_tier1_price', e.target.value.replace(/[^\d.]/g, ''))} className={inputClass} /></label>
+                  <label className="block"><span className="text-xs font-semibold text-slate-700">…up to panels</span>
+                    <input value={servicePricing.cleaning_tier1_max_panels} onChange={(e) => setSp('cleaning_tier1_max_panels', e.target.value.replace(/[^\d]/g, ''))} className={inputClass} /></label>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block"><span className="text-xs font-semibold text-slate-700">Cleaning tier 2 ($/yr)</span>
+                    <input value={servicePricing.cleaning_tier2_price} onChange={(e) => setSp('cleaning_tier2_price', e.target.value.replace(/[^\d.]/g, ''))} className={inputClass} /></label>
+                  <label className="block"><span className="text-xs font-semibold text-slate-700">…up to panels</span>
+                    <input value={servicePricing.cleaning_tier2_max_panels} onChange={(e) => setSp('cleaning_tier2_max_panels', e.target.value.replace(/[^\d]/g, ''))} className={inputClass} /></label>
+                </div>
+                <div className="text-[11px] text-slate-500">Above tier 2&apos;s panel count, cleaning shows &quot;contact pricing&quot; and admin sets a custom price per subscription.</div>
+              </div>
+              <button type="button" disabled={busy} onClick={saveServicePricing} className="mt-4 inline-flex items-center justify-center rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all hover:bg-emerald-800 disabled:opacity-60">
+                Save service pricing
+              </button>
+            </div>
+          ) : null}
         </div>
 
         {/* SMS Templates */}

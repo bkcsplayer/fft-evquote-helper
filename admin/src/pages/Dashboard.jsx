@@ -40,15 +40,17 @@ const PIPELINE = [
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
   const [activity, setActivity] = useState([])
+  const [svc, setSvc] = useState(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let alive = true
-    Promise.all([api.get('/dashboard/stats'), api.get('/dashboard/recent-activity')])
-      .then(([s, a]) => {
+    Promise.all([api.get('/dashboard/stats'), api.get('/dashboard/recent-activity'), api.get('/services/dashboard')])
+      .then(([s, a, v]) => {
         if (!alive) return
         setStats(s.data)
         setActivity(a.data || [])
+        setSvc(v.data)
       })
       .catch((e) => alive && setError(e?.response?.data?.detail || 'Failed to load dashboard'))
     return () => { alive = false }
@@ -178,8 +180,47 @@ export default function Dashboard() {
             </div>
           </Card>
         </div>
+
+        {/* Services (v3.0 four-service portal) */}
+        <Card className="p-5">
+          <SectionHeader eyebrow="Services" title="Diagnostic, bird netting & cleaning — this month" />
+          {!svc ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => <SkeletonKpi key={i} />)}
+            </div>
+          ) : (
+            <>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <Kpi label="New bookings" value={svc.combined.new_bookings_this_month} tone="teal" to="/admin/services/bookings" />
+                <Kpi label="Active cleaning subs" value={svc.combined.active_cleaning_subscriptions} tone="emerald" to="/admin/services/cleaning" />
+                <Kpi label="Pending bird quotes" value={svc.combined.pending_bird_quotes} tone="amber" to="/admin/services/bookings?type=bird_netting" />
+              </div>
+              <div className="mt-3 grid gap-3 border-t pt-3 sm:grid-cols-3">
+                <ServiceMiniCard label="Diagnostic" tone="amber" data={svc.per_service.diagnostic} to="/admin/services/bookings?type=diagnostic" />
+                <ServiceMiniCard label="Bird Netting" tone="teal" data={svc.per_service.bird_netting} to="/admin/services/bookings?type=bird_netting" />
+                <ServiceMiniCard label="Cleaning" tone="emerald" data={svc.per_service.cleaning} to="/admin/services/cleaning" />
+              </div>
+            </>
+          )}
+        </Card>
       </div>
     </AdminShell>
+  )
+}
+
+function ServiceMiniCard({ label, tone, data, to }) {
+  return (
+    <Link to={to} className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
+      <div className="flex items-center gap-2">
+        <span className={`h-2.5 w-2.5 rounded-full ${dotClass(tone)}`} />
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</div>
+      </div>
+      <div className="mt-1.5 flex items-baseline gap-2">
+        <span className="text-2xl font-bold tracking-tight text-slate-900">{data.count_this_month}</span>
+        <span className="text-xs font-medium text-slate-500">orders</span>
+      </div>
+      <div className="mt-0.5 text-sm font-semibold text-emerald-700">{moneyCAD(data.revenue_this_month)}</div>
+    </Link>
   )
 }
 
