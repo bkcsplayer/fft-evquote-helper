@@ -318,6 +318,11 @@ def notify_service(
     Email uses `email_templates[template_key]` (an inline HTML string, `{% extends "base.html" %}`
     aware) else `email_html_fallback`. SMS uses `sms_templates[template_key]` else `sms_fallback`.
     Never raises — a send/render failure is logged and recorded as a failed Notification row.
+
+    Commits at the end: every caller invokes this as its terminal step after already committing
+    its own business change (mirrors the EV notify_email/notify_sms call sites, which commit right
+    after). Without this, `_record_notification`'s SAVEPOINT is never persisted — get_db() closes
+    the session on request end without committing, silently discarding every Notification row.
     """
     merged = _with_brand_profile(db, ctx)
 
@@ -359,6 +364,8 @@ def notify_service(
             )
         except Exception:
             logger.exception("notify_service sms failed (template=%s)", template_key)
+
+    db.commit()
 
 
 def _send_service_email(
