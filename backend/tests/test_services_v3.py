@@ -11,7 +11,7 @@ admin login (ADMIN_USERNAME/ADMIN_PASSWORD, default admin/admin1234 in developme
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -296,6 +296,52 @@ def test_unified_schedule_aggregates_services():
     # Every item carries a service classification derived from its appointment kind.
     for it in items:
         assert it["service"] in {"ev", "diagnostic", "bird_netting", "cleaning", "other"}
+        assert "pending" in it
+
+
+@needs_stack
+def test_unified_schedule_includes_pending_ev_survey_request():
+    # An EV survey time the customer requested but admin hasn't confirmed yet has no
+    # Appointment row — it must still show up (read-only, pending=True) so the calendar
+    # surfaces work that needs action, not just confirmed slots.
+    brands = httpx.get(_url("/api/v1/charger-brands"), timeout=15)
+    assert brands.status_code == 200 and brands.json()
+    submitted = httpx.post(
+        _url("/api/v1/cases"),
+        json={
+            "customer": {"nickname": "PendingReq", "phone": "+14035550188", "email": "pendingreq@example.com"},
+            "charger_brand": brands.json()[0]["name"],
+            "ev_brand": "Tesla",
+            "install_address": "1 Pending Ave, Calgary, AB",
+            "preferred_survey_slots": {"slots": ["morning"]},
+        },
+        timeout=20,
+    )
+    assert submitted.status_code == 200, submitted.text
+    token = submitted.json()["access_token"]
+    ref = submitted.json()["reference_number"]
+
+    requested_at = (datetime.now(timezone.utc) + timedelta(days=3)).replace(microsecond=0)
+    req = httpx.post(
+        _url(f"/api/v1/cases/survey/request/{token}"),
+        json={"requested_date": requested_at.isoformat(), "note": ""},
+        timeout=20,
+    )
+    assert req.status_code == 200, req.text
+
+    headers = _admin_headers()
+    sched = httpx.get(
+        _url("/api/v1/admin/services/schedule"),
+        params={"from": (requested_at - timedelta(days=1)).isoformat(), "to": (requested_at + timedelta(days=1)).isoformat()},
+        headers=headers,
+        timeout=20,
+    )
+    assert sched.status_code == 200
+    match = next((it for it in sched.json() if it["ref"] == ref), None)
+    assert match is not None, f"pending survey request for {ref} missing from unified schedule"
+    assert match["kind"] == "survey_requested"
+    assert match["service"] == "ev"
+    assert match["pending"] is True
 
 
 @needs_stack

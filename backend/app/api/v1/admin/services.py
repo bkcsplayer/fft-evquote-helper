@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -26,9 +26,11 @@ from app.models.models import (
     CleaningVisit,
     CleaningVisitStatus,
     Customer,
+    Installation,
     ServiceBooking,
     ServiceBookingStatus,
     ServiceType,
+    Survey,
 )
 from app.services import service_booking_flow as flow
 from app.services.service_pricing import get_service_pricing
@@ -357,8 +359,39 @@ def unified_schedule(
                 "title": title,
                 "ref": ref,
                 "link": link,
+                "pending": False,
             }
         )
+
+    # EV requests the customer submitted but admin hasn't confirmed yet (no Appointment row
+    # exists until confirmed) — surfaced read-only, amber, so the calendar shows everything that
+    # needs action, not just confirmed slots. Never mutated here; confirming still happens on the
+    # Surveys / Installations pages exactly as before.
+    for model, kind in ((Survey, "survey_requested"), (Installation, "install_requested")):
+        req_stmt = select(model).where(
+            and_(model.request_status == "pending", model.requested_date.is_not(None))
+        )
+        if from_:
+            req_stmt = req_stmt.where(model.requested_date >= from_)
+        if to:
+            req_stmt = req_stmt.where(model.requested_date <= to)
+        for row in db.execute(req_stmt).scalars().all():
+            case = db.get(Case, row.case_id)
+            cust = db.get(Customer, case.customer_id) if case else None
+            out.append(
+                {
+                    "id": f"{kind}-{row.id}",
+                    "kind": kind,
+                    "service": "ev",
+                    "start_at": row.requested_date.isoformat(),
+                    "title": cust.nickname if cust else "EV case",
+                    "ref": getattr(case, "reference_number", None),
+                    "link": f"/admin/cases/{row.case_id}",
+                    "pending": True,
+                }
+            )
+
+    out.sort(key=lambda x: x["start_at"])
     return out
 
 
