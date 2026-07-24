@@ -287,6 +287,37 @@ def test_cleaning_custom_tier_pending_quote():
 
 
 @needs_stack
+def test_services_dashboard_new_fields():
+    # Regression + shape check for the Dashboard v3 service-block fields added to
+    # GET /admin/services/dashboard (additive only — existing keys must be unchanged).
+    headers = _admin_headers()
+    r = httpx.get(_url("/api/v1/admin/services/dashboard"), headers=headers, timeout=20)
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert set(body["combined"]) >= {"new_bookings_this_month", "active_cleaning_subscriptions", "pending_bird_quotes"}
+    diag = body["per_service"]["diagnostic"]
+    bird = body["per_service"]["bird_netting"]
+    clean = body["per_service"]["cleaning"]
+    assert set(diag) >= {"count_this_month", "revenue_this_month", "status_counts"}
+    assert set(bird) >= {"count_this_month", "revenue_this_month", "status_counts"}
+    assert set(clean) >= {"count_this_month", "revenue_this_month", "pricing_status_counts", "visit_status_counts"}
+
+    assert "next_scheduled_at" in diag
+    assert isinstance(diag["scheduled_next_7_days"], int)
+    assert diag["avg_hours_completed"] is None or isinstance(diag["avg_hours_completed"], (int, float))
+    assert isinstance(bird["outstanding_quote_value"], (int, float))
+    assert isinstance(bird["surveys_next_7_days"], int)
+    assert isinstance(clean["payment_status_counts"], dict)
+    assert isinstance(clean["unpaid_value"], (int, float))
+    assert isinstance(clean["visits_next_7_days"], int)
+    assert isinstance(clean["expiring_within_60_days"], int)
+
+    assert clean["payment_status_counts"].get("unpaid", 0) >= 1
+    assert clean["unpaid_value"] >= 0
+
+
+@needs_stack
 def test_unified_schedule_aggregates_services():
     headers = _admin_headers()
     r = httpx.get(_url("/api/v1/admin/services/schedule"), headers=headers, timeout=20)

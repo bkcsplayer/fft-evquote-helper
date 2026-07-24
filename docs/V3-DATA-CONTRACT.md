@@ -337,7 +337,7 @@ admin router with `prefix="/admin"`. **New admin front-end calls must match thes
 |--------|------|------|
 | GET | `/admin/services/schedule?from=&to=` | aggregated calendar: EV appointments (survey/install) + service_booking appointments + cleaning visits; each item `{ id, kind, service, start_at, title, ref, link }` |
 | GET | `/admin/services/pricing` | convenience read of `service_pricing` (or reuse settings) |
-| GET | `/admin/services/dashboard` | KPI aggregates (new bookings this month, active cleaning subs, pending bird quotes, per-service revenue) |
+| GET | `/admin/services/dashboard` | KPI aggregates (new bookings this month, active cleaning subs, pending bird quotes, per-service revenue). `per_service.{diagnostic,bird_netting}` additionally carry `status_counts` (per-stage counts, mirrors `ServiceBookingStatus`) plus service-specific derived fields (`next_scheduled_at`, `scheduled_next_7_days`, `avg_hours_completed` for diagnostic; `outstanding_quote_value`, `surveys_next_7_days` for bird netting). `per_service.cleaning` additionally carries `pricing_status_counts`, `visit_status_counts`, `payment_status_counts`, `unpaid_value`, `visits_next_7_days`, `expiring_within_60_days`. All additive, derived from existing queried rows — no schema change. |
 
 > Unified schedule data source = generalized `Appointment` table + `cleaning_visits`
 > (per scheduling revision §6). EV rows are **read-only aggregate**; never mutated here.

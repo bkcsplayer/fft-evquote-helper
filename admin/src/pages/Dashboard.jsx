@@ -6,7 +6,7 @@ import { Card, SectionHeader } from '../components/ui/Card.jsx'
 import { StatusTag } from '../components/ui/StatusTag.jsx'
 import { SkeletonKpi } from '../components/ui/Skeleton.jsx'
 import { describeActivity, toneForCaseStatus } from '../utils/caseStatus.js'
-import { accentClass, dotClass, pillClass } from '../utils/tone.js'
+import { accentClass, dotClass, pillClass, textClass } from '../utils/tone.js'
 import { ServiceIcon } from '../utils/serviceIcons.jsx'
 
 function moneyCAD(amount) {
@@ -27,6 +27,12 @@ function relativeTime(iso) {
   return d.toLocaleDateString('en-CA')
 }
 
+function fmtDate(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return Number.isFinite(d.getTime()) ? d.toLocaleDateString('en-CA') : '—'
+}
+
 // Pipeline stages map to one or more raw statuses. `primary` drives the deep-link + tone.
 const PIPELINE = [
   { label: 'Request', statuses: ['pending'], primary: 'pending' },
@@ -38,14 +44,18 @@ const PIPELINE = [
   { label: 'Done', statuses: ['completed'], primary: 'completed' },
 ]
 
-// Each service's own (simpler) lifecycle — mirrors ServiceBookingStatus in backend/app/models/models.py.
+// Each service's own (simpler) lifecycle — mirrors ServiceBookingStatus / CleaningVisitStatus in
+// backend/app/models/models.py. `stages` is the linear main path (feeds FlowStrip's arrow chain);
+// `terminals` are off-path end states (cancelled/skipped) shown as a separate chip, not a stage —
+// a cancelled job isn't "further along" than a completed one.
 const DIAGNOSTIC_STAGES = [
   { label: 'Submitted', key: 'submitted' },
   { label: 'Scheduled', key: 'scheduled' },
   { label: 'In progress', key: 'in_progress' },
   { label: 'Completed', key: 'completed' },
-  { label: 'Cancelled', key: 'cancelled' },
 ]
+const DIAGNOSTIC_TERMINALS = [{ label: 'Cancelled', key: 'cancelled' }]
+
 const BIRD_STAGES = [
   { label: 'Submitted', key: 'submitted' },
   { label: 'Survey', key: 'survey_scheduled' },
@@ -53,14 +63,15 @@ const BIRD_STAGES = [
   { label: 'Approved', key: 'approved' },
   { label: 'Install', key: 'install_scheduled' },
   { label: 'Completed', key: 'completed' },
-  { label: 'Cancelled', key: 'cancelled' },
 ]
+const BIRD_TERMINALS = [{ label: 'Cancelled', key: 'cancelled' }]
+
 const CLEANING_VISIT_STAGES = [
   { label: 'Pending', key: 'pending' },
   { label: 'Notified', key: 'notified' },
   { label: 'Completed', key: 'completed' },
-  { label: 'Skipped', key: 'skipped' },
 ]
+const CLEANING_VISIT_TERMINALS = [{ label: 'Skipped', key: 'skipped' }]
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null)
@@ -207,34 +218,58 @@ export default function Dashboard() {
           </Card>
         )}
 
-        {/* §D Diagnostic / Bird Netting / Cleaning — one block per service, same shape */}
+        {/* §D Diagnostic / Bird Netting / Cleaning — each its own full-width block, same shape as
+            EV Chargers: icon header, flow diagram, KPI row. Stacked (not side-by-side) since each
+            needs the same width as EV for its flow strip to read well. */}
         {svcError ? (
           <Card className="p-5"><div className="text-sm font-medium text-rose-700">{svcError}</div></Card>
         ) : (
-          <div className="grid gap-5 sm:grid-cols-3">
-            {svcLoading ? (
-              Array.from({ length: 3 }).map((_, i) => <SkeletonKpi key={i} />)
-            ) : (
-              <>
-                <ServiceBlock
-                  kind="diagnostic" tone="amber" title="Diagnostic"
-                  data={svc.per_service.diagnostic} to="/admin/services/bookings?type=diagnostic"
-                  stages={DIAGNOSTIC_STAGES} statusCounts={svc.per_service.diagnostic.status_counts}
-                />
-                <ServiceBlock
-                  kind="bird_netting" tone="teal" title="Bird Netting"
-                  data={svc.per_service.bird_netting} to="/admin/services/bookings?type=bird_netting"
-                  stages={BIRD_STAGES} statusCounts={svc.per_service.bird_netting.status_counts}
-                />
-                <ServiceBlock
-                  kind="cleaning" tone="emerald" title="Cleaning"
-                  data={svc.per_service.cleaning} to="/admin/services/cleaning"
-                  stages={CLEANING_VISIT_STAGES} statusCounts={svc.per_service.cleaning.visit_status_counts}
-                  extraLabel="Active subscriptions" extraValue={svc.combined.active_cleaning_subscriptions}
-                />
-              </>
-            )}
-          </div>
+          <>
+            <ServiceFlowBlock
+              kind="diagnostic" tone="amber" title="Diagnostic"
+              loading={svcLoading} data={svc?.per_service?.diagnostic}
+              allTo="/admin/services/bookings?type=diagnostic"
+              stages={DIAGNOSTIC_STAGES} terminals={DIAGNOSTIC_TERMINALS}
+              linkFor={(key) => `/admin/services/bookings?type=diagnostic&status=${key}`}
+              kpis={svc ? [
+                { label: 'Revenue (month)', value: moneyCAD(svc.per_service.diagnostic.revenue_this_month), tone: 'emerald' },
+                { label: 'Completed (month)', value: svc.per_service.diagnostic.count_this_month, tone: 'emerald' },
+                { label: 'Next visit', value: fmtDate(svc.per_service.diagnostic.next_scheduled_at), tone: 'amber' },
+                { label: 'Scheduled next 7d', value: svc.per_service.diagnostic.scheduled_next_7_days, tone: 'amber' },
+                { label: 'Avg hours/job', value: svc.per_service.diagnostic.avg_hours_completed ?? '—', tone: 'slate' },
+              ] : []}
+            />
+
+            <ServiceFlowBlock
+              kind="bird_netting" tone="teal" title="Bird Netting"
+              loading={svcLoading} data={svc?.per_service?.bird_netting}
+              allTo="/admin/services/bookings?type=bird_netting"
+              stages={BIRD_STAGES} terminals={BIRD_TERMINALS}
+              linkFor={(key) => `/admin/services/bookings?type=bird_netting&status=${key}`}
+              kpis={svc ? [
+                { label: 'Revenue (month)', value: moneyCAD(svc.per_service.bird_netting.revenue_this_month), tone: 'emerald' },
+                { label: 'Jobs won (month)', value: svc.per_service.bird_netting.count_this_month, tone: 'emerald' },
+                { label: 'Outstanding quotes', value: moneyCAD(svc.per_service.bird_netting.outstanding_quote_value), tone: 'amber' },
+                { label: 'Surveys next 7d', value: svc.per_service.bird_netting.surveys_next_7_days, tone: 'teal' },
+                { label: 'Awaiting install', value: Number(svc.per_service.bird_netting.status_counts?.approved || 0), tone: 'amber' },
+              ] : []}
+            />
+
+            <ServiceFlowBlock
+              kind="cleaning" tone="emerald" title="Cleaning"
+              loading={svcLoading} data={svc?.per_service?.cleaning}
+              allTo="/admin/services/cleaning"
+              stages={CLEANING_VISIT_STAGES} terminals={CLEANING_VISIT_TERMINALS}
+              linkFor={() => '/admin/services/cleaning'}
+              kpis={svc ? [
+                { label: 'Active subs', value: svc.combined.active_cleaning_subscriptions, tone: 'emerald' },
+                { label: 'Unpaid', value: svc.per_service.cleaning.payment_status_counts?.unpaid || 0, sub: moneyCAD(svc.per_service.cleaning.unpaid_value), tone: 'amber' },
+                { label: 'Pending price quotes', value: svc.per_service.cleaning.pricing_status_counts?.pending_quote || 0, tone: 'amber' },
+                { label: 'Visits next 7d', value: svc.per_service.cleaning.visits_next_7_days, tone: 'teal' },
+                { label: 'Expiring ≤60d', value: svc.per_service.cleaning.expiring_within_60_days, tone: 'amber' },
+              ] : []}
+            />
+          </>
         )}
       </div>
     </AdminShell>
@@ -252,44 +287,104 @@ function ServiceBlockHeader({ kind, tone, title }) {
   )
 }
 
-function ServiceBlock({ kind, tone, title, data, to, stages, statusCounts, extraLabel, extraValue }) {
+// One full-width service block: icon header + FlowStrip (visual flow diagram) + KPI row —
+// same shape as the EV Chargers block above, parametrized per service instead of one-off per card.
+function ServiceFlowBlock({ kind, tone, title, loading, data, allTo, stages, terminals, linkFor, kpis }) {
   return (
-    <Link to={to} className="block rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
-      <ServiceBlockHeader kind={kind} tone={tone} title={title} />
-
-      <div className="mt-4 flex items-baseline gap-2">
-        <span className="text-2xl font-bold tracking-tight text-slate-900">{data.count_this_month}</span>
-        <span className="text-xs font-medium text-slate-500">orders this month</span>
+    <Card className="p-5">
+      <div className="flex items-center justify-between gap-3">
+        <ServiceBlockHeader kind={kind} tone={tone} title={title} />
+        {data ? (
+          <div className="flex items-center gap-3 text-xs text-slate-500">
+            <span>{data.count_this_month} this month · {moneyCAD(data.revenue_this_month)}</span>
+            <Link to={allTo} className={`font-semibold hover:underline ${textClass(tone)}`}>All &rarr;</Link>
+          </div>
+        ) : null}
       </div>
-      <div className="mt-0.5 text-sm font-semibold text-emerald-700">{moneyCAD(data.revenue_this_month)}</div>
 
-      {stages ? (
-        <div className="mt-3 border-t pt-3">
-          <MiniStageStrip stages={stages} counts={statusCounts} tone={tone} />
-        </div>
-      ) : null}
+      <div className="mt-4">
+        {loading ? (
+          <div className="flex gap-2 overflow-hidden">
+            {stages.map((s) => <div key={s.key} className="h-20 flex-1 animate-pulse rounded-xl bg-slate-100" />)}
+          </div>
+        ) : (
+          <FlowStrip stages={stages} terminals={terminals} counts={data?.status_counts || data?.visit_status_counts} tone={tone} linkFor={linkFor} />
+        )}
+      </div>
 
-      {extraLabel ? (
-        <div className="mt-3 border-t pt-3 text-xs text-slate-500">
-          {extraLabel}: <span className="font-bold text-slate-900">{extraValue}</span>
+      {loading ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => <SkeletonKpi key={i} />)}
         </div>
-      ) : null}
-    </Link>
+      ) : (
+        <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {kpis.map((k) => (
+            <div key={k.label} className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${dotClass(k.tone)}`} />
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{k.label}</div>
+              </div>
+              <div className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{k.value ?? '—'}</div>
+              {k.sub ? <div className="mt-0.5 text-xs font-medium text-slate-500">{k.sub}</div> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 
-// Compact status/stage breakdown for a service block — same idea as LivePipeline (EV) but
-// non-interactive and small, since these 3 blocks stay a fraction of the EV block's size.
-function MiniStageStrip({ stages, counts, tone }) {
+// Visual flow diagram for a service's own (simpler) lifecycle — same interaction language as
+// LivePipeline (EV) but parametrized so the 3 solar/diagnostic services share one implementation
+// instead of 3 near-duplicates. EV keeps its own LivePipeline: it needs multi-status-per-stage
+// merging and per-stage tone, freedoms these single-status, single-tone services don't need.
+function FlowStrip({ stages, terminals, counts, tone, linkFor }) {
+  const steps = stages.map((s) => ({ ...s, count: Number(counts?.[s.key] || 0) }))
+  const lastKey = stages[stages.length - 1]?.key
+  const active = steps.filter((s) => s.key !== lastKey)
+  const maxCount = Math.max(0, ...active.map((s) => s.count))
+
   return (
-    <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-      {stages.map((s) => (
-        <div key={s.key} className="flex items-center gap-1 text-xs">
-          <span className={`h-1.5 w-1.5 rounded-full ${dotClass(tone)}`} />
-          <span className="text-slate-500">{s.label}</span>
-          <span className="font-bold tabular-nums text-slate-900">{Number(counts?.[s.key] || 0)}</span>
+    <div className="flex flex-wrap items-stretch gap-2">
+      {steps.map((s, idx) => {
+        const isHot = s.count > 0 && s.count === maxCount && s.key !== lastKey
+        return (
+          <div key={s.key} className="flex flex-1 items-stretch gap-2">
+            <Link
+              to={linkFor(s.key)}
+              className={`group relative flex-1 cursor-pointer overflow-hidden rounded-xl border bg-white p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 ${isHot ? 'ring-2 ring-amber-400' : 'border-slate-200'}`}
+            >
+              <span className={`absolute inset-x-0 top-0 h-1 ${accentClass(tone)}`} />
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{s.label}</div>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-2xl font-bold tabular-nums text-slate-900">{s.count}</span>
+                {isHot ? <span className="text-[10px] font-semibold uppercase text-amber-600">busiest</span> : null}
+              </div>
+            </Link>
+            {idx < steps.length - 1 ? (
+              <div className="hidden items-center text-slate-300 md:flex">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            ) : null}
+          </div>
+        )
+      })}
+      {terminals?.length ? (
+        <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
+          {terminals.map((t) => (
+            <Link
+              key={t.key}
+              to={linkFor(t.key)}
+              className="flex flex-col items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700 shadow-sm transition-colors hover:bg-rose-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+            >
+              <span className="text-[11px] font-semibold uppercase tracking-wider">{t.label}</span>
+              <span className="text-lg font-bold tabular-nums">{Number(counts?.[t.key] || 0)}</span>
+            </Link>
+          ))}
         </div>
-      ))}
+      ) : null}
     </div>
   )
 }

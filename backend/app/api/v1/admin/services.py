@@ -6,7 +6,7 @@ services dashboard. EV data is read-only aggregate in the unified schedule; neve
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -27,6 +27,7 @@ from app.models.models import (
     CleaningVisitStatus,
     Customer,
     Installation,
+    QuoteStatus,
     ServiceBooking,
     ServiceBookingStatus,
     ServiceType,
@@ -408,6 +409,7 @@ def services_dashboard(db: Session = Depends(get_db), admin: AdminUser = Depends
     _ = admin
     now = datetime.now(timezone.utc)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    week_end = now + timedelta(days=7)
 
     bookings_this_month = db.execute(
         select(ServiceBooking).where(ServiceBooking.created_at >= month_start)
@@ -420,14 +422,20 @@ def services_dashboard(db: Session = Depends(get_db), admin: AdminUser = Depends
         )
     ).scalars().all()
 
-    # per-service revenue this month (best-effort snapshot math) + status/tier breakdowns for the
-    # dashboard's per-service blocks — each service's own lifecycle, not a new business concept.
+    # per-service revenue this month (best-effort snapshot math) + status/tier breakdowns and a
+    # handful of "what needs action next" derived fields for the dashboard's per-service blocks —
+    # everything below is derived inside these existing loops, no new queries.
     diag_rev = 0.0
     diag_count = 0
     diag_status_counts: dict[str, int] = {}
+    diag_next_scheduled_at = None
+    diag_scheduled_next_7_days = 0
+    diag_completed_hours: list[float] = []
     bird_rev = 0.0
     bird_count = 0
     bird_status_counts: dict[str, int] = {}
+    bird_outstanding_quote_value = 0.0
+    bird_surveys_next_7_days = 0
     for b in db.execute(select(ServiceBooking)).scalars().all():
         if b.service_type == ServiceType.diagnostic:
             diag_status_counts[b.status.value] = diag_status_counts.get(b.status.value, 0) + 1
@@ -435,26 +443,56 @@ def services_dashboard(db: Session = Depends(get_db), admin: AdminUser = Depends
                 diag_count += 1
                 if b.actual_hours and b.hourly_rate_snapshot:
                     diag_rev += float(b.actual_hours) * float(b.hourly_rate_snapshot)
+            if b.completed_at and b.actual_hours:
+                diag_completed_hours.append(float(b.actual_hours))
+            if b.status == ServiceBookingStatus.scheduled and b.scheduled_at and b.scheduled_at >= now:
+                if diag_next_scheduled_at is None or b.scheduled_at < diag_next_scheduled_at:
+                    diag_next_scheduled_at = b.scheduled_at
+                if b.scheduled_at <= week_end:
+                    diag_scheduled_next_7_days += 1
         else:
             bird_status_counts[b.status.value] = bird_status_counts.get(b.status.value, 0) + 1
             q = db.execute(select(BirdNettingQuote).where(BirdNettingQuote.booking_id == b.id)).scalar_one_or_none()
             if q and q.approved_at and q.approved_at >= month_start:
                 bird_count += 1
                 bird_rev += float(q.total)
+            if q and q.status == QuoteStatus.pending:
+                bird_outstanding_quote_value += float(q.total)
+            if b.status == ServiceBookingStatus.survey_scheduled and b.scheduled_at and now <= b.scheduled_at <= week_end:
+                bird_surveys_next_7_days += 1
+
+    diag_avg_hours = round(sum(diag_completed_hours) / len(diag_completed_hours), 1) if diag_completed_hours else None
 
     clean_rev = 0.0
     clean_count = 0
     clean_pricing_counts: dict[str, int] = {}
+    clean_payment_counts: dict[str, int] = {}
+    clean_unpaid_value = 0.0
+    clean_expiring_within_60_days = 0
     for s in subs:
         clean_pricing_counts[s.pricing_status.value] = clean_pricing_counts.get(s.pricing_status.value, 0) + 1
+        clean_payment_counts[s.payment_status.value] = clean_payment_counts.get(s.payment_status.value, 0) + 1
         if s.created_at and s.created_at >= month_start:
             clean_count += 1
             if s.annual_price is not None:
                 clean_rev += float(s.annual_price)
+        if s.payment_status == CleaningPaymentStatus.unpaid and s.annual_price is not None:
+            clean_unpaid_value += float(s.annual_price)
+        if s.start_date:
+            expires_on = s.start_date + timedelta(days=365)
+            if now.date() <= expires_on <= now.date() + timedelta(days=60):
+                clean_expiring_within_60_days += 1
 
     clean_visit_counts: dict[str, int] = {}
+    clean_visits_next_7_days = 0
     for v in db.execute(select(CleaningVisit)).scalars().all():
         clean_visit_counts[v.status.value] = clean_visit_counts.get(v.status.value, 0) + 1
+        if (
+            v.status in (CleaningVisitStatus.pending, CleaningVisitStatus.notified)
+            and v.scheduled_date
+            and now <= v.scheduled_date <= week_end
+        ):
+            clean_visits_next_7_days += 1
 
     return {
         "combined": {
@@ -467,17 +505,26 @@ def services_dashboard(db: Session = Depends(get_db), admin: AdminUser = Depends
                 "count_this_month": diag_count,
                 "revenue_this_month": round(diag_rev, 2),
                 "status_counts": diag_status_counts,
+                "next_scheduled_at": diag_next_scheduled_at.isoformat() if diag_next_scheduled_at else None,
+                "scheduled_next_7_days": diag_scheduled_next_7_days,
+                "avg_hours_completed": diag_avg_hours,
             },
             "bird_netting": {
                 "count_this_month": bird_count,
                 "revenue_this_month": round(bird_rev, 2),
                 "status_counts": bird_status_counts,
+                "outstanding_quote_value": round(bird_outstanding_quote_value, 2),
+                "surveys_next_7_days": bird_surveys_next_7_days,
             },
             "cleaning": {
                 "count_this_month": clean_count,
                 "revenue_this_month": round(clean_rev, 2),
                 "pricing_status_counts": clean_pricing_counts,
                 "visit_status_counts": clean_visit_counts,
+                "payment_status_counts": clean_payment_counts,
+                "unpaid_value": round(clean_unpaid_value, 2),
+                "visits_next_7_days": clean_visits_next_7_days,
+                "expiring_within_60_days": clean_expiring_within_60_days,
             },
         },
     }

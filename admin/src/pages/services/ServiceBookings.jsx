@@ -30,8 +30,11 @@ export default function ServiceBookings() {
   useEffect(() => {
     const t = searchParams.get('type')
     const initType = t === 'diagnostic' || t === 'bird_netting' ? t : ''
+    const s = searchParams.get('status')
+    const initStatus = STATUSES.includes(s) ? s : ''
     if (initType) setType(initType)
-    load({ type: initType })
+    if (initStatus) setStatus(initStatus)
+    load({ type: initType, status: initStatus })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
