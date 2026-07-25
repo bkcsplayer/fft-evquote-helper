@@ -21,6 +21,12 @@
 
 **2026-07-23/24:v3.0 四服务门户(诊断/鸟网/清洁 + 原 EV)开发完成,仅在本地跑通,未部署**。详见 `docs/V3-DATA-CONTRACT.md`(冻结契约)+ `evquote-v3-claude-code-kickoff (1).md`(需求源)。四个 commit(backend `562aaaa` / 客户端 `35de74a` / admin `79c04e2` / bug 修复 `57a08b9`),**都只在本地 `main`,未 push GitHub、未上 VPS**。本地 docker 栈(7220/7221/7222/7223)已重建为 v3 镜像并跑通全链路(诊断/鸟网/清洁三条从提交到 completed 都真实点过/调过一遍,EV 回归靠 pytest 常绿)。
 
+**2026-07-24(同日晚,v3.0.0 发布之后):PDF 发票附件 + Load Calculator 修复,均已部署上线**。
+- 付费邮件加 PDF 发票附件(WeasyPrint),只在真实"该付款"节点触发,不在报价/预约阶段。详见记忆 `fft-invoice-pdf-attachments`。commit `8fa4759`/`464bfd3`/`423c862`。
+- Load Calculator 5 个 UI bug 修复(吸顶调色板、subpanel 改名、feeder 自由输入、4 槽断路器、主面板溢出)+ CEC 8-200 算法全文核对(结论:算法本身没问题)+ Solar PV 逻辑修正(`connectedAmps` 之前错误地把光伏断路器算成负载,导致真实案例 FFT-2026-0002 的 SUB-1 出现虚假"超载!"警告)。详见记忆 `fft-load-calc-v3.1-fixes`。commit `10b97d9`/`e2a3bd7`。
+- Cleaning 订阅 `panel_count=0` 校验漏洞已修(`Field(gt=0)`)。
+- **重要教训(已写入记忆 `fft-real-browser-verification-catches-what-static-checks-miss`)**:①pipeline 的 tester 只做 grep+build+selfcheck 静态检查,漏掉了一个真实回归(inline 改名输入框缺 `.select()`,打字变成拼接而非替换)——UI 改动部署前必须自己真实浏览器交互一遍,不能只信 tester。②"内容溢出容器"这个视觉症状可能有两种完全不同的根因(外层 grid 轨道撑爆 vs 内层 flex/grid 链缺 `min-width:0` 导致 ellipsis 失效),看着像但机制不同——本次先误诊并"修好"了第一种,部署后被 Kuo 当场抓包发现还是溢出,才查到真正原因是第二种。以后遇到类似症状,两种都要检查,且要针对报告里点名的具体元素(长文本 label)在报告的具体视口宽度下复现验证,不能只看"页面整体不挤了"就算过。
+
 ## 下一步 / 待办
 
 1. **v3.0 尚未部署**:确认没问题后走标准部署(`./deploy.sh` push GitHub → VPS 拉取重建),注意 VPS 库要吃到 v3 迁移(`b1c2d3e4f5a6`,含 `appointment_kind` 枚举扩容,PG 对 `ALTER TYPE...ADD VALUE` 有事务限制,迁移文件已处理但上生产前建议先在 VPS 做一次干跑确认)。
