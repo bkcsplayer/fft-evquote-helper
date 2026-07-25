@@ -27,6 +27,8 @@
 - Cleaning 订阅 `panel_count=0` 校验漏洞已修(`Field(gt=0)`)。
 - **重要教训(已写入记忆 `fft-real-browser-verification-catches-what-static-checks-miss`)**:①pipeline 的 tester 只做 grep+build+selfcheck 静态检查,漏掉了一个真实回归(inline 改名输入框缺 `.select()`,打字变成拼接而非替换)——UI 改动部署前必须自己真实浏览器交互一遍,不能只信 tester。②"内容溢出容器"这个视觉症状可能有两种完全不同的根因(外层 grid 轨道撑爆 vs 内层 flex/grid 链缺 `min-width:0` 导致 ellipsis 失效),看着像但机制不同——本次先误诊并"修好"了第一种,部署后被 Kuo 当场抓包发现还是溢出,才查到真正原因是第二种。以后遇到类似症状,两种都要检查,且要针对报告里点名的具体元素(长文本 label)在报告的具体视口宽度下复现验证,不能只看"页面整体不挤了"就算过。
 
+**2026-07-25:Load Calc 第二轮——"超载!"警告本身就是错的,已撤销,补上真正的 CEC 64-112 母线125%核算**。commit `168e7d3`,已部署。起因:Kuo 找持证电工核实了 SUB-1/SUB-2 的"连接负荷 vs feeder · 超载!"提示,证实这是系统性误报——CEC 判 feeder/母线够不够用只看 demand(套需求系数后的负载),不是断路器铭牌额定值相加(一块 60A feeder 配 175A 断路器额定合计完全正常,这正是需求系数体系存在的意义)。`connectedAmps()` 现在只做中性信息展示,不再判定。真正的约束点是 **CEC 64-112(4)(c)&(d):住宅母线核算,主OCPD+PV回馈断路器额定之和 ≤ 母线额定×125%**(Alberta 住宅是 125%,不是 NEC 的 120%)——已完整实现:新增 busbar 字段(主面板+每个subpanel,默认跟随主开关/feeder,可改)、`busbarCheck()`/`solarAmpsOf()` 纯函数、64-112 状态行(打印可见,校验对象是 Solar 实际所在的那块盘自己的母线,不写死主面板或 subpanel)。位置类合规要求(母线远端、警示标签、line-side vs load-side 判断)一律固定文字提示,不做假的自动判定。STANDATA 24-ECB-008(EV负荷100%不折减、末步加)复核仍然合规。详见记忆 `fft-load-calc-v3.1-fixes`(Round 2 部分)。**FFT-2026-0002 的 SUB-1 现在默认显示 ✗(60+40=100>75),这是设计上正确的保守默认值,不是 bug**,填真实母线额定会转绿。SUB-2 的 175A 断路器额定合计要不要紧,还等 Kuo 提供该盘真实回路负载清单人工核。
+
 ## 下一步 / 待办
 
 1. **v3.0 尚未部署**:确认没问题后走标准部署(`./deploy.sh` push GitHub → VPS 拉取重建),注意 VPS 库要吃到 v3 迁移(`b1c2d3e4f5a6`,含 `appointment_kind` 枚举扩容,PG 对 `ALTER TYPE...ADD VALUE` 有事务限制,迁移文件已处理但上生产前建议先在 VPS 做一次干跑确认)。
