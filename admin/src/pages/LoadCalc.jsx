@@ -652,19 +652,19 @@ const CSS = `
 .lc .panel.sub .bus::after{background:linear-gradient(180deg,transparent,#8b5cf6 35%,#c4b5fd 50%,#8b5cf6 65%,transparent);background-size:100% 220%}
 @keyframes lc-flow{from{background-position:0 120%}to{background-position:0 -120%}}
 .lc .rows{position:relative;z-index:1;display:grid;grid-template-columns:1fr 1fr;gap:7px 30px}
-.lc .slot{height:30px;border-radius:6px;background:linear-gradient(180deg,#23282C,#1C2023);border:1px dashed #3A4045;display:flex;align-items:center;position:relative;transition:.15s}
+.lc .slot{height:30px;min-width:0;border-radius:6px;background:linear-gradient(180deg,#23282C,#1C2023);border:1px dashed #3A4045;display:flex;align-items:center;position:relative;transition:.15s}
 .lc .slot.L{justify-content:flex-end}.lc .slot.R{justify-content:flex-start}
 .lc .slot .num{position:absolute;top:50%;transform:translateY(-50%);font-size:9.5px;color:#7A8088;font-weight:700;font-family:"Fira Code",monospace}
 .lc .slot.L .num{left:-23px;text-align:right;width:16px}.lc .slot.R .num{right:-23px;width:16px}
 .lc .slot.over{border-color:#10b981;background:#19302a;box-shadow:inset 0 0 0 1px #10b981}
 .lc .slot.occ{border-style:solid;border-color:transparent;background:transparent}
-.lc .unit{height:30px;border-radius:6px;display:block;padding:0;width:100%;cursor:pointer;position:relative;color:#E7ECEF;font-size:11px;font-weight:700;background:linear-gradient(145deg,#3A4045,#2B3035);border:1px solid #4A5158;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:.15s}
+.lc .unit{height:30px;min-width:0;border-radius:6px;display:block;padding:0;width:100%;cursor:pointer;position:relative;color:#E7ECEF;font-size:11px;font-weight:700;background:linear-gradient(145deg,#3A4045,#2B3035);border:1px solid #4A5158;box-shadow:inset 0 1px 0 rgba(255,255,255,.06);transition:.15s}
 .lc .slot.R .unit{flex-direction:row-reverse;text-align:right}
 .lc .unit.tall{height:67px;position:absolute;top:0;left:0;width:100%;z-index:3}
 .lc .unit:hover{filter:brightness(1.12)}
 .lc .unit .toggle{width:9px;height:16px;border-radius:2px;background:#0E9F6E;box-shadow:0 0 7px rgba(14,159,110,.7);flex:0 0 auto}
 .lc .unit .amp{font-size:9px;color:#aeb6bc;font-weight:700}
-.lc .unit .lab{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;font-size:10.5px}
+.lc .unit .lab{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;font-size:10.5px}
 .lc .unit.ev{background:linear-gradient(145deg,#1d4ed8,#1e40af);border-color:#3b82f6}
 .lc .unit.ev .toggle{background:#60a5fa;box-shadow:0 0 9px rgba(96,165,250,.9)}
 .lc .unit.solar{background:linear-gradient(145deg,#dc2626,#b91c1c);border-color:#ef4444}
@@ -672,8 +672,8 @@ const CSS = `
 .lc .unit.feeder{background:linear-gradient(145deg,#7c3aed,#5b21b6);border-color:#8b5cf6;cursor:move}
 .lc .unit[draggable="true"]:active{cursor:grabbing}
 .lc .unit.feeder .ctog{background:#c4b5fd;box-shadow:0 0 8px rgba(196,181,253,.9);height:20px}
-.lc .cstack{display:flex;flex-direction:column;height:100%}
-.lc .crow{flex:1;display:flex;align-items:center;gap:6px;padding:0 8px;min-height:0;border-bottom:1px solid rgba(255,255,255,.07);cursor:pointer;transition:background .12s}
+.lc .cstack{display:flex;flex-direction:column;height:100%;min-width:0}
+.lc .crow{flex:1;display:flex;align-items:center;gap:6px;padding:0 8px;min-width:0;min-height:0;border-bottom:1px solid rgba(255,255,255,.07);cursor:pointer;transition:background .12s}
 .lc .crow:last-child{border-bottom:none}
 .lc .crow:hover{background:rgba(255,255,255,.09)}
 .lc .slot.R .crow{flex-direction:row-reverse;text-align:right}
@@ -681,7 +681,7 @@ const CSS = `
 .lc .crow.v240 .ctog{height:20px;background:#fbbf24;box-shadow:0 0 5px rgba(251,191,36,.45)}
 .lc .unit.ev .ctog{background:#60a5fa;box-shadow:0 0 8px rgba(96,165,250,.9);height:20px}
 .lc .unit.solar .ctog{background:#fca5a5;box-shadow:0 0 8px rgba(248,113,113,.9);height:20px}
-.lc .clab{flex:1;font-size:10px;font-weight:700;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lc .clab{flex:1;min-width:0;font-size:10px;font-weight:700;line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lc .clab.empty{color:#8B9298;font-weight:600;font-style:italic}
 .lc .camp{font-size:8.5px;color:#aeb6bc;font-weight:700;white-space:nowrap}
 .lc .del{position:absolute;top:-7px;right:-7px;width:16px;height:16px;border-radius:50%;border:none;background:#DC2626;color:#fff;font-size:12px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,.35);z-index:6}
