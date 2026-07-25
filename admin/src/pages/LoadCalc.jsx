@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { AdminShell } from '../components/layout/AdminShell.jsx'
 import { api } from '../services/api.js'
-import { computeLoad, connectedAmps } from '../utils/cecLoad.js'
+import { computeLoad, connectedAmps, busbarCheck, solarAmpsOf } from '../utils/cecLoad.js'
 
 /* ---------- panel slot model (ported from the hi-fi mockup) ---------- */
 const TYPES = {
@@ -58,10 +58,11 @@ export default function LoadCalc() {
 
   const [brand, setBrand] = useState('Square D QO')
   const [main, setMain] = useState('100 A')
+  const [busbar, setBusbar] = useState(null) // null = follow main breaker rating (CEC 64-112 busbar rating, may exceed main OCPD)
   const [slots, setSlots] = useState(30)
   const [units, setUnits] = useState([])
   const [subEnabled, setSubEnabled] = useState(false)
-  const [subpanels, setSubpanels] = useState([]) // [{ id, name, feederAmp, slots, units }]
+  const [subpanels, setSubpanels] = useState([]) // [{ id, name, feederAmp, slots, units, busbar }]
 
   const [area, setArea] = useState('180')
   const [heatType, setHeatType] = useState('gas')   // gas | electric
@@ -93,6 +94,7 @@ export default function LoadCalc() {
       if (!v) return
       if (v.brand != null) setBrand(v.brand)
       if (v.main != null) setMain(v.main)
+      if (v.busbar != null) setBusbar(v.busbar)
       if (v.slots != null) setSlots(v.slots)
       if (Array.isArray(v.units)) setUnits(v.units)
       const subs = Array.isArray(v.subpanels) ? v.subpanels : []
@@ -119,7 +121,7 @@ export default function LoadCalc() {
   }, [id])
 
   async function save() {
-    const value = { brand, main, slots, units, subEnabled, subpanels, calc: { area, heatType, heat, acOn, ac, range, whType, whKw, hottubOn, hottubKw, poolOn, poolKw, other } }
+    const value = { brand, main, busbar, slots, units, subEnabled, subpanels, calc: { area, heatType, heat, acOn, ac, range, whType, whKw, hottubOn, hottubKw, poolOn, poolKw, other } }
     try {
       await api.put('/cases/' + id + '/load-calc', { value })
       flash('已保存到 case')
@@ -260,6 +262,10 @@ export default function LoadCalc() {
       ? { ...u, circuits: [{ ...u.circuits[0], amp }] } : u))
   }
 
+  function setSubBusbar(sid, n) {
+    setSubpanels((ps) => ps.map((s) => (s.id === sid ? { ...s, busbar: n } : s)))
+  }
+
   /* ---------- CEC 8-200 calc (see utils/cecLoad.js) ---------- */
   const calc = useMemo(() => {
     // EV load is summed across the MAIN panel and EVERY subpanel (all fed by the one service).
@@ -278,6 +284,9 @@ export default function LoadCalc() {
   const fillCls = over ? 'over' : calc.amps > calc.svc * 0.85 ? 'warn' : ''
   const note = ' 最小 service ' + calc.minSvc + 'A (8-200(1)(b))。'
   const brandTag = (brand.split(' ')[0] || 'PANEL').toUpperCase()
+  const mainOcpdA = parseInt(main, 10) || 100
+  const busbarEffMain = busbar ?? mainOcpdA
+  const anySolar = solarAmpsOf(units) > 0 || subpanels.some((s) => solarAmpsOf(s.units) > 0)
 
   /* ---------- render one placed breaker ---------- */
   function renderUnit(pid, u) {
@@ -316,6 +325,22 @@ export default function LoadCalc() {
           })}
         </div>
         <button className="del" onClick={(e) => { e.stopPropagation(); deleteUnit(pid, u.id) }}>×</button>
+      </div>
+    )
+  }
+
+  // CEC 64-112(4)(c)&(d) dwelling 125% busbar check for one panel (main or a subpanel).
+  // Returns null (renders nothing) when the panel has no solar breaker, or when busbar/mainOcpd data is insufficient — never a guessed verdict.
+  function render64112(punits, mainOcpd, busbarEff) {
+    const solarA = solarAmpsOf(punits)
+    if (solarA === 0) return null
+    const chk = busbarCheck({ busbar: busbarEff, mainOcpd, solarA })
+    if (!chk) return null
+    return (
+      <div className={`code64 ${chk.ok ? 'ok' : 'bad'}`}>
+        {chk.ok ? '✓' : '✗'} 64-112(4)(c)(d): 主OCPD {mainOcpd}A + PV {solarA}A = {chk.sum}A
+        {chk.ok ? ' ≤ ' : ' > '}busbar {busbarEff}A × 125% = {chk.limit}A
+        {!chk.ok && <div className="fixpath">超限 · 本盘 PV breaker 上限 {chk.maxPv}A · 出路: line-side tap / 64-112(g) 限流 / 换大 busbar 的盘</div>}
       </div>
     )
   }
@@ -382,6 +407,17 @@ export default function LoadCalc() {
                 <option>60 A</option><option>100 A</option><option>125 A</option><option>200 A</option>
               </select>
             </label>
+            <label>Busbar (A)
+              <input className="w-slot" type="number" min="15" max="800" step="5"
+                placeholder={String(mainOcpdA)}
+                value={busbar ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v === '') { setBusbar(null); return }
+                  const n = parseInt(v, 10)
+                  if (Number.isFinite(n) && n > 0) setBusbar(n)
+                }} />
+            </label>
             <label>Spaces (slots)<input className="w-slot" type="number" value={slots} min="12" max="60" step="2" onChange={(e) => changeSlots('main', e.target.value)} /></label>
             <label>Phase / voltage<input className="w-amp" value="240 V 1Ø" readOnly style={{ background: '#F6F7F6', color: '#9CA3AB' }} /></label>
             <label>Subpanel
@@ -416,7 +452,7 @@ export default function LoadCalc() {
                   <div className="row"><span className="sw" style={{ background: '#DC2626' }} />Solar 太阳能</div>
                   {subEnabled && <div className="row"><span className="sw" style={{ background: '#7C3AED' }} />Feeder → Subpanel(馈线)</div>}
                 </div>
-                <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。Solar 为发电源,不抵扣 8-200 计算负荷;并网母线校验(120% 规则)不在本工具范围,由电工在图纸阶段确认。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
+                <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。Solar 为发电源,不抵扣 8-200 计算负荷;盘内放入 Solar breaker 后自动按 64-112(4)(c)(d) 做 125% 母线核算(住宅);busbar 额定请照铭牌填写,不填时按主开关/feeder 额定保守取值。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
               </div>
             </div>
 
@@ -428,11 +464,11 @@ export default function LoadCalc() {
                 <div className="stage" id="panelPrint">
                   {renderPanel('main', slots, units, brandTag, 'Load Centre',
                     <><span className="dot" /> MAIN <span className="mono">{calc.svc}A</span></>)}
+                  {render64112(units, mainOcpdA, busbarEffMain)}
 
                   {subEnabled && <datalist id="feederPresets">{FEEDER_AMPS.map((a) => <option key={a} value={a} />)}</datalist>}
                   {subEnabled && subpanels.map((sp) => {
                     const camps = connectedAmps(sp.units)
-                    const oload = camps > sp.feederAmp
                     return (
                       <div key={sp.id} className="substage">
                         <div className="feedwrap"><span className="feedline" /><span className="feedtag">fed by {sp.feederAmp}A feeder ◄ main</span></div>
@@ -448,6 +484,7 @@ export default function LoadCalc() {
                                 }} />
                             : <button type="button" className="subname" onClick={() => setEditingSubId(sp.id)}>{sp.name}</button>}
                           {' '}<span className="mono">{sp.feederAmp}A</span></>, 'sub')}
+                        {render64112(sp.units, sp.feederAmp, sp.busbar ?? sp.feederAmp)}
                         <div className="subctl">
                           <label>Feeder
                             <input type="number" min="15" max="400" step="5" list="feederPresets" value={sp.feederAmp}
@@ -456,13 +493,26 @@ export default function LoadCalc() {
                           <label>Slots
                             <input type="number" min="6" max="42" step="2" value={sp.slots} onChange={(e) => changeSlots(sp.id, e.target.value)} />
                           </label>
-                          <span className={`oload ${oload ? 'bad' : 'ok'}`}>连接负荷 {camps}A / feeder {sp.feederAmp}A{oload ? ' · 超载!' : ''}</span>
+                          <label>Busbar
+                            <input type="number" min="15" max="800" step="5" placeholder={String(sp.feederAmp)}
+                              value={sp.busbar ?? ''}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                if (v === '') { setSubBusbar(sp.id, null); return }
+                                const n = parseInt(v, 10)
+                                if (Number.isFinite(n) && n > 0) setSubBusbar(sp.id, n)
+                              }} />
+                          </label>
+                          <span className="oload info">断路器额定合计 {camps}A · 非负荷计算,仅供与实物面板核对</span>
                           <button className="rmsub" onClick={() => removeSubpanel(sp.id)}>删除 subpanel</button>
                         </div>
                       </div>
                     )
                   })}
                   <div className="hint" style={{ width: '100%', textAlign: 'center' }}>计算负荷不低于 CEC 8-200(1)(b) 最小 service 下限(minSvc {calc.minSvc}A)。</div>
+                  {anySolar && (
+                    <div className="hint" style={{ width: '100%', textAlign: 'center' }}>64-112 附带条件(电工现场核实):① 先确认现有 PV 是 load-side backfeed(经断路器接入母线,需按 64-112 核算)还是 line-side tap(计量表前/进线侧接入,不占用任何一层母线余量,不在本核算范围——line-side 接入请勿在图内放置 Solar breaker,以下②-④ 均不适用);② PV breaker 须位于母线远离主进线的一端,且贴永久"不得移位"标签;③ 多电源盘按 14-414 设"断开全部隔离开关方可断电"警示;④ PV 位于 subpanel 时,上游主面板母线是否同样需按 64-112 复核(feeder 视为电源侧 OCPD)由电工判定。</div>
+                  )}
                 </div>
               </div>
             </div>
@@ -550,7 +600,7 @@ export default function LoadCalc() {
                   <div>
                     {over ? '超出 service 容量,需上 EVEMS 或升级 service。' : '容量充足,可直接加装 EV 充电桩。'}
                     <small>{over
-                      ? '缺口 ' + (calc.amps - calc.svc).toFixed(0) + ' A · CEC 8-106(10) 加 EVEMS 可把 EV 限到剩余容量免升级。' + note
+                      ? '缺口 ' + (calc.amps - calc.svc).toFixed(0) + ' A · CEC 8-106(10) 加 EVEMS 可把 EV 限到剩余容量免升级。EVEMS 设备须 ULC-ORD-3141 认证或在 City of Calgary accepted models list 上(不在名单可邮件 electricaltac@calgary.ca 评审)。' + note
                       : '余量 ' + (calc.svc - calc.amps).toFixed(0) + ' A。' + note}</small>
                   </div>
                 </div>
@@ -702,10 +752,14 @@ const CSS = `
 .lc .subctl label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#6D28D9;text-transform:uppercase;letter-spacing:.03em}
 .lc .subctl select,.lc .subctl input{border:1px solid #DDD6FE;border-radius:8px;padding:5px 8px;font-size:12.5px;font-weight:600;color:var(--ink);background:#fff;width:74px}
 .lc .subctl .oload{font-size:11px;font-weight:700;font-family:"Fira Code",monospace;padding:3px 9px;border-radius:999px}
-.lc .subctl .oload.ok{color:var(--accent-d);background:var(--accent-bg);border:1px solid #A7F3D0}
-.lc .subctl .oload.bad{color:#B45309;background:#FFFBEB;border:1px solid #FDE68A}
+.lc .subctl .oload.info{color:var(--ink3);background:var(--app);border:1px solid var(--line2)}
 .lc .subctl .rmsub{margin-left:auto;border:1px solid #FCA5A5;background:#FEF2F2;color:#B91C1C;border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:700;cursor:pointer}
 .lc .subctl .rmsub:hover{background:#FEE2E2}
+
+.lc .code64{width:100%;max-width:400px;margin-top:2px;padding:9px 12px;border-radius:10px;font-size:11.5px;font-weight:700;font-family:"Fira Code",monospace;line-height:1.5}
+.lc .code64.ok{color:var(--accent-d);background:var(--accent-bg);border:1px solid #A7F3D0}
+.lc .code64.bad{color:var(--rose);background:var(--red-bg);border:1px solid #FECACA}
+.lc .code64 .fixpath{margin-top:4px;font-weight:600;font-size:11px;opacity:.9}
 
 .lc .kv{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px dashed var(--line2)}
 .lc .kv:last-child{border:none}.lc .kv .k{color:var(--ink2);font-weight:500}.lc .kv .v{font-weight:700}

@@ -33,15 +33,31 @@ export function otherDemand(otherW, hasRange) {
   return otherW <= 6000 ? otherW : 6000 + (otherW - 6000) * 0.25
 }
 
-// Connected breaker load of a panel, in amps — sum of every circuit's rating.
-// Used only to flag an oversized subpanel vs its feeder breaker.
-// ponytail: connected-load estimate, not a full 8-200 demand calc; conservative (high). Feeder + solar breakers excluded — solar is a source, not a load, and must never inflate a "connected load" figure.
+// Connected breaker rating total of a panel, in amps — for cross-checking entered breakers against
+// the physical panel schedule only. NOT an overload/feeder-adequacy check: CEC judges feeder and busbar
+// adequacy by Section 8 demand load (watts, with demand factors) — summing branch breaker nameplate
+// ratings is not a valid test, and is routinely far above the feeder rating on any normal panel.
+// ponytail: connected-load estimate; conservative (high). Feeder + solar breakers excluded — solar is a source, not a load, and must never inflate a "connected load" figure.
 export function connectedAmps(units) {
   return (units || []).reduce((sum, u) => {
     if (u.kind === 'feeder' || u.kind === 'solar') return sum
     return sum + (u.circuits || []).reduce((a, c) => a + (Number(c.amp) || 0), 0)
   }, 0)
 }
+
+// CEC 64-112(4)(c)&(d) — dwelling: Σ(supply-side OCPD ratings feeding the busbar) ≤ busbar × 1.25.
+// mainOcpd = the panel's own supply breaker (main breaker, or feeder rating for a subpanel).
+export function busbarCheck({ busbar, mainOcpd, solarA }) {
+  if (!(busbar > 0) || !(mainOcpd > 0)) return null // insufficient data → no verdict
+  const limit = busbar * 1.25
+  const sum = mainOcpd + solarA
+  return { sum, limit, maxPv: Math.max(0, limit - mainOcpd), ok: sum <= limit }
+}
+
+// Total PV backfeed breaker rating physically in one panel (0 when no solar).
+export const solarAmpsOf = (units) => (units || [])
+  .filter((u) => u.kind === 'solar')
+  .reduce((a, u) => a + (u.circuits || []).reduce((b, c) => b + (Number(c.amp) || 0), 0), 0)
 
 // Full 8-200(1)(a) calculated load. Inputs area in m², heat/ac/range/wh/other in kW,
 // heatType 'electric'|'gas', main service size (A), evW already summed in watts.

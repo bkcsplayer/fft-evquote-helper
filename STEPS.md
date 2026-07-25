@@ -1,548 +1,494 @@
-# STEPS: Load Calculator 五项 UI 修复 + CEC 8-200 算法审查 + Solar PV 修正
+# STEPS: Load Calculator 第二轮专业审查 — 撤销伪"超载"判定 + CEC 64-112(4)(c)(d) 125% 母线核算 + STANDATA 24-ECB-008 合规文案
 
 > Task tier: **STANDARD** · Skill Manifest: `cmm`, `codebase-memory`, `ponytail-review`(MANDATORY-INFRA), `ui-ux-pro-max`(UI 权威,已咨询并折入) — implementer/tester may invoke ONLY these skills.
 > NO-ADVISOR ZONE: executing these approved steps never triggers an advisor consult (economy policy F), except the stuck-escalation condition (policy D).
 
-**Kuo's overrides applied (differ from DESIGN.md §3 draft / architect default — see DESIGN.md `## Review`):**
-- p2_120 = single 120V circuit (`pole:1`) physically occupying 2 slots — NOT a handle-tied 2-pole/MWBC pair.
-- quad4 = single old-style large-frame 2-pole breaker (`pole:2`, one circuit) occupying 4 slots — NOT two stacked 2-pole breakers.
-- Subpanel rename = inline `<input>` edit-in-place (click name → edit → blur/Enter commits, Esc cancels) — NOT `window.prompt`.
-- CEC 8-200 algorithm itself: **no code change** (DESIGN.md §6.1 verified correct, high confidence) — only the two Q7 UI hints are added.
-- 120% busbar rule (Q5) and PV-feedback-vs-feeder warning (Q6): **not implemented**, per Kuo confirmation. Do not add any busbar-rating input or new warning logic.
+**Kuo's §8 decisions applied (see DESIGN.md `## Review` for full reasoning):**
+- Q1: upstream cascade (PV in a subpanel → does the MAIN panel's own busbar also get numerically checked) stays **text-only, not implemented in code** — same as architect default. PLUS Kuo's own addition: the §3.2.5 hint text now leads with a **load-side backfeed vs. line-side tap** determination (line-side tap consumes zero busbar headroom at any layer and is out of scope entirely) — this is now item ① of the hint, with the architect's original ①②③ renumbered ②③④. The exact finalized 4-item string is in Step 18 below; do not paraphrase it.
+- Q2: connected-breaker-total row stays as a neutral info pill (not deleted) — Step 2.
+- Q3: no code — SUB-2 circuit wattage review is Kuo's own manual work, not represented in any step.
+- Q4: Survey checklist stays out of scope. **No backend/model/migration/admin-form step exists anywhere in this file.**
+- Q5: EVEMS verdict sentence (ULC-ORD-3141 / accepted-models-list) is included — Step 19.
+
+**Do NOT build**, even if it looks like a natural extension: a numeric upstream-cascade check on the main panel's busbar when PV lives in a subpanel (Q1, text-only this round); any non-dwelling (120%/commercial) branch in `busbarCheck` (125% dwelling-only, forever, per red line); any automatic inference of PV physical position/wiring topology from slot data (position compliance is fixed text only — red line); any change to `computeLoad`'s signature or body (PV never offsets `calc.amps` — red line, and no step below touches it).
 
 **Step 0 — baseline check (run before Step 1):**
 `cd admin && npm run build` → must succeed with the current, unmodified tree. If it fails, stop and report — do not start Step 1 against a broken baseline.
 
 ---
 
-## admin/src/pages/LoadCalc.jsx — placement engine (do these before touching TYPES/PALETTE; a 4-slot type against the old span-2-only engine produces real overlap bugs)
+## admin/src/utils/cecLoad.js — §3.1 comment rewrite + §3.2.1 new functions
 
-- [ ] **Step 1** — `admin/src/pages/LoadCalc.jsx` — Generalize `occupiedAt` from a hardcoded span-2 check to an arbitrary-span range check.
+- [ ] **Step 1** — `admin/src/utils/cecLoad.js` — Rewrite the comment above `connectedAmps` to state plainly it is a panel-schedule cross-check, NOT an overload/feeder-adequacy test (CEC judges feeder/busbar adequacy by Section 8 demand load in watts, never by summing branch breaker nameplate ratings).
       Find:
       ```js
-      const occupiedAt = (pid, col, row, exceptId) =>
-        getUnits(pid).some((u) => u.id !== exceptId && u.col === col && (u.row === row || (SPAN(u.type) === 2 && u.row + 1 === row)))
-      ```
-      Replace with:
-      ```js
-      const occupiedAt = (pid, col, row, exceptId) =>
-        getUnits(pid).some((u) => u.id !== exceptId && u.col === col && row >= u.row && row < u.row + SPAN(u.type))
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "row < u.row + SPAN" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 2** — `admin/src/pages/LoadCalc.jsx` — Add the `fitsAt()` helper directly below `occupiedAt`.
-      Insert immediately after the `occupiedAt` line from Step 1 (before `function place(pid, type, col, row) {`):
-      ```js
-
-      // unified placement legality: every slot in the span must exist and be free
-      function fitsAt(pid, type, col, row, exceptId) {
-        const s = SPAN(type)
-        for (let k = 0; k < s; k++) {
-          if (!slotExists(pid, col, row + k) || occupiedAt(pid, col, row + k, exceptId)) return false
-        }
-        return true
-      }
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "function fitsAt" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 3** — `admin/src/pages/LoadCalc.jsx` — `place()`: replace the manual span-2 checks with `fitsAt()`.
-      Find:
-      ```js
-      function place(pid, type, col, row) {
-        if (!TYPES[type]) return
-        const s = SPAN(type)
-        if (occupiedAt(pid, col, row)) return
-        if (s === 2 && (!slotExists(pid, col, row + 1) || occupiedAt(pid, col, row + 1))) return
-        const nid = uidRef.current++
-      ```
-      Replace with:
-      ```js
-      function place(pid, type, col, row) {
-        if (!TYPES[type]) return
-        if (!fitsAt(pid, type, col, row)) return
-        const nid = uidRef.current++
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "if (!fitsAt(pid, type, col, row)) return" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 4** — `admin/src/pages/LoadCalc.jsx` — `moveUnit()`: replace the manual span-2 checks with `fitsAt()`.
-      Find:
-      ```js
-      function moveUnit(pid, uid, col, row) {
-        const u = getUnits(pid).find((x) => x.id === uid)
-        if (!u) return
-        if (occupiedAt(pid, col, row, uid)) return
-        if (SPAN(u.type) === 2 && (!slotExists(pid, col, row + 1) || occupiedAt(pid, col, row + 1, uid))) return
-        setUnitsFor(pid, (p) => p.map((x) => (x.id === uid ? { ...x, col, row } : x)))
-      }
-      ```
-      Replace with:
-      ```js
-      function moveUnit(pid, uid, col, row) {
-        const u = getUnits(pid).find((x) => x.id === uid)
-        if (!u) return
-        if (!fitsAt(pid, u.type, col, row, uid)) return
-        setUnitsFor(pid, (p) => p.map((x) => (x.id === uid ? { ...x, col, row } : x)))
-      }
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "fitsAt(pid, u.type, col, row, uid)" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 5** — `admin/src/pages/LoadCalc.jsx` — `keepFitting()`: generalize the bottom-of-panel bound check to arbitrary span.
-      Find:
-      ```js
-      function keepFitting(list, n) {
-        return list.filter((u) => {
-          const top = slotNumber(u.col, u.row)
-          if (top > n) return false
-          if (SPAN(u.type) === 2 && slotNumber(u.col, u.row + 1) > n) return false
-          return true
-        })
-      }
-      ```
-      Replace with:
-      ```js
-      function keepFitting(list, n) {
-        return list.filter((u) => {
-          const top = slotNumber(u.col, u.row)
-          if (top > n) return false
-          if (slotNumber(u.col, u.row + SPAN(u.type) - 1) > n) return false
-          return true
-        })
-      }
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "u.row + SPAN(u.type) - 1" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 6** — `admin/src/pages/LoadCalc.jsx` — `firstFreeDouble()`: reimplement using `fitsAt()` (semantics unchanged, still only used for the 2-slot feeder).
-      Find:
-      ```js
-      function firstFreeDouble(pid) {
-        for (const { col, row } of buildSlotList(getSlots(pid))) {
-          if (occupiedAt(pid, col, row)) continue
-          if (!slotExists(pid, col, row + 1) || occupiedAt(pid, col, row + 1)) continue
-          return { col, row }
-        }
-        return null
-      }
-      ```
-      Replace with:
-      ```js
-      function firstFreeDouble(pid) {
-        for (const { col, row } of buildSlotList(getSlots(pid))) {
-          if (fitsAt(pid, 'feeder', col, row)) return { col, row }
-        }
-        return null
-      }
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "fitsAt(pid, 'feeder', col, row)" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 7** — `admin/src/pages/LoadCalc.jsx` — `renderUnit()`: generalize the `span2`/`tall` class + fixed 67px height to any span, via inline height style (slot height 30 + row gap 7).
-      Find (inside `renderUnit`, the non-feeder branch):
-      ```js
-        const span2 = SPAN(u.type) === 2
-        const kindCls = u.kind === 'ev' ? 'ev' : u.kind === 'solar' ? 'solar' : ''
-        const cls = `unit ${kindCls}${span2 ? ' tall' : ''}${flashId === u.id ? ' in surge' : ''}`
-        return (
-          <div className={cls} draggable
-            onDragStart={(e) => e.dataTransfer.setData('move', JSON.stringify({ pid, uid: u.id }))}>
-      ```
-      Replace with:
-      ```js
-        const span = SPAN(u.type)
-        const tall = span > 1
-        const tallStyle = tall ? { height: span * 30 + (span - 1) * 7 } : undefined
-        const kindCls = u.kind === 'ev' ? 'ev' : u.kind === 'solar' ? 'solar' : ''
-        const cls = `unit ${kindCls}${tall ? ' tall' : ''}${flashId === u.id ? ' in surge' : ''}`
-        return (
-          <div className={cls} style={tallStyle} draggable
-            onDragStart={(e) => e.dataTransfer.setData('move', JSON.stringify({ pid, uid: u.id }))}>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "span \* 30 + (span - 1) \* 7" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 8** — `admin/src/pages/LoadCalc.jsx` — `renderUnit()`: circuit amp label shows the explicit `volt` field when a circuit carries one (independent of `pole`), falling back to the existing pole-2-implies-240V behavior otherwise. Backward compatible: old saved circuits have no `volt` field, so they render exactly as before.
-      Find:
-      ```jsx
-                <span className="camp">{c.amp}A{c.pole === 2 ? '·240V' : ''}</span>
-      ```
-      Replace with:
-      ```jsx
-                <span className="camp">{c.amp}A{c.volt ? '·' + c.volt + 'V' : c.pole === 2 ? '·240V' : ''}</span>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "c.volt ? '·' + c.volt" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-## admin/src/pages/LoadCalc.jsx — new breaker types (Kuo's Q1/Q2 semantics; engine above must already be generalized)
-
-- [ ] **Step 9** — `admin/src/pages/LoadCalc.jsx` — Add `p2_120` and `quad4` to `TYPES`, inserted after the `quad` entry and before `ev`.
-      Find:
-      ```js
-        quad: { slots: 2, kind: 'normal', mk: () => [{ label: '', amp: 15, pole: 1 }, { label: '', amp: 30, pole: 2 }, { label: '', amp: 15, pole: 1 }] },
-        ev: { slots: 2, kind: 'ev', mk: () => [{ label: 'EV CHARGER', amp: 30, pole: 2 }] },
-      ```
-      Replace with:
-      ```js
-        quad: { slots: 2, kind: 'normal', mk: () => [{ label: '', amp: 15, pole: 1 }, { label: '', amp: 30, pole: 2 }, { label: '', amp: 15, pole: 1 }] },
-        // single 120V circuit occupying 2 physical slots (old-style / wide-frame single-pole breaker) — NOT a 2-pole circuit
-        p2_120: { slots: 2, kind: 'normal', mk: () => [{ label: '', amp: 20, pole: 1, volt: 120 }] },
-        // single old-style large-frame 2-pole breaker occupying 4 physical slots — one 240V circuit, not two breakers
-        quad4: { slots: 4, kind: 'normal', mk: () => [{ label: '', amp: 100, pole: 2 }] },
-        ev: { slots: 2, kind: 'ev', mk: () => [{ label: 'EV CHARGER', amp: 30, pole: 2 }] },
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "p2_120:\|quad4:" admin/src/pages/LoadCalc.jsx` → 2 matches in TYPES (plus later matches from Step 10/12/22, expected to grow).
-
-- [ ] **Step 10** — `admin/src/pages/LoadCalc.jsx` — Add matching `PALETTE` cards for `p2_120` and `quad4`, inserted after the `quad` card and before `ev`.
-      Find:
-      ```js
-        { type: 'quad', glyph: 'quad', bars: 3, t: 'Quad space-saver', s: '占 2 槽 · 120/240/120' },
-        { type: 'ev', glyph: 'p2 evg', bars: 2, t: 'EV Charger 30A', s: '蓝 · 占 2 槽 · 240V', border: '#bfdbfe', tc: '#1d4ed8', sc: '#60a5fa' },
-      ```
-      Replace with:
-      ```js
-        { type: 'quad', glyph: 'quad', bars: 3, t: 'Quad space-saver', s: '占 2 槽 · 120/240/120' },
-        { type: 'p2_120', glyph: 'p2_120', bars: 1, t: '1-Pole 120V(宽体)', s: '占 2 槽 · 单路 120V' },
-        { type: 'quad4', glyph: 'p2', bars: 2, t: '2-Pole 100A(大框架)', s: '占 4 槽 · 老式宽体 240V' },
-        { type: 'ev', glyph: 'p2 evg', bars: 2, t: 'EV Charger 30A', s: '蓝 · 占 2 槽 · 240V', border: '#bfdbfe', tc: '#1d4ed8', sc: '#60a5fa' },
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "1-Pole 120V(宽体)\|2-Pole 100A(大框架)" admin/src/pages/LoadCalc.jsx` → 2 matches.
-
-## admin/src/pages/LoadCalc.jsx — Bug 2, inline subpanel rename (Kuo's Q3 override — NOT window.prompt)
-
-- [ ] **Step 11** — `admin/src/pages/LoadCalc.jsx` — Add `editingSubId` state (tracks which subpanel's name is currently being edited).
-      Find:
-      ```js
-        const [msg, setMsg] = useState('')
-        const uidRef = useRef(1)
-      ```
-      Replace with:
-      ```js
-        const [msg, setMsg] = useState('')
-        const [editingSubId, setEditingSubId] = useState(null)
-        const uidRef = useRef(1)
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "editingSubId" admin/src/pages/LoadCalc.jsx` → at least 1 match (grows through Step 13).
-
-- [ ] **Step 12** — `admin/src/pages/LoadCalc.jsx` — Add `commitSubRename(sid, raw)`, placed right after `removeSubpanel`. Reuses §3.2's validation rule verbatim (trim, empty falls back to old name, truncate to 24 chars) and keeps the main-panel feeder's `"→ SUB-n"` label in sync, same as the original prompt-based design — just committed from an input value instead of a prompt return value.
-      Find:
-      ```js
-      function removeSubpanel(sid) {
-        setUnits((p) => p.filter((u) => !(u.kind === 'feeder' && u.subId === sid)))
-        setSubpanels((ps) => ps.filter((s) => s.id !== sid))
-      }
-      ```
-      Replace with:
-      ```js
-      function removeSubpanel(sid) {
-        setUnits((p) => p.filter((u) => !(u.kind === 'feeder' && u.subId === sid)))
-        setSubpanels((ps) => ps.filter((s) => s.id !== sid))
-        setEditingSubId((v) => (v === sid ? null : v))
-      }
-
-      function commitSubRename(sid, raw) {
-        const sp = subpanels.find((s) => s.id === sid)
-        if (!sp) { setEditingSubId(null); return }
-        const name = raw.trim().slice(0, 24) || sp.name
-        setSubpanels((ps) => ps.map((s) => (s.id === sid ? { ...s, name } : s)))
-        // main-panel feeder's '→ SUB-n' label must follow the rename (addSubpanel bound the old name at creation time)
-        setUnits((p) => p.map((u) => (u.kind === 'feeder' && u.subId === sid)
-          ? { ...u, circuits: [{ ...u.circuits[0], label: '→ ' + name }] } : u))
-        setEditingSubId(null)
-      }
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "function commitSubRename" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 13** — `admin/src/pages/LoadCalc.jsx` — Subpanel render: replace the static `{sp.name}` in the subpanel's title bar with a click-to-edit `<button>` that swaps to an `<input>` while editing. Enter commits (blurs, which triggers commit). Escape resets the input's value back to the current name before blurring, so it always commits as a no-op rename rather than relying on React's unmount timing — deterministic cancel regardless of blur/unmount ordering.
-      Find:
-      ```jsx
-                        {renderPanel(sp.id, sp.slots, sp.units, sp.name, 'Sub Panel',
-                          <><span className="dot amber" /> {sp.name} <span className="mono">{sp.feederAmp}A</span></>, 'sub')}
-      ```
-      Replace with:
-      ```jsx
-                        {renderPanel(sp.id, sp.slots, sp.units, sp.name, 'Sub Panel',
-                          <><span className="dot amber" />{' '}
-                          {editingSubId === sp.id
-                            ? <input className="subname-edit" autoFocus defaultValue={sp.name}
-                                onBlur={(e) => commitSubRename(sp.id, e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') e.currentTarget.blur()
-                                  if (e.key === 'Escape') { e.currentTarget.value = sp.name; e.currentTarget.blur() }
-                                }} />
-                            : <button type="button" className="subname" onClick={() => setEditingSubId(sp.id)}>{sp.name}</button>}
-                          {' '}<span className="mono">{sp.feederAmp}A</span></>, 'sub')}
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "className=\"subname-edit\"\|className=\"subname\"" admin/src/pages/LoadCalc.jsx` → 2 matches.
-
-## admin/src/pages/LoadCalc.jsx — Bug 3, 15, Q7 hints
-
-- [ ] **Step 14** — `admin/src/pages/LoadCalc.jsx` — Bug 3: replace the subpanel Feeder `<select>` (fixed to `FEEDER_AMPS`) with a free-entry number input backed by a shared `<datalist>` (rendered once, outside the `subpanels.map` loop, to avoid duplicate DOM ids).
-      Find:
-      ```jsx
-                          <label>Feeder
-                            <select value={sp.feederAmp} onChange={(e) => setSubFeeder(sp.id, parseInt(e.target.value, 10))}>
-                              {FEEDER_AMPS.map((a) => <option key={a} value={a}>{a} A</option>)}
-                            </select>
-                          </label>
-      ```
-      Replace with:
-      ```jsx
-                          <label>Feeder
-                            <input type="number" min="15" max="400" step="5" list="feederPresets" value={sp.feederAmp}
-                              onChange={(e) => { const n = parseInt(e.target.value, 10); if (Number.isFinite(n) && n > 0) setSubFeeder(sp.id, n) }} />
-                          </label>
-      ```
-      Then find (the line right after the main panel's `renderPanel(...)` call, before `{subEnabled && subpanels.map((sp) => {`):
-      ```jsx
-                  {renderPanel('main', slots, units, brandTag, 'Load Centre',
-                    <><span className="dot" /> MAIN <span className="mono">{calc.svc}A</span></>)}
-
-                  {subEnabled && subpanels.map((sp) => {
-      ```
-      Replace with:
-      ```jsx
-                  {renderPanel('main', slots, units, brandTag, 'Load Centre',
-                    <><span className="dot" /> MAIN <span className="mono">{calc.svc}A</span></>)}
-
-                  {subEnabled && <datalist id="feederPresets">{FEEDER_AMPS.map((a) => <option key={a} value={a} />)}</datalist>}
-                  {subEnabled && subpanels.map((sp) => {
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "list=\"feederPresets\"\|id=\"feederPresets\"" admin/src/pages/LoadCalc.jsx` → 2 matches.
-
-- [ ] **Step 15** — `admin/src/pages/LoadCalc.jsx` — Solar disclaimer: append the clarifying sentence to the palette `.tip` text (DESIGN.md §3.6 point 2).
-      Find:
-      ```jsx
-                <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
-      ```
-      Replace with:
-      ```jsx
-                <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。Solar 为发电源,不抵扣 8-200 计算负荷;并网母线校验(120% 规则)不在本工具范围,由电工在图纸阶段确认。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "并网母线校验(120% 规则)不在本工具范围" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 16** — `admin/src/pages/LoadCalc.jsx` — Q7 hint 1: grey helper text next to the area input, reusing the existing (currently unused) `.hint` CSS class.
-      Find:
-      ```jsx
-                  <div className="srow">
-                    <span className="sl">居住面积</span>
-                    <span className="sc"><input type="number" value={area} onChange={(e) => setArea(e.target.value)} /><em>m²</em></span>
-                  </div>
-                  <div className="srow">
-                    <span className="sl">供热来源</span>
-      ```
-      Replace with:
-      ```jsx
-                  <div className="srow">
-                    <span className="sl">居住面积</span>
-                    <span className="sc"><input type="number" value={area} onChange={(e) => setArea(e.target.value)} /><em>m²</em></span>
-                  </div>
-                  <div className="hint">地下室部分按 8-110 计 75%,请勿把全部地下室面积按 100% 填入此栏。</div>
-                  <div className="srow">
-                    <span className="sl">供热来源</span>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "地下室部分按 8-110 计 75%" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 17** — `admin/src/pages/LoadCalc.jsx` — Q7 hint 2: print-visible footnote citing the CEC 8-200(1)(b) minimum service. Must live inside `#panelPrint` (the `.stage` div) — the print stylesheet hides everything except `#panelPrint`, so the existing on-screen verdict note is invisible when printed; this is a separate, print-visible line, not a duplicate.
-      Find:
-      ```jsx
-                  {subEnabled && subpanels.map((sp) => {
-      ```
-      (this is the map call from Step 14 — find its closing, i.e. the line immediately after the map's closing `})}` and before the `.stage` div's closing `</div>`):
-      ```jsx
-                  })}
-                </div>
-              </div>
-            </div>
-      ```
-      Replace with:
-      ```jsx
-                  })}
-                  <div className="hint" style={{ width: '100%', textAlign: 'center' }}>计算负荷不低于 CEC 8-200(1)(b) 最小 service 下限(minSvc {calc.minSvc}A)。</div>
-                </div>
-              </div>
-            </div>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "计算负荷不低于 CEC 8-200(1)(b)" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-## admin/src/pages/LoadCalc.jsx — Bug 4 CSS (do before Step 20's sticky rule, which depends on the final breakpoint value)
-
-- [ ] **Step 18** — `admin/src/pages/LoadCalc.jsx` — Grid blowout guard: `1fr` → `minmax(0,1fr)`, plus `.stage{overflow-x:auto}` so the panel column scrolls internally instead of ever pushing the page wide.
-      Find:
-      ```css
-      .lc .grid{display:grid;grid-template-columns:230px 1fr 320px;gap:18px;align-items:start}
-      ```
-      Replace with:
-      ```css
-      .lc .grid{display:grid;grid-template-columns:230px minmax(0,1fr) 320px;gap:18px;align-items:start}
-      ```
-      Then find:
-      ```css
-      .lc .stage{display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 14px 26px;background:radial-gradient(120% 80% at 50% 0,#fafafa,transparent)}
-      ```
-      Replace with:
-      ```css
-      .lc .stage{display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 14px 26px;background:radial-gradient(120% 80% at 50% 0,#fafafa,transparent);overflow-x:auto}
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "minmax(0,1fr)\|.lc .stage{.*overflow-x:auto" admin/src/pages/LoadCalc.jsx` → 2 matches.
-
-- [ ] **Step 19** — `admin/src/pages/LoadCalc.jsx` — Breakpoint correction: single-column threshold `1100px` → `1360px` (three columns only appear when they genuinely fit; see DESIGN.md §3.4 for the pixel math).
-      Find:
-      ```css
-      @media(max-width:1100px){.lc .grid{grid-template-columns:1fr}}
-      ```
-      Replace with:
-      ```css
-      @media(max-width:1360px){.lc .grid{grid-template-columns:1fr}}
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "max-width:1360px" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 20** — `admin/src/pages/LoadCalc.jsx` — Panel breathing room: widen the main/sub panel and subctl bar by 8px each, matching DESIGN.md §3.4 point 3 exactly (slot content width unchanged).
-      Find:
-      ```css
-      .lc .panel{width:392px;border-radius:16px;padding:16px 32px;background:linear-gradient(160deg,#2A2F34,#1B1E21);box-shadow:0 30px 60px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.06);position:relative}
-      .lc .panel.sub{width:360px;background:linear-gradient(160deg,#2b2740,#1c1830);box-shadow:0 20px 44px rgba(50,20,90,.28),inset 0 1px 0 rgba(255,255,255,.06)}
-      ```
-      Replace with:
-      ```css
-      .lc .panel{width:400px;border-radius:16px;padding:16px 36px;background:linear-gradient(160deg,#2A2F34,#1B1E21);box-shadow:0 30px 60px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.06);position:relative}
-      .lc .panel.sub{width:368px;background:linear-gradient(160deg,#2b2740,#1c1830);box-shadow:0 20px 44px rgba(50,20,90,.28),inset 0 1px 0 rgba(255,255,255,.06)}
-      ```
-      Then find:
-      ```css
-      .lc .subctl{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:2px;padding:8px 10px;background:#F5F3FF;border:1px solid #E9E3FE;border-radius:12px;width:360px}
-      ```
-      Replace with:
-      ```css
-      .lc .subctl{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:2px;padding:8px 10px;background:#F5F3FF;border:1px solid #E9E3FE;border-radius:12px;width:368px}
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "width:400px.*padding:16px 36px\|width:368px" admin/src/pages/LoadCalc.jsx` → 3 matches (panel, subctl, and panel.sub's own line unaffected count — confirm panel.sub width:368px appears once, subctl width:368px appears once).
-
-- [ ] **Step 21** — `admin/src/pages/LoadCalc.jsx` — Bug 1: sticky breaker palette column, gated to the corrected breakpoint (`min-width:1361px`, one more than Step 19's `1360px` single-column cutoff, so sticky never applies in single-column mode).
-      Find:
-      ```css
-      @media(max-width:1360px){.lc .grid{grid-template-columns:1fr}}
-      ```
-      Replace with:
-      ```css
-      @media(max-width:1360px){.lc .grid{grid-template-columns:1fr}}
-      @media(min-width:1361px){
-        .lc .grid>.col:first-child{position:sticky;top:0;max-height:calc(100vh - 72px);overflow-y:auto}
-      }
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "min-width:1361px" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-## admin/src/pages/LoadCalc.jsx — remaining glyph/focus CSS
-
-- [ ] **Step 22** — `admin/src/pages/LoadCalc.jsx` — Glyph for `p2_120`: one taller/wider green bar (single pole, not two hot legs — deliberately visually distinct from `p2`'s green+yellow pair).
-      Find:
-      ```css
-      .lc .brk .glyph.quad i:nth-child(1){top:7px;width:10px}.lc .brk .glyph.quad i:nth-child(2){top:18px;width:18px;background:#facc15;box-shadow:none}.lc .brk .glyph.quad i:nth-child(3){top:32px;width:10px}
-      ```
-      Replace with:
-      ```css
-      .lc .brk .glyph.quad i:nth-child(1){top:7px;width:10px}.lc .brk .glyph.quad i:nth-child(2){top:18px;width:18px;background:#facc15;box-shadow:none}.lc .brk .glyph.quad i:nth-child(3){top:32px;width:10px}
-      .lc .brk .glyph.p2_120 i{top:14px;height:18px;width:16px}
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "glyph.p2_120 i{" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 23** — `admin/src/pages/LoadCalc.jsx` — Focus/hover styles for the inline-rename `<button>`/`<input>` pair added in Step 13 (a11y: visible `:focus-visible` on the button, visible focus ring on the input — the `.main` bar has a dark background, so focus rings use light colors).
-      Find:
-      ```css
-      .lc .main .dot.amber{background:#a78bfa;box-shadow:0 0 10px #a78bfa}
-      @keyframes lc-pulse{50%{opacity:.4}}
-      ```
-      Replace with:
-      ```css
-      .lc .main .dot.amber{background:#a78bfa;box-shadow:0 0 10px #a78bfa}
-      @keyframes lc-pulse{50%{opacity:.4}}
-      .lc .subname{background:none;border:none;padding:0;color:inherit;font:inherit;font-weight:800;cursor:pointer}
-      .lc .subname:hover{text-decoration:underline}
-      .lc .subname:focus-visible{outline:2px solid #fff;outline-offset:2px;border-radius:3px}
-      .lc .subname-edit{font:inherit;font-weight:800;color:var(--ink);background:#fff;border:1px solid #8b5cf6;border-radius:6px;padding:1px 6px;width:110px;outline:none}
-      .lc .subname-edit:focus{border-color:#7c3aed;box-shadow:0 0 0 2px rgba(124,58,237,.25)}
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n ".lc .subname:focus-visible\|.lc .subname-edit:focus" admin/src/pages/LoadCalc.jsx` → 2 matches.
-
-## admin/src/utils/cecLoad.js — Solar fix
-
-- [ ] **Step 24** — `admin/src/utils/cecLoad.js` — `connectedAmps`: exclude `kind==='solar'` (PV is a source, never a load) alongside the existing `feeder` exclusion; update the comment above it.
-      Find:
-      ```js
-      // ponytail: connected-load estimate, not a full 8-200 demand calc; conservative (high). Feeder breakers excluded.
-      export function connectedAmps(units) {
-        return (units || []).reduce((sum, u) => {
-          if (u.kind === 'feeder') return sum
-          return sum + (u.circuits || []).reduce((a, c) => a + (Number(c.amp) || 0), 0)
-        }, 0)
-      }
-      ```
-      Replace with:
-      ```js
+      // Connected breaker load of a panel, in amps — sum of every circuit's rating.
+      // Used only to flag an oversized subpanel vs its feeder breaker.
       // ponytail: connected-load estimate, not a full 8-200 demand calc; conservative (high). Feeder + solar breakers excluded — solar is a source, not a load, and must never inflate a "connected load" figure.
       export function connectedAmps(units) {
-        return (units || []).reduce((sum, u) => {
-          if (u.kind === 'feeder' || u.kind === 'solar') return sum
-          return sum + (u.circuits || []).reduce((a, c) => a + (Number(c.amp) || 0), 0)
-        }, 0)
-      }
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "u.kind === 'feeder' || u.kind === 'solar'" admin/src/utils/cecLoad.js` → 1 match.
-
-## admin/src/utils/cecLoad.selfcheck.mjs — regression assertions
-
-- [ ] **Step 25** — `admin/src/utils/cecLoad.selfcheck.mjs` — Import `connectedAmps` and add regression assertions: mixed-unit exclusion correctness, plus the real SUB-1 production shape (2×20A solar + assorted loads). Uses self-consistent synthetic numbers, not the disputed "≤60A" claim from DESIGN.md §3.6 (see DESIGN.md `## Review`, factual note) — only asserts that solar is excluded from the sum.
-      Find:
-      ```js
-      import { basicLoad, heatDemand, rangeDemand, otherDemand, computeLoad } from './cecLoad.js'
       ```
       Replace with:
+      ```js
+      // Connected breaker rating total of a panel, in amps — for cross-checking entered breakers against
+      // the physical panel schedule only. NOT an overload/feeder-adequacy check: CEC judges feeder and busbar
+      // adequacy by Section 8 demand load (watts, with demand factors) — summing branch breaker nameplate
+      // ratings is not a valid test, and is routinely far above the feeder rating on any normal panel.
+      // ponytail: connected-load estimate; conservative (high). Feeder + solar breakers excluded — solar is a source, not a load, and must never inflate a "connected load" figure.
+      export function connectedAmps(units) {
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "NOT an overload/feeder-adequacy check" admin/src/utils/cecLoad.js` → 1 match.
+
+- [ ] **Step 2** — `admin/src/utils/cecLoad.js` — Add `busbarCheck` and `solarAmpsOf`, inserted directly after `connectedAmps`'s closing brace and before the `computeLoad` comment block.
+      Find:
+      ```js
+        return sum + (u.circuits || []).reduce((a, c) => a + (Number(c.amp) || 0), 0)
+        }, 0)
+      }
+
+      // Full 8-200(1)(a) calculated load. Inputs area in m², heat/ac/range/wh/other in kW,
+      ```
+      Replace with:
+      ```js
+        return sum + (u.circuits || []).reduce((a, c) => a + (Number(c.amp) || 0), 0)
+        }, 0)
+      }
+
+      // CEC 64-112(4)(c)&(d) — dwelling: Σ(supply-side OCPD ratings feeding the busbar) ≤ busbar × 1.25.
+      // mainOcpd = the panel's own supply breaker (main breaker, or feeder rating for a subpanel).
+      export function busbarCheck({ busbar, mainOcpd, solarA }) {
+        if (!(busbar > 0) || !(mainOcpd > 0)) return null // insufficient data → no verdict
+        const limit = busbar * 1.25
+        const sum = mainOcpd + solarA
+        return { sum, limit, maxPv: Math.max(0, limit - mainOcpd), ok: sum <= limit }
+      }
+
+      // Total PV backfeed breaker rating physically in one panel (0 when no solar).
+      export const solarAmpsOf = (units) => (units || [])
+        .filter((u) => u.kind === 'solar')
+        .reduce((a, u) => a + (u.circuits || []).reduce((b, c) => b + (Number(c.amp) || 0), 0), 0)
+
+      // Full 8-200(1)(a) calculated load. Inputs area in m², heat/ac/range/wh/other in kW,
+      ```
+      Note: the indentation above is written for readability in this document; match the file's actual 2-space indent when editing (i.e. `return sum + ...` and `}, 0)` are indented one level inside the function, not flush left as shown in the "Find" block's second line — copy the exact surrounding whitespace from the live file, only insert the new block between `connectedAmps`'s closing `}` and the `computeLoad` comment.
+      verify: `cd admin && npm run build` → succeeds. `grep -n "export function busbarCheck\|export const solarAmpsOf" admin/src/utils/cecLoad.js` → 2 matches.
+
+## admin/src/pages/LoadCalc.jsx — §3.1 "超载!" judgment removal (one atomic step: leaves no intermediate reference to a deleted `oload`)
+
+- [ ] **Step 3** — `admin/src/pages/LoadCalc.jsx` — Remove the `oload` boolean and replace the amber/red "超载!" pill with a neutral info pill. Both hunks in this one step — doing them separately leaves a `ReferenceError: oload is not defined` at runtime between steps (Rollup/Vite build will NOT catch this — it's a JSX runtime reference, not a static import error).
+      Hunk 1 — find:
+      ```jsx
+                  {subEnabled && subpanels.map((sp) => {
+                    const camps = connectedAmps(sp.units)
+                    const oload = camps > sp.feederAmp
+                    return (
+      ```
+      Replace with:
+      ```jsx
+                  {subEnabled && subpanels.map((sp) => {
+                    const camps = connectedAmps(sp.units)
+                    return (
+      ```
+      Hunk 2 — find:
+      ```jsx
+                          <span className={`oload ${oload ? 'bad' : 'ok'}`}>连接负荷 {camps}A / feeder {sp.feederAmp}A{oload ? ' · 超载!' : ''}</span>
+      ```
+      Replace with:
+      ```jsx
+                          <span className="oload info">断路器额定合计 {camps}A · 非负荷计算,仅供与实物面板核对</span>
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "const oload" admin/src/pages/LoadCalc.jsx` → 0 matches. `grep -n "oload info" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+- [ ] **Step 4** — `admin/src/pages/LoadCalc.jsx` (CSS string) — Replace the two-tone `.oload.ok`/`.oload.bad` rules with a single neutral `.oload.info` rule.
+      Find:
+      ```css
+      .lc .subctl .oload{font-size:11px;font-weight:700;font-family:"Fira Code",monospace;padding:3px 9px;border-radius:999px}
+      .lc .subctl .oload.ok{color:var(--accent-d);background:var(--accent-bg);border:1px solid #A7F3D0}
+      .lc .subctl .oload.bad{color:#B45309;background:#FFFBEB;border:1px solid #FDE68A}
+      ```
+      Replace with:
+      ```css
+      .lc .subctl .oload{font-size:11px;font-weight:700;font-family:"Fira Code",monospace;padding:3px 9px;border-radius:999px}
+      .lc .subctl .oload.info{color:var(--ink3);background:var(--app);border:1px solid var(--line2)}
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "oload.ok\|oload.bad" admin/src/pages/LoadCalc.jsx` → 0 matches. `grep -n "oload.info" admin/src/pages/LoadCalc.jsx` → 1 match (CSS rule; the JSX className match from Step 3 is a separate string `"oload info"` without the dot, so this grep only counts the CSS selector).
+
+## admin/src/pages/LoadCalc.jsx — §3.2 wiring: import, state, persistence, setters
+
+- [ ] **Step 5** — `admin/src/pages/LoadCalc.jsx` — Import the two new pure functions from `cecLoad.js`.
+      Find:
+      ```js
+      import { computeLoad, connectedAmps } from '../utils/cecLoad.js'
+      ```
+      Replace with:
+      ```js
+      import { computeLoad, connectedAmps, busbarCheck, solarAmpsOf } from '../utils/cecLoad.js'
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "busbarCheck, solarAmpsOf" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+- [ ] **Step 6** — `admin/src/pages/LoadCalc.jsx` — Add the top-level `busbar` state (main panel), `null` = follow the main breaker rating.
+      Find:
+      ```js
+        const [brand, setBrand] = useState('Square D QO')
+        const [main, setMain] = useState('100 A')
+        const [slots, setSlots] = useState(30)
+        const [units, setUnits] = useState([])
+        const [subEnabled, setSubEnabled] = useState(false)
+        const [subpanels, setSubpanels] = useState([]) // [{ id, name, feederAmp, slots, units }]
+      ```
+      Replace with:
+      ```js
+        const [brand, setBrand] = useState('Square D QO')
+        const [main, setMain] = useState('100 A')
+        const [busbar, setBusbar] = useState(null) // null = follow main breaker rating (CEC 64-112 busbar rating, may exceed main OCPD)
+        const [slots, setSlots] = useState(30)
+        const [units, setUnits] = useState([])
+        const [subEnabled, setSubEnabled] = useState(false)
+        const [subpanels, setSubpanels] = useState([]) // [{ id, name, feederAmp, slots, units, busbar }]
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "const \[busbar, setBusbar\]" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+- [ ] **Step 7** — `admin/src/pages/LoadCalc.jsx` — Restore `busbar` on load. (Subpanel `busbar` needs no separate line — it flows through automatically as part of the whole `subpanels` array already restored by `setSubpanels(subs)`, same as `feederAmp`/`name`.)
+      Find:
+      ```js
+            if (v.brand != null) setBrand(v.brand)
+            if (v.main != null) setMain(v.main)
+            if (v.slots != null) setSlots(v.slots)
+      ```
+      Replace with:
+      ```js
+            if (v.brand != null) setBrand(v.brand)
+            if (v.main != null) setMain(v.main)
+            if (v.busbar != null) setBusbar(v.busbar)
+            if (v.slots != null) setSlots(v.slots)
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "if (v.busbar != null) setBusbar(v.busbar)" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+- [ ] **Step 8** — `admin/src/pages/LoadCalc.jsx` — Include `busbar` in the saved value object. (Subpanel `busbar` needs no separate handling — it's already part of each subpanel object in the `subpanels` array.)
+      Find:
+      ```js
+          const value = { brand, main, slots, units, subEnabled, subpanels, calc: { area, heatType, heat, acOn, ac, range, whType, whKw, hottubOn, hottubKw, poolOn, poolKw, other } }
+      ```
+      Replace with:
+      ```js
+          const value = { brand, main, busbar, slots, units, subEnabled, subpanels, calc: { area, heatType, heat, acOn, ac, range, whType, whKw, hottubOn, hottubKw, poolOn, poolKw, other } }
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "brand, main, busbar, slots" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+- [ ] **Step 9** — `admin/src/pages/LoadCalc.jsx` — Add `setSubBusbar(sid, n)`, right after `setSubFeeder`. Mirrors `setSubFeeder`'s pattern but only touches the `subpanels` array (busbar isn't mirrored onto any `units` circuit the way feeder amp is onto the feeder breaker's label).
+      Find:
+      ```js
+        function setSubFeeder(sid, amp) {
+          setSubpanels((ps) => ps.map((s) => (s.id === sid ? { ...s, feederAmp: amp } : s)))
+          setUnits((p) => p.map((u) => (u.kind === 'feeder' && u.subId === sid)
+            ? { ...u, circuits: [{ ...u.circuits[0], amp }] } : u))
+        }
+      ```
+      Replace with:
+      ```js
+        function setSubFeeder(sid, amp) {
+          setSubpanels((ps) => ps.map((s) => (s.id === sid ? { ...s, feederAmp: amp } : s)))
+          setUnits((p) => p.map((u) => (u.kind === 'feeder' && u.subId === sid)
+            ? { ...u, circuits: [{ ...u.circuits[0], amp }] } : u))
+        }
+
+        function setSubBusbar(sid, n) {
+          setSubpanels((ps) => ps.map((s) => (s.id === sid ? { ...s, busbar: n } : s)))
+        }
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "function setSubBusbar" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+- [ ] **Step 10** — `admin/src/pages/LoadCalc.jsx` — Add `mainOcpdA`, `busbarEffMain`, and `anySolar` consts, right after `brandTag`.
+      Find:
+      ```js
+        const brandTag = (brand.split(' ')[0] || 'PANEL').toUpperCase()
+      ```
+      Replace with:
+      ```js
+        const brandTag = (brand.split(' ')[0] || 'PANEL').toUpperCase()
+        const mainOcpdA = parseInt(main, 10) || 100
+        const busbarEffMain = busbar ?? mainOcpdA
+        const anySolar = solarAmpsOf(units) > 0 || subpanels.some((s) => solarAmpsOf(s.units) > 0)
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "const busbarEffMain\|const anySolar" admin/src/pages/LoadCalc.jsx` → 2 matches.
+
+## admin/src/pages/LoadCalc.jsx — §3.2.4 render64112 helper (must exist before Steps 13/14 call it)
+
+- [ ] **Step 11** — `admin/src/pages/LoadCalc.jsx` — Add the `render64112` helper right after `renderUnit`'s closing brace, before the `renderPanel` comment.
+      Find:
+      ```jsx
+              <button className="del" onClick={(e) => { e.stopPropagation(); deleteUnit(pid, u.id) }}>×</button>
+            </div>
+          )
+        }
+
+        /* ---------- render one panel (main or a subpanel) ---------- */
+        function renderPanel(pid, pslots, punits, tag, ttl, mainLine, extraClass) {
+      ```
+      Replace with:
+      ```jsx
+              <button className="del" onClick={(e) => { e.stopPropagation(); deleteUnit(pid, u.id) }}>×</button>
+            </div>
+          )
+        }
+
+        // CEC 64-112(4)(c)&(d) dwelling 125% busbar check for one panel (main or a subpanel).
+        // Returns null (renders nothing) when the panel has no solar breaker, or when busbar/mainOcpd data is insufficient — never a guessed verdict.
+        function render64112(punits, mainOcpd, busbarEff) {
+          const solarA = solarAmpsOf(punits)
+          if (solarA === 0) return null
+          const chk = busbarCheck({ busbar: busbarEff, mainOcpd, solarA })
+          if (!chk) return null
+          return (
+            <div className={`code64 ${chk.ok ? 'ok' : 'bad'}`}>
+              {chk.ok ? '✓' : '✗'} 64-112(4)(c)(d): 主OCPD {mainOcpd}A + PV {solarA}A = {chk.sum}A
+              {chk.ok ? ' ≤ ' : ' > '}busbar {busbarEff}A × 125% = {chk.limit}A
+              {!chk.ok && <div className="fixpath">超限 · 本盘 PV breaker 上限 {chk.maxPv}A · 出路: line-side tap / 64-112(g) 限流 / 换大 busbar 的盘</div>}
+            </div>
+          )
+        }
+
+        /* ---------- render one panel (main or a subpanel) ---------- */
+        function renderPanel(pid, pslots, punits, tag, ttl, mainLine, extraClass) {
+      ```
+      Note: match the file's actual indentation (top-level functions inside the component are indented 2 spaces, as shown by the surrounding `function renderPanel` line) — the snippet above uses that same indent level for consistency with the rest of this file's conventions.
+      verify: `cd admin && npm run build` → succeeds. `grep -n "function render64112" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+## admin/src/pages/LoadCalc.jsx — §3.2.3 UI inputs (main + subpanel)
+
+- [ ] **Step 12** — `admin/src/pages/LoadCalc.jsx` — Add the main-panel `Busbar (A)` input in `.cfg`, between `Main breaker` and `Spaces (slots)`.
+      Find:
+      ```jsx
+              <label>Main breaker
+                <select className="w-amp" value={main} onChange={(e) => setMain(e.target.value)}>
+                  <option>60 A</option><option>100 A</option><option>125 A</option><option>200 A</option>
+                </select>
+              </label>
+              <label>Spaces (slots)<input className="w-slot" type="number" value={slots} min="12" max="60" step="2" onChange={(e) => changeSlots('main', e.target.value)} /></label>
+      ```
+      Replace with:
+      ```jsx
+              <label>Main breaker
+                <select className="w-amp" value={main} onChange={(e) => setMain(e.target.value)}>
+                  <option>60 A</option><option>100 A</option><option>125 A</option><option>200 A</option>
+                </select>
+              </label>
+              <label>Busbar (A)
+                <input className="w-slot" type="number" min="15" max="800" step="5"
+                  placeholder={String(mainOcpdA)}
+                  value={busbar ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    if (v === '') { setBusbar(null); return }
+                    const n = parseInt(v, 10)
+                    if (Number.isFinite(n) && n > 0) setBusbar(n)
+                  }} />
+              </label>
+              <label>Spaces (slots)<input className="w-slot" type="number" value={slots} min="12" max="60" step="2" onChange={(e) => changeSlots('main', e.target.value)} /></label>
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "Busbar (A)" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+- [ ] **Step 13** — `admin/src/pages/LoadCalc.jsx` — Insert the main-panel `render64112` call, right after the main `renderPanel(...)` call inside `.stage`.
+      Find:
+      ```jsx
+                  <div className="stage" id="panelPrint">
+                    {renderPanel('main', slots, units, brandTag, 'Load Centre',
+                      <><span className="dot" /> MAIN <span className="mono">{calc.svc}A</span></>)}
+
+                    {subEnabled && <datalist id="feederPresets">{FEEDER_AMPS.map((a) => <option key={a} value={a} />)}</datalist>}
+      ```
+      Replace with:
+      ```jsx
+                  <div className="stage" id="panelPrint">
+                    {renderPanel('main', slots, units, brandTag, 'Load Centre',
+                      <><span className="dot" /> MAIN <span className="mono">{calc.svc}A</span></>)}
+                    {render64112(units, mainOcpdA, busbarEffMain)}
+
+                    {subEnabled && <datalist id="feederPresets">{FEEDER_AMPS.map((a) => <option key={a} value={a} />)}</datalist>}
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "render64112(units, mainOcpdA, busbarEffMain)" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+- [ ] **Step 14** — `admin/src/pages/LoadCalc.jsx` — Insert the subpanel `render64112` call, between the subpanel's `renderPanel(...)` call and the `.subctl` div (NEVER inside `.subctl` — it's `display:none` in print, per DESIGN.md §3.2.4).
+      Find:
+      ```jsx
+                            {' '}<span className="mono">{sp.feederAmp}A</span></>, 'sub')}
+                          <div className="subctl">
+      ```
+      Replace with:
+      ```jsx
+                            {' '}<span className="mono">{sp.feederAmp}A</span></>, 'sub')}
+                          {render64112(sp.units, sp.feederAmp, sp.busbar ?? sp.feederAmp)}
+                          <div className="subctl">
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "render64112(sp.units, sp.feederAmp" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+- [ ] **Step 15** — `admin/src/pages/LoadCalc.jsx` — Add the subpanel `Busbar` input in `.subctl`, after `Slots` and before the (now-neutral) `oload` info pill from Step 3.
+      Find:
+      ```jsx
+                            <label>Slots
+                              <input type="number" min="6" max="42" step="2" value={sp.slots} onChange={(e) => changeSlots(sp.id, e.target.value)} />
+                            </label>
+                            <span className="oload info">断路器额定合计 {camps}A · 非负荷计算,仅供与实物面板核对</span>
+      ```
+      Replace with:
+      ```jsx
+                            <label>Slots
+                              <input type="number" min="6" max="42" step="2" value={sp.slots} onChange={(e) => changeSlots(sp.id, e.target.value)} />
+                            </label>
+                            <label>Busbar
+                              <input type="number" min="15" max="800" step="5" placeholder={String(sp.feederAmp)}
+                                value={sp.busbar ?? ''}
+                                onChange={(e) => {
+                                  const v = e.target.value
+                                  if (v === '') { setSubBusbar(sp.id, null); return }
+                                  const n = parseInt(v, 10)
+                                  if (Number.isFinite(n) && n > 0) setSubBusbar(sp.id, n)
+                                }} />
+                            </label>
+                            <span className="oload info">断路器额定合计 {camps}A · 非负荷计算,仅供与实物面板核对</span>
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "setSubBusbar(sp.id" admin/src/pages/LoadCalc.jsx` → 2 matches (the `null` branch and the `n` branch).
+
+## admin/src/pages/LoadCalc.jsx — §3.2.4 CSS for `.code64`
+
+- [ ] **Step 16** — `admin/src/pages/LoadCalc.jsx` (CSS string) — Add `.code64` styles, right after the `.subctl .rmsub:hover` rule and before `.kv`.
+      Find:
+      ```css
+      .lc .subctl .rmsub:hover{background:#FEE2E2}
+
+      .lc .kv{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px dashed var(--line2)}
+      ```
+      Replace with:
+      ```css
+      .lc .subctl .rmsub:hover{background:#FEE2E2}
+
+      .lc .code64{width:100%;max-width:400px;margin-top:2px;padding:9px 12px;border-radius:10px;font-size:11.5px;font-weight:700;font-family:"Fira Code",monospace;line-height:1.5}
+      .lc .code64.ok{color:var(--accent-d);background:var(--accent-bg);border:1px solid #A7F3D0}
+      .lc .code64.bad{color:var(--rose);background:var(--red-bg);border:1px solid #FECACA}
+      .lc .code64 .fixpath{margin-top:4px;font-weight:600;font-size:11px;opacity:.9}
+
+      .lc .kv{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px dashed var(--line2)}
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "\.lc \.code64{" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+## admin/src/pages/LoadCalc.jsx — §3.2.5 hint/tip text (Kuo's Q1 addition lives here)
+
+- [ ] **Step 17** — `admin/src/pages/LoadCalc.jsx` — Rewrite the palette `.tip` text: remove the old "并网母线校验(120% 规则)不在本工具范围" sentence, replace with the new 64-112 pointer.
+      Find:
+      ```jsx
+                  <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。Solar 为发电源,不抵扣 8-200 计算负荷;并网母线校验(120% 规则)不在本工具范围,由电工在图纸阶段确认。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
+      ```
+      Replace with:
+      ```jsx
+                  <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。Solar 为发电源,不抵扣 8-200 计算负荷;盘内放入 Solar breaker 后自动按 64-112(4)(c)(d) 做 125% 母线核算(住宅);busbar 额定请照铭牌填写,不填时按主开关/feeder 额定保守取值。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "自动按 64-112(4)(c)(d) 做 125% 母线核算" admin/src/pages/LoadCalc.jsx` → 1 match. `grep -n "并网母线校验(120% 规则)不在本工具范围" admin/src/pages/LoadCalc.jsx` → 0 matches.
+
+- [ ] **Step 18** — `admin/src/pages/LoadCalc.jsx` — Add the conditional 64-112 hint line at the bottom of `.stage`, rendered only when any panel (main or a subpanel) has a solar breaker. **Use this exact 4-item string** (DESIGN.md `## Review`, Q1: Kuo's line-side-tap-vs-load-side-backfeed determination is item ①, front-loaded; the architect's original ①②③ are renumbered ②③④ — do not reorder, do not paraphrase, do not add a 5th bullet).
+      Find:
+      ```jsx
+                    <div className="hint" style={{ width: '100%', textAlign: 'center' }}>计算负荷不低于 CEC 8-200(1)(b) 最小 service 下限(minSvc {calc.minSvc}A)。</div>
+                  </div>
+                </div>
+              </div>
+      ```
+      Replace with:
+      ```jsx
+                    <div className="hint" style={{ width: '100%', textAlign: 'center' }}>计算负荷不低于 CEC 8-200(1)(b) 最小 service 下限(minSvc {calc.minSvc}A)。</div>
+                    {anySolar && (
+                      <div className="hint" style={{ width: '100%', textAlign: 'center' }}>64-112 附带条件(电工现场核实):① 先确认现有 PV 是 load-side backfeed(经断路器接入母线,需按 64-112 核算)还是 line-side tap(计量表前/进线侧接入,不占用任何一层母线余量,不在本核算范围——line-side 接入请勿在图内放置 Solar breaker,以下②-④ 均不适用);② PV breaker 须位于母线远离主进线的一端,且贴永久"不得移位"标签;③ 多电源盘按 14-414 设"断开全部隔离开关方可断电"警示;④ PV 位于 subpanel 时,上游主面板母线是否同样需按 64-112 复核(feeder 视为电源侧 OCPD)由电工判定。</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "先确认现有 PV 是 load-side backfeed" admin/src/pages/LoadCalc.jsx` → 1 match. `grep -n "anySolar &&" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+## admin/src/pages/LoadCalc.jsx — §3.3 EVEMS verdict text
+
+- [ ] **Step 19** — `admin/src/pages/LoadCalc.jsx` — Append the EVEMS certification/accepted-list sentence to the verdict's over-capacity branch small text.
+      Find:
+      ```jsx
+                      <small>{over
+                        ? '缺口 ' + (calc.amps - calc.svc).toFixed(0) + ' A · CEC 8-106(10) 加 EVEMS 可把 EV 限到剩余容量免升级。' + note
+                        : '余量 ' + (calc.svc - calc.amps).toFixed(0) + ' A。' + note}</small>
+      ```
+      Replace with:
+      ```jsx
+                      <small>{over
+                        ? '缺口 ' + (calc.amps - calc.svc).toFixed(0) + ' A · CEC 8-106(10) 加 EVEMS 可把 EV 限到剩余容量免升级。EVEMS 设备须 ULC-ORD-3141 认证或在 City of Calgary accepted models list 上(不在名单可邮件 electricaltac@calgary.ca 评审)。' + note
+                        : '余量 ' + (calc.svc - calc.amps).toFixed(0) + ' A。' + note}</small>
+      ```
+      verify: `cd admin && npm run build` → succeeds. `grep -n "ULC-ORD-3141" admin/src/pages/LoadCalc.jsx` → 1 match.
+
+## admin/src/utils/cecLoad.selfcheck.mjs — §3.5 regression assertions
+
+- [ ] **Step 20** — `admin/src/utils/cecLoad.selfcheck.mjs` — Import `busbarCheck` and `solarAmpsOf`.
+      Find:
       ```js
       import { basicLoad, heatDemand, rangeDemand, otherDemand, computeLoad, connectedAmps } from './cecLoad.js'
       ```
-      Then find:
-      ```js
-      console.log('cecLoad self-check: all assertions passed')
-      ```
       Replace with:
       ```js
-      // connectedAmps: only load breakers counted — feeder AND solar excluded (solar is a source, not a load)
-      const mixedUnits = [
-        { kind: 'normal', circuits: [{ amp: 15 }, { amp: 20 }] },
-        { kind: 'feeder', circuits: [{ amp: 60 }] },
-        { kind: 'solar', circuits: [{ amp: 20 }] },
-      ]
-      assert.equal(connectedAmps(mixedUnits), 35) // 15+20 only; feeder(60) and solar(20) excluded
+      import { basicLoad, heatDemand, rangeDemand, otherDemand, computeLoad, connectedAmps, busbarCheck, solarAmpsOf } from './cecLoad.js'
+      ```
+      verify: `cd admin && node src/utils/cecLoad.selfcheck.mjs` → still prints `cecLoad self-check: all assertions passed` (Step 21 not yet applied, but the import itself must resolve without error once Step 2 has landed). `grep -n "busbarCheck, solarAmpsOf" admin/src/utils/cecLoad.selfcheck.mjs` → 1 match.
 
-      // SUB-1 production shape: 2x20A solar PV must never inflate the connected-load figure
-      const sub1Shape = [
-        { kind: 'solar', circuits: [{ amp: 20 }] },
-        { kind: 'solar', circuits: [{ amp: 20 }] },
-        { kind: 'normal', circuits: [{ amp: 30 }] },
-        { kind: 'normal', circuits: [{ amp: 30 }] },
-        { kind: 'normal', circuits: [{ amp: 25 }] },
-      ]
+- [ ] **Step 21** — `admin/src/utils/cecLoad.selfcheck.mjs` — Add the 64-112 table assertions and the STANDATA EV-dilution assertion, before the final `console.log`. The `busbar:60, mainOcpd:60, solarA:40 → ok:false` case is the FFT-2026-0002 SUB-1 default (busbar unfilled → follows the 60A feeder) — **this is the correct, designed-for behavior, not a bug**; do not "fix" it by changing the assertion or the underlying `busbarCheck` logic (see DESIGN.md §3.2.4 "预期行为声明").
+      Find:
+      ```js
       assert.equal(connectedAmps(sub1Shape), 85) // loads only: 30+30+25; both 20A solar breakers excluded (was 125 before the fix)
 
       console.log('cecLoad self-check: all assertions passed')
       ```
-      verify: `node admin/src/utils/cecLoad.selfcheck.mjs` → prints `cecLoad self-check: all assertions passed`, exit code 0.
+      Replace with:
+      ```js
+      assert.equal(connectedAmps(sub1Shape), 85) // loads only: 30+30+25; both 20A solar breakers excluded (was 125 before the fix)
+
+      // CEC 64-112(4)(c)&(d) dwelling table (authoritative input 2026-07):
+      // busbar/main → PV max: 100/100→25, 125/100→56.25, 200/200→50, 225/200→81.25
+      assert.equal(busbarCheck({ busbar: 100, mainOcpd: 100, solarA: 0 }).maxPv, 25)
+      assert.equal(busbarCheck({ busbar: 125, mainOcpd: 100, solarA: 0 }).maxPv, 56.25)
+      assert.equal(busbarCheck({ busbar: 200, mainOcpd: 200, solarA: 0 }).maxPv, 50)
+      assert.equal(busbarCheck({ busbar: 225, mainOcpd: 200, solarA: 0 }).maxPv, 81.25)
+      assert.equal(busbarCheck({ busbar: 100, mainOcpd: 100, solarA: 25 }).ok, true)   // exactly at limit
+      assert.equal(busbarCheck({ busbar: 100, mainOcpd: 100, solarA: 30 }).ok, false)
+      assert.equal(busbarCheck({ busbar: 60, mainOcpd: 60, solarA: 40 }).ok, false)    // FFT-2026-0002 SUB-1, busbar unfilled → follows 60A feeder → conservative fail. EXPECTED, not a bug — see DESIGN.md §3.2.4.
+      assert.equal(busbarCheck({ busbar: 100, mainOcpd: 60, solarA: 40 }).ok, true)    // same panel with real 100A bus recorded
+      assert.equal(busbarCheck({ busbar: 0, mainOcpd: 100, solarA: 20 }), null)        // insufficient data → no verdict, never a guess
+      assert.equal(solarAmpsOf([{ kind: 'solar', circuits: [{ amp: 20 }] }, { kind: 'solar', circuits: [{ amp: 20 }] }, { kind: 'normal', circuits: [{ amp: 40 }] }]), 40)
+
+      // STANDATA 24-ECB-008: evW must not be diluted by any demand factor — delta of totals with/without EV === full evW
+      const noEv = computeLoad({ area: 200, heat: 15, ac: 5, range: 12, wh: 5, other: 6, heatType: 'electric', main: '100 A', evW: 0 })
+      const withEv = computeLoad({ area: 200, heat: 15, ac: 5, range: 12, wh: 5, other: 6, heatType: 'electric', main: '100 A', evW: 11520 })
+      assert.equal(withEv.total - noEv.total, 11520)
+
+      console.log('cecLoad self-check: all assertions passed')
+      ```
+      verify: `cd admin && node src/utils/cecLoad.selfcheck.mjs` → prints `cecLoad self-check: all assertions passed`, exit code 0.
 
 ---
 
 ## Test plan
 
-- **Full self-check**: `node admin/src/utils/cecLoad.selfcheck.mjs` → all assertions pass including the two new ones from Step 25.
-- **Build**: `cd admin && npm run build` → succeeds with no errors (run once more at the end, after all 25 steps, as the final gate).
-- **Lint** (final gate only, not per-step — `eslint .` spans the whole `admin/` tree so pre-existing warnings elsewhere shouldn't block individual steps): `cd admin && npm run lint` → no new errors in `LoadCalc.jsx` / `cecLoad.js` / `cecLoad.selfcheck.mjs` compared to a pre-change baseline run.
-- **Manual — Bug 1 (sticky palette)**: at ≥1361px viewport width, scroll the page; the Breakers column should stick to the top of the scroll area once it reaches the top. Below 1361px (single column), it must NOT stick (confirm by resizing across the boundary).
-- **Manual — Bug 2 (inline rename)**: click a subpanel's name in its title bar → becomes an editable input, auto-focused. Type a new name, press Enter → commits, input reverts to text, and the main panel's feeder label ("→ SUB-n") updates to match. Click again, type a name, press Escape → reverts to the previous name (no rename). Click again, clear the field entirely, blur (click elsewhere) → falls back to the previous name (not empty). Type 40 characters, blur → truncated to 24.
-- **Manual — Bug 3 (feeder free entry)**: in a subpanel's Feeder field, type `50`, tab away → accepted, subctl "连接负荷 vs feeder" comparison updates to use 50A. Type a value outside 15–400 or non-numeric → rejected (previous valid value is retained, no crash). The datalist dropdown still offers 40/60/100/125 as quick picks.
-- **Manual — Bug 4 (overflow)**: at 1366×768 and 1280×800 viewports, with 2 subpanels open, confirm the three-column layout has no horizontal page scroll and no clipped right column; below 1360px, confirm the layout is a clean single column (not a squeezed three-column).
-- **Manual — Bug 5 (new breaker types + placement engine)**:
-  - Drag `1-Pole 120V(宽体)` (p2_120) onto an empty 2-slot spot → places successfully, occupies exactly 2 slots, shows amp + "·120V" (not "·240V"), no amber tint on its indicator.
-  - Drag `2-Pole 100A(大框架)` (quad4) onto an empty 4-slot run → places successfully, occupies exactly 4 contiguous slots at ~141px height, shows amber tint (pole 2, implicit 240V).
-  - Drag quad4 onto a spot that overlaps an existing breaker → rejected (no placement, no overlap on screen).
-  - Drag quad4 near the bottom of the panel such that its 4-slot span would run past the last slot → rejected.
-  - Place a quad4, then drag-move it to a different empty 4-slot spot within the same panel → succeeds; drag-move it onto a spot overlapping itself only → allowed (no false self-collision, `exceptId` still works); drag-move onto a spot overlapping a different unit → rejected.
-  - Shrink the panel's slot count so a placed quad4 no longer fits → it is silently removed (existing `keepFitting` crop behavior, now correctly generalized to span 4, not just span 2).
-- **Manual — Solar tip + hints**: palette `.tip` text includes the new "并网母线校验(120% 规则)不在本工具范围" sentence. Area input row shows the grey "地下室部分按 8-110 计 75%" hint. Print preview (`window.print()` / browser print dialog) shows the "计算负荷不低于 CEC 8-200(1)(b)…" footnote under the panel diagram(s), and does NOT show it if `#panelPrint`-hidden elements are checked (confirm it's the only new visible text in the print output besides the diagram).
+- **Full self-check**: `cd admin && node src/utils/cecLoad.selfcheck.mjs` → all assertions pass, including the new 64-112 table and STANDATA delta assertions from Step 21.
+- **Build**: `cd admin && npm run build` → succeeds with no errors (run once more at the end, after all 21 steps, as the final gate).
+- **Lint** (final gate only): `cd admin && npm run lint` → no new errors in `LoadCalc.jsx` / `cecLoad.js` / `cecLoad.selfcheck.mjs` compared to a pre-change baseline run.
+- **Manual — §3.1 info pill**: open a case's Load Calc, enable a subpanel with breakers whose ratings sum above the feeder rating. Confirm the pill reads "断路器额定合计 {N}A · 非负荷计算,仅供与实物面板核对" in **neutral grey**, with no "超载!" text and no red/amber coloring anywhere on that pill, regardless of how high the sum is relative to the feeder rating.
+- **Manual — §3.2 busbar input, main panel**: leave `Busbar (A)` empty → placeholder shows the main breaker's numeric rating (e.g. "100"). Type `225`, tab away → value persists as `225`; clear the field → reverts to placeholder/follow behavior (not a literal `0`).
+- **Manual — §3.2 busbar input, subpanel**: same behavior in a subpanel's `Busbar` field inside `.subctl`, placeholder = that subpanel's current feeder rating.
+- **Manual — §3.2.4 64-112 status line, no-solar case**: a panel (main or subpanel) with zero solar breakers shows NO 64-112 row at all — confirm it doesn't render even as an empty/blank line.
+- **Manual — §3.2.4 64-112 status line, FFT-2026-0002 SUB-1 default-✗ (EXPECTED BEHAVIOR, do not treat as a bug)**: create a subpanel with feeder 60A and two 20A solar breakers, leave its Busbar field empty. Confirm the 64-112 row shows **✗** with "主OCPD 60A + PV 40A = 100A > busbar 60A × 125% = 75A" and a red `.code64.bad` pill with the `fixpath` line underneath. Then fill Busbar with `100` → row flips to **✓** green, "100+40=140A ≤ 100×1.25=125A" — wait, verify the exact printed numbers match what `busbarCheck({busbar:100, mainOcpd:60, solarA:40})` actually returns (sum=100, limit=125, ok=true) rather than assuming; the point of this check is confirming the default-conservative-then-corrects-with-real-data behavior, not a specific narrative.
+- **Manual — §3.2.4 print visibility**: with at least one panel showing a 64-112 row (✓ or ✗), open the browser print preview (`window.print()`). Confirm the 64-112 row IS visible in the print preview for both the main panel and any subpanel (it must NOT disappear the way anything inside `.subctl` does — `.subctl` is `display:none` in print). Also place a PV breaker on the **main** panel specifically, print-preview, and confirm the 64-112 row stays attached to the main panel and is not orphaned onto a separate page by itself — this is the one pagination risk DESIGN.md §6 flags as needing real verification (subpanels are already inside `.substage`'s `break-inside:avoid` box and are not at risk; only the main panel's row sits as a loose sibling in `.stage`). If it does get orphaned, do not silently patch it — report to Kuo/implementer for a follow-up fix (e.g. wrapping the main panel + its 64-112 row in a shared `break-inside:avoid` container), it is out of this round's atomic step scope.
+- **Manual — §3.2.5 hint text**: with no solar breakers placed anywhere, confirm the "64-112 附带条件" hint line does NOT appear at all (only the pre-existing "计算负荷不低于 CEC 8-200(1)(b)…" line shows). Place one solar breaker anywhere (main or subpanel) → confirm the second hint line appears, starting with "① 先确认现有 PV 是 load-side backfeed…" and reads all four numbered items in order (① line-side/load-side determination, ② busbar-end placement + permanent label, ③ 14-414 warning label, ④ upstream cascade judgment call) — exact text must match Step 18 verbatim, not a paraphrase.
+- **Manual — §3.2.5 tip text**: palette `.tip` text no longer contains "并网母线校验(120% 规则)不在本工具范围"; it now reads "...盘内放入 Solar breaker 后自动按 64-112(4)(c)(d) 做 125% 母线核算(住宅);busbar 额定请照铭牌填写,不填时按主开关/feeder 额定保守取值。"
+- **Manual — §3.3 EVEMS text**: push the calculated load over the service capacity (e.g. add a large EV breaker on a small service) → verdict's small text under "超出 service 容量…" includes "EVEMS 设备须 ULC-ORD-3141 认证或在 City of Calgary accepted models list 上(不在名单可邮件 electricaltac@calgary.ca 评审)。" before the "最小 service …" note. Confirm the under-capacity (ok) branch is unchanged (no EVEMS sentence there — it's not relevant when there's no gap to fill with EVEMS).
+- **Manual — save/load round-trip**: set a main-panel Busbar value and a subpanel Busbar value, click "Save to case", reload the page. Confirm both values are restored exactly (not reverted to placeholder/follow). Then clear the main Busbar field, save, reload — confirm it comes back empty/following (not a stale old value).
 - **Red-line spot checks**:
-  - *Electrical correctness*: `grep -n "kind === 'solar'" admin/src/utils/cecLoad.js` shows solar excluded from `connectedAmps`; `grep -n "evW" admin/src/utils/cecLoad.js` confirms `computeLoad` still has no PV/solar parameter anywhere (PV never offsets `calc.amps`). No busbar-rating input or 120%-rule logic exists anywhere (`grep -n "busbar\|120%" admin/src/pages/LoadCalc.jsx admin/src/utils/cecLoad.js` → no matches, confirming Q5/Q6 stayed unimplemented as decided).
-  - *Trust-boundary validation*: feeder input rejects non-numeric and ≤0 (guard clause from Step 14 present: `grep -n "Number.isFinite(n) && n > 0" admin/src/pages/LoadCalc.jsx`); rename trims/truncates/falls back (Step 12's `commitSubRename` body present).
-  - *Data loss*: `toggleSub`'s `window.confirm` before deleting subpanels is untouched (`grep -n "window.confirm" admin/src/pages/LoadCalc.jsx` → still present); `save()`'s catch block still calls `flash(...)` on failure, no silent swallow.
-  - *Accessibility*: subname edit entry is a real `<button type="button">` (native keyboard/focus support), with `:focus-visible` CSS present (Step 23); Tab to it and press Enter/Space to confirm it activates without a mouse.
+  - *Electrical correctness — 125% dwelling-only*: `grep -n "1.25" admin/src/utils/cecLoad.js` → exactly 1 match, inside `busbarCheck`, with no conditional/branch around it for a non-dwelling case anywhere in the file.
+  - *Electrical correctness — no guessing on insufficient data*: `grep -n "insufficient data" admin/src/utils/cecLoad.js` → 1 match (the `return null` comment in `busbarCheck`); confirm by reading `render64112` in `LoadCalc.jsx` that a `null` `chk` renders nothing, never a fabricated ✓ or ✗.
+  - *Electrical correctness — PV never offsets calc.amps*: `grep -n "evW\|computeLoad(" admin/src/pages/LoadCalc.jsx` — confirm `calc` (the `useMemo` computing `computeLoad(...)`) has no `busbar`, `busbarCheck`, or `solarA` argument anywhere in its call or its dependency array; `grep -n "function computeLoad" admin/src/utils/cecLoad.js` → signature unchanged from before this round (no new parameter).
+  - *Electrical correctness — position compliance is text-only*: `grep -n "render64112\|busbarCheck" admin/src/pages/LoadCalc.jsx` — confirm every call site only ever renders `chk.ok`/`chk.sum`/`chk.limit`/`chk.maxPv` (numeric verdict), and that the position/label/cascade/line-side-tap content added in Step 18 is a static JSX string with no computed condition beyond `anySolar` (which only gates whether the paragraph shows, not what it says).
+  - *Trust-boundary validation*: `grep -n "Number.isFinite(n) && n > 0" admin/src/pages/LoadCalc.jsx` → at least 4 matches (pre-existing feeder/slots guards + the two new busbar guards from Steps 12/15).
+  - *Data loss*: `grep -n "window.confirm" admin/src/pages/LoadCalc.jsx` → still present (subpanel-removal confirm, untouched); `save()`'s catch block still calls `flash(...)` on failure (`grep -n "flash(e?.response" admin/src/pages/LoadCalc.jsx` → 1 match, unchanged).
+  - *Accessibility*: both new Busbar inputs are inside real `<label>` elements (`grep -n "<label>Busbar" admin/src/pages/LoadCalc.jsx` → 2 matches — main cfg + subctl); the `.code64` row shows `✓`/`✗` glyphs together with full numeric text, never color alone (visually confirm in a black-and-white print preview that ok/bad are still distinguishable by the glyph and text, not just by red/green).
+  - *Scope discipline (Q4)*: `grep -rn "busbar\|64-112\|Survey" backend/app/models/models.py backend/app/api/v1/admin/cases.py` → 0 matches for `busbar`/`64-112`, confirming zero backend/model changes landed; the `Survey` model (if matched at all) shows no new fields beyond what existed before this round.
