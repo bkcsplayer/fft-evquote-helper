@@ -10,6 +10,10 @@ const TYPES = {
   p2: { slots: 2, kind: 'normal', mk: () => [{ label: '', amp: 30, pole: 2 }] },
   tan: { slots: 1, kind: 'normal', mk: () => [{ label: '', amp: 15, pole: 1 }, { label: '', amp: 15, pole: 1 }] },
   quad: { slots: 2, kind: 'normal', mk: () => [{ label: '', amp: 15, pole: 1 }, { label: '', amp: 30, pole: 2 }, { label: '', amp: 15, pole: 1 }] },
+  // single 120V circuit occupying 2 physical slots (old-style / wide-frame single-pole breaker) — NOT a 2-pole circuit
+  p2_120: { slots: 2, kind: 'normal', mk: () => [{ label: '', amp: 20, pole: 1, volt: 120 }] },
+  // single old-style large-frame 2-pole breaker occupying 4 physical slots — one 240V circuit, not two breakers
+  quad4: { slots: 4, kind: 'normal', mk: () => [{ label: '', amp: 100, pole: 2 }] },
   ev: { slots: 2, kind: 'ev', mk: () => [{ label: 'EV CHARGER', amp: 30, pole: 2 }] },
   solar: { slots: 2, kind: 'solar', mk: () => [{ label: 'SOLAR PV', amp: 40, pole: 2 }] },
   // feeder = the breaker in the MAIN panel that supplies a subpanel. Auto-placed on add, then draggable to any free double-slot.
@@ -23,6 +27,8 @@ const PALETTE = [
   { type: 'p2', glyph: 'p2', bars: 2, t: '2-Pole 240V', s: '占 2 槽' },
   { type: 'tan', glyph: 'tan', bars: 2, t: 'Tandem', s: '占 1 槽 · 双 120V' },
   { type: 'quad', glyph: 'quad', bars: 3, t: 'Quad space-saver', s: '占 2 槽 · 120/240/120' },
+  { type: 'p2_120', glyph: 'p2_120', bars: 1, t: '1-Pole 120V(宽体)', s: '占 2 槽 · 单路 120V' },
+  { type: 'quad4', glyph: 'p2', bars: 2, t: '2-Pole 100A(大框架)', s: '占 4 槽 · 老式宽体 240V' },
   { type: 'ev', glyph: 'p2 evg', bars: 2, t: 'EV Charger 30A', s: '蓝 · 占 2 槽 · 240V', border: '#bfdbfe', tc: '#1d4ed8', sc: '#60a5fa' },
   { type: 'solar', glyph: 'p2 solg', bars: 2, t: 'Solar 40A', s: '红 · 占 2 槽 · 240V', border: '#fecaca', tc: '#b91c1c', sc: '#f87171' },
 ]
@@ -74,6 +80,7 @@ export default function LoadCalc() {
   const [overKey, setOverKey] = useState(null)
   const [flashId, setFlashId] = useState(null)
   const [msg, setMsg] = useState('')
+  const [editingSubId, setEditingSubId] = useState(null)
   const uidRef = useRef(1)
   const subSeqRef = useRef(1)
 
@@ -133,13 +140,20 @@ export default function LoadCalc() {
 
   const slotExists = (pid, col, row) => slotNumber(col, row) <= Math.max(2, getSlots(pid))
   const occupiedAt = (pid, col, row, exceptId) =>
-    getUnits(pid).some((u) => u.id !== exceptId && u.col === col && (u.row === row || (SPAN(u.type) === 2 && u.row + 1 === row)))
+    getUnits(pid).some((u) => u.id !== exceptId && u.col === col && row >= u.row && row < u.row + SPAN(u.type))
+
+  // unified placement legality: every slot in the span must exist and be free
+  function fitsAt(pid, type, col, row, exceptId) {
+    const s = SPAN(type)
+    for (let k = 0; k < s; k++) {
+      if (!slotExists(pid, col, row + k) || occupiedAt(pid, col, row + k, exceptId)) return false
+    }
+    return true
+  }
 
   function place(pid, type, col, row) {
     if (!TYPES[type]) return
-    const s = SPAN(type)
-    if (occupiedAt(pid, col, row)) return
-    if (s === 2 && (!slotExists(pid, col, row + 1) || occupiedAt(pid, col, row + 1))) return
+    if (!fitsAt(pid, type, col, row)) return
     const nid = uidRef.current++
     setUnitsFor(pid, (p) => [...p, { id: nid, type, col, row, kind: TYPES[type].kind, circuits: TYPES[type].mk() }])
     setFlashId(nid)
@@ -150,8 +164,7 @@ export default function LoadCalc() {
   function moveUnit(pid, uid, col, row) {
     const u = getUnits(pid).find((x) => x.id === uid)
     if (!u) return
-    if (occupiedAt(pid, col, row, uid)) return
-    if (SPAN(u.type) === 2 && (!slotExists(pid, col, row + 1) || occupiedAt(pid, col, row + 1, uid))) return
+    if (!fitsAt(pid, u.type, col, row, uid)) return
     setUnitsFor(pid, (p) => p.map((x) => (x.id === uid ? { ...x, col, row } : x)))
   }
 
@@ -174,7 +187,7 @@ export default function LoadCalc() {
     return list.filter((u) => {
       const top = slotNumber(u.col, u.row)
       if (top > n) return false
-      if (SPAN(u.type) === 2 && slotNumber(u.col, u.row + 1) > n) return false
+      if (slotNumber(u.col, u.row + SPAN(u.type) - 1) > n) return false
       return true
     })
   }
@@ -193,9 +206,7 @@ export default function LoadCalc() {
   /* ---------- subpanel management (feeder lives in the MAIN panel) ---------- */
   function firstFreeDouble(pid) {
     for (const { col, row } of buildSlotList(getSlots(pid))) {
-      if (occupiedAt(pid, col, row)) continue
-      if (!slotExists(pid, col, row + 1) || occupiedAt(pid, col, row + 1)) continue
-      return { col, row }
+      if (fitsAt(pid, 'feeder', col, row)) return { col, row }
     }
     return null
   }
@@ -229,6 +240,18 @@ export default function LoadCalc() {
   function removeSubpanel(sid) {
     setUnits((p) => p.filter((u) => !(u.kind === 'feeder' && u.subId === sid)))
     setSubpanels((ps) => ps.filter((s) => s.id !== sid))
+    setEditingSubId((v) => (v === sid ? null : v))
+  }
+
+  function commitSubRename(sid, raw) {
+    const sp = subpanels.find((s) => s.id === sid)
+    if (!sp) { setEditingSubId(null); return }
+    const name = raw.trim().slice(0, 24) || sp.name
+    setSubpanels((ps) => ps.map((s) => (s.id === sid ? { ...s, name } : s)))
+    // main-panel feeder's '→ SUB-n' label must follow the rename (addSubpanel bound the old name at creation time)
+    setUnits((p) => p.map((u) => (u.kind === 'feeder' && u.subId === sid)
+      ? { ...u, circuits: [{ ...u.circuits[0], label: '→ ' + name }] } : u))
+    setEditingSubId(null)
   }
 
   function setSubFeeder(sid, amp) {
@@ -270,11 +293,13 @@ export default function LoadCalc() {
         </div>
       )
     }
-    const span2 = SPAN(u.type) === 2
+    const span = SPAN(u.type)
+    const tall = span > 1
+    const tallStyle = tall ? { height: span * 30 + (span - 1) * 7 } : undefined
     const kindCls = u.kind === 'ev' ? 'ev' : u.kind === 'solar' ? 'solar' : ''
-    const cls = `unit ${kindCls}${span2 ? ' tall' : ''}${flashId === u.id ? ' in surge' : ''}`
+    const cls = `unit ${kindCls}${tall ? ' tall' : ''}${flashId === u.id ? ' in surge' : ''}`
     return (
-      <div className={cls} draggable
+      <div className={cls} style={tallStyle} draggable
         onDragStart={(e) => e.dataTransfer.setData('move', JSON.stringify({ pid, uid: u.id }))}>
         <div className="cstack">
           {u.circuits.map((c, i) => {
@@ -285,7 +310,7 @@ export default function LoadCalc() {
                 {c.label
                   ? <span className="clab">{c.label}</span>
                   : <span className="clab empty">点此命名</span>}
-                <span className="camp">{c.amp}A{c.pole === 2 ? '·240V' : ''}</span>
+                <span className="camp">{c.amp}A{c.volt ? '·' + c.volt + 'V' : c.pole === 2 ? '·240V' : ''}</span>
               </div>
             )
           })}
@@ -391,7 +416,7 @@ export default function LoadCalc() {
                   <div className="row"><span className="sw" style={{ background: '#DC2626' }} />Solar 太阳能</div>
                   {subEnabled && <div className="row"><span className="sw" style={{ background: '#7C3AED' }} />Feeder → Subpanel(馈线)</div>}
                 </div>
-                <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
+                <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。Solar 为发电源,不抵扣 8-200 计算负荷;并网母线校验(120% 规则)不在本工具范围,由电工在图纸阶段确认。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
               </div>
             </div>
 
@@ -404,6 +429,7 @@ export default function LoadCalc() {
                   {renderPanel('main', slots, units, brandTag, 'Load Centre',
                     <><span className="dot" /> MAIN <span className="mono">{calc.svc}A</span></>)}
 
+                  {subEnabled && <datalist id="feederPresets">{FEEDER_AMPS.map((a) => <option key={a} value={a} />)}</datalist>}
                   {subEnabled && subpanels.map((sp) => {
                     const camps = connectedAmps(sp.units)
                     const oload = camps > sp.feederAmp
@@ -411,12 +437,21 @@ export default function LoadCalc() {
                       <div key={sp.id} className="substage">
                         <div className="feedwrap"><span className="feedline" /><span className="feedtag">fed by {sp.feederAmp}A feeder ◄ main</span></div>
                         {renderPanel(sp.id, sp.slots, sp.units, sp.name, 'Sub Panel',
-                          <><span className="dot amber" /> {sp.name} <span className="mono">{sp.feederAmp}A</span></>, 'sub')}
+                          <><span className="dot amber" />{' '}
+                          {editingSubId === sp.id
+                            ? <input className="subname-edit" autoFocus defaultValue={sp.name}
+                                onFocus={(e) => e.target.select()}
+                                onBlur={(e) => commitSubRename(sp.id, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') e.currentTarget.blur()
+                                  if (e.key === 'Escape') { e.currentTarget.value = sp.name; e.currentTarget.blur() }
+                                }} />
+                            : <button type="button" className="subname" onClick={() => setEditingSubId(sp.id)}>{sp.name}</button>}
+                          {' '}<span className="mono">{sp.feederAmp}A</span></>, 'sub')}
                         <div className="subctl">
                           <label>Feeder
-                            <select value={sp.feederAmp} onChange={(e) => setSubFeeder(sp.id, parseInt(e.target.value, 10))}>
-                              {FEEDER_AMPS.map((a) => <option key={a} value={a}>{a} A</option>)}
-                            </select>
+                            <input type="number" min="15" max="400" step="5" list="feederPresets" value={sp.feederAmp}
+                              onChange={(e) => { const n = parseInt(e.target.value, 10); if (Number.isFinite(n) && n > 0) setSubFeeder(sp.id, n) }} />
                           </label>
                           <label>Slots
                             <input type="number" min="6" max="42" step="2" value={sp.slots} onChange={(e) => changeSlots(sp.id, e.target.value)} />
@@ -427,6 +462,7 @@ export default function LoadCalc() {
                       </div>
                     )
                   })}
+                  <div className="hint" style={{ width: '100%', textAlign: 'center' }}>计算负荷不低于 CEC 8-200(1)(b) 最小 service 下限(minSvc {calc.minSvc}A)。</div>
                 </div>
               </div>
             </div>
@@ -441,6 +477,7 @@ export default function LoadCalc() {
                     <span className="sl">居住面积</span>
                     <span className="sc"><input type="number" value={area} onChange={(e) => setArea(e.target.value)} /><em>m²</em></span>
                   </div>
+                  <div className="hint">地下室部分按 8-110 计 75%,请勿把全部地下室面积按 100% 填入此栏。</div>
                   <div className="srow">
                     <span className="sl">供热来源</span>
                     <span className="sc">
@@ -565,8 +602,11 @@ const CSS = `
 .lc .subtoggle .addsub{border:1px solid #C4B5FD;background:#EDE9FE;color:#6D28D9}
 .lc .subtoggle .addsub:hover{background:#DDD6FE}
 
-.lc .grid{display:grid;grid-template-columns:230px 1fr 320px;gap:18px;align-items:start}
-@media(max-width:1100px){.lc .grid{grid-template-columns:1fr}}
+.lc .grid{display:grid;grid-template-columns:230px minmax(0,1fr) 320px;gap:18px;align-items:start}
+@media(max-width:1360px){.lc .grid{grid-template-columns:1fr}}
+@media(min-width:1361px){
+  .lc .grid>.col:first-child{position:sticky;top:0;max-height:calc(100vh - 72px);overflow-y:auto}
+}
 
 .lc .col{background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow)}
 .lc .col .ch{padding:15px 18px 0;font-size:13px;font-weight:700}
@@ -583,6 +623,7 @@ const CSS = `
 .lc .brk .glyph.p2 i:nth-child(1){top:11px}.lc .brk .glyph.p2 i:nth-child(2){top:28px;background:#facc15;box-shadow:none}
 .lc .brk .glyph.tan i:nth-child(1){top:9px;width:11px}.lc .brk .glyph.tan i:nth-child(2){top:30px;width:11px}
 .lc .brk .glyph.quad i:nth-child(1){top:7px;width:10px}.lc .brk .glyph.quad i:nth-child(2){top:18px;width:18px;background:#facc15;box-shadow:none}.lc .brk .glyph.quad i:nth-child(3){top:32px;width:10px}
+.lc .brk .glyph.p2_120 i{top:14px;height:18px;width:16px}
 .lc .brk .t{font-size:12.5px;font-weight:700;line-height:1.25}
 .lc .brk .t small{display:block;font-size:10.5px;color:var(--ink3);font-weight:500;margin-top:1px}
 
@@ -591,15 +632,20 @@ const CSS = `
 .lc .legend .sw{width:13px;height:13px;border-radius:4px}
 .lc .tip{margin-top:14px;font-size:11px;color:var(--ink3);line-height:1.5;background:var(--app);border-radius:10px;padding:9px 11px}
 
-.lc .stage{display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 14px 26px;background:radial-gradient(120% 80% at 50% 0,#fafafa,transparent)}
-.lc .panel{width:392px;border-radius:16px;padding:16px 32px;background:linear-gradient(160deg,#2A2F34,#1B1E21);box-shadow:0 30px 60px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.06);position:relative}
-.lc .panel.sub{width:360px;background:linear-gradient(160deg,#2b2740,#1c1830);box-shadow:0 20px 44px rgba(50,20,90,.28),inset 0 1px 0 rgba(255,255,255,.06)}
+.lc .stage{display:flex;flex-direction:column;align-items:center;gap:6px;padding:22px 14px 26px;background:radial-gradient(120% 80% at 50% 0,#fafafa,transparent);overflow-x:auto}
+.lc .panel{width:400px;border-radius:16px;padding:16px 36px;background:linear-gradient(160deg,#2A2F34,#1B1E21);box-shadow:0 30px 60px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.06);position:relative}
+.lc .panel.sub{width:368px;background:linear-gradient(160deg,#2b2740,#1c1830);box-shadow:0 20px 44px rgba(50,20,90,.28),inset 0 1px 0 rgba(255,255,255,.06)}
 .lc .panel .brandtag{position:absolute;top:12px;right:14px;font-size:10px;font-weight:700;letter-spacing:.08em;color:#6B7178;text-transform:uppercase}
 .lc .panel .ttl{color:#C9CFD4;font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
 .lc .main{display:flex;align-items:center;justify-content:center;gap:10px;background:linear-gradient(145deg,#3A4045,#2A2F34);border:1px solid #444B51;border-radius:9px;padding:11px;margin-bottom:8px;color:#E7ECEF;font-weight:800;font-size:15px;position:relative;box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
 .lc .main .dot{width:9px;height:9px;border-radius:50%;background:#0E9F6E;box-shadow:0 0 10px #0E9F6E;animation:lc-pulse 1.8s ease-in-out infinite}
 .lc .main .dot.amber{background:#a78bfa;box-shadow:0 0 10px #a78bfa}
 @keyframes lc-pulse{50%{opacity:.4}}
+.lc .subname{background:none;border:none;padding:0;color:inherit;font:inherit;font-weight:800;cursor:pointer}
+.lc .subname:hover{text-decoration:underline}
+.lc .subname:focus-visible{outline:2px solid #fff;outline-offset:2px;border-radius:3px}
+.lc .subname-edit{font:inherit;font-weight:800;color:var(--ink);background:#fff;border:1px solid #8b5cf6;border-radius:6px;padding:1px 6px;width:110px;outline:none}
+.lc .subname-edit:focus{border-color:#7c3aed;box-shadow:0 0 0 2px rgba(124,58,237,.25)}
 .lc .bus{position:absolute;top:84px;bottom:16px;left:50%;width:6px;transform:translateX(-50%);border-radius:3px;background:linear-gradient(180deg,#0b3d2e,#0b3d2e);overflow:hidden;z-index:0}
 .lc .panel.sub .bus{background:linear-gradient(180deg,#3b2d5e,#3b2d5e)}
 .lc .bus::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent,#10b981 35%,#6ee7b7 50%,#10b981 65%,transparent);background-size:100% 220%;animation:lc-flow 2.4s linear infinite;opacity:.95}
@@ -652,7 +698,7 @@ const CSS = `
 .lc .feedwrap{display:flex;flex-direction:column;align-items:center;gap:2px}
 .lc .feedline{width:2px;height:20px;background:linear-gradient(180deg,#7c3aed,#a78bfa);border-radius:2px}
 .lc .feedtag{font-size:10px;font-weight:700;color:#7C3AED;background:#F5F3FF;border:1px solid #DDD6FE;border-radius:999px;padding:2px 9px;letter-spacing:.02em}
-.lc .subctl{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:2px;padding:8px 10px;background:#F5F3FF;border:1px solid #E9E3FE;border-radius:12px;width:360px}
+.lc .subctl{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:2px;padding:8px 10px;background:#F5F3FF;border:1px solid #E9E3FE;border-radius:12px;width:368px}
 .lc .subctl label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:#6D28D9;text-transform:uppercase;letter-spacing:.03em}
 .lc .subctl select,.lc .subctl input{border:1px solid #DDD6FE;border-radius:8px;padding:5px 8px;font-size:12.5px;font-weight:600;color:var(--ink);background:#fff;width:74px}
 .lc .subctl .oload{font-size:11px;font-weight:700;font-family:"Fira Code",monospace;padding:3px 9px;border-radius:999px}

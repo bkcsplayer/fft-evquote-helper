@@ -10,7 +10,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -209,7 +209,7 @@ class CleaningIn(BaseModel):
     phone: str
     email: str
     address: str
-    panel_count: int
+    panel_count: int = Field(gt=0, description="Number of panels must be greater than 0")
     start_date: date | None = None
     disclaimer_accepted: bool
 

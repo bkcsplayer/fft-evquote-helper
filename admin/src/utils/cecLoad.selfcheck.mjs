@@ -1,6 +1,6 @@
 // Runnable self-check for the CEC 8-200 calc: `node src/utils/cecLoad.selfcheck.mjs`
 import assert from 'node:assert/strict'
-import { basicLoad, heatDemand, rangeDemand, otherDemand, computeLoad } from './cecLoad.js'
+import { basicLoad, heatDemand, rangeDemand, otherDemand, computeLoad, connectedAmps } from './cecLoad.js'
 
 // (i)(ii) basic load steps
 assert.equal(basicLoad(0), 0)
@@ -38,5 +38,23 @@ const ex = computeLoad({ area: 200, heat: 0, ac: 5, range: 0, wh: 0, other: 5, h
 assert.equal(ex.total, 28520)
 assert.equal(Math.round(ex.amps), 119)
 assert.equal(ex.minSvc, 100)
+
+// connectedAmps: only load breakers counted — feeder AND solar excluded (solar is a source, not a load)
+const mixedUnits = [
+  { kind: 'normal', circuits: [{ amp: 15 }, { amp: 20 }] },
+  { kind: 'feeder', circuits: [{ amp: 60 }] },
+  { kind: 'solar', circuits: [{ amp: 20 }] },
+]
+assert.equal(connectedAmps(mixedUnits), 35) // 15+20 only; feeder(60) and solar(20) excluded
+
+// SUB-1 production shape: 2x20A solar PV must never inflate the connected-load figure
+const sub1Shape = [
+  { kind: 'solar', circuits: [{ amp: 20 }] },
+  { kind: 'solar', circuits: [{ amp: 20 }] },
+  { kind: 'normal', circuits: [{ amp: 30 }] },
+  { kind: 'normal', circuits: [{ amp: 30 }] },
+  { kind: 'normal', circuits: [{ amp: 25 }] },
+]
+assert.equal(connectedAmps(sub1Shape), 85) // loads only: 30+30+25; both 20A solar breakers excluded (was 125 before the fix)
 
 console.log('cecLoad self-check: all assertions passed')

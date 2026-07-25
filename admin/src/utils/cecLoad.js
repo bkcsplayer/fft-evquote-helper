@@ -35,10 +35,10 @@ export function otherDemand(otherW, hasRange) {
 
 // Connected breaker load of a panel, in amps — sum of every circuit's rating.
 // Used only to flag an oversized subpanel vs its feeder breaker.
-// ponytail: connected-load estimate, not a full 8-200 demand calc; conservative (high). Feeder breakers excluded.
+// ponytail: connected-load estimate, not a full 8-200 demand calc; conservative (high). Feeder + solar breakers excluded — solar is a source, not a load, and must never inflate a "connected load" figure.
 export function connectedAmps(units) {
   return (units || []).reduce((sum, u) => {
-    if (u.kind === 'feeder') return sum
+    if (u.kind === 'feeder' || u.kind === 'solar') return sum
     return sum + (u.circuits || []).reduce((a, c) => a + (Number(c.amp) || 0), 0)
   }, 0)
 }
