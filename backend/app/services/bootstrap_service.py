@@ -115,7 +115,9 @@ DEFAULT_ETRANSFER_RECIPIENT_EMAIL = "bruce@khtain.com"
 DEFAULT_ETRANSFER_SETTINGS_VALUE = {
     "recipient_name": "FutureFrontier Technology",
     "recipient_email": DEFAULT_ETRANSFER_RECIPIENT_EMAIL,
-    "instructions": "Please send an Interac e-transfer for the survey deposit amount. Include your case reference number in the message.",
+    # Wording stays generic: the same text backs the survey deposit, the final balance and the
+    # new-service payments, so it must not name any one of them.
+    "instructions": "Please send an Interac e-Transfer for the amount shown, and include your reference number in the message so we can match your payment.",
 }
 
 # v3.0 new-service notification templates (DB-editable). Bodies mirror the code fallbacks in
