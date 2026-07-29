@@ -59,6 +59,50 @@ class InstallationRequestRejectIn(BaseModel):
     note: str | None = None
 
 
+def final_invoice_items(quote: Quote) -> list[dict]:
+    """Line items for the final invoice PDF, in print order.
+
+    Must mirror quote_service._compute_totals: base + extra distance + addons + permit fee
+    - survey credit == subtotal. A term missing here does not change the printed total (that
+    comes from quote.subtotal/total), it just makes the line items silently disagree with it —
+    which is exactly what happened while addons were left out.
+    """
+    items = [{
+        "description": "EV charger installation",
+        "quantity": "1",
+        "unit_price": f"${float(quote.base_price):.2f}",
+        "amount": float(quote.base_price),
+    }]
+    if float(quote.extra_distance_cost) > 0:
+        items.append({
+            "description": f"Extra cable run ({quote.extra_distance_meters}m)",
+            "quantity": "1",
+            "unit_price": f"${float(quote.extra_distance_cost):.2f}",
+            "amount": float(quote.extra_distance_cost),
+        })
+    for addon in quote.addons or []:
+        items.append({
+            "description": addon.name,
+            "quantity": "1",
+            "unit_price": f"${float(addon.price):.2f}",
+            "amount": float(addon.price),
+        })
+    items.append({
+        "description": "Permit fee",
+        "quantity": "1",
+        "unit_price": f"${float(quote.permit_fee):.2f}",
+        "amount": float(quote.permit_fee),
+    })
+    if float(quote.survey_credit) > 0:
+        items.append({
+            "description": "Survey fee credit",
+            "quantity": "1",
+            "unit_price": f"-${float(quote.survey_credit):.2f}",
+            "amount": -float(quote.survey_credit),
+        })
+    return items
+
+
 @router.get("/cases/{case_id}/installation", response_model=InstallationOut | None)
 def get_installation_by_case(
     case_id: str,
@@ -640,15 +684,7 @@ def send_completion_email(
                 )
             ).scalar_one()
         )
-        items = [{"description": "EV charger installation", "quantity": "1", "unit_price": f"${float(quote.base_price):.2f}", "amount": float(quote.base_price)}]
-        if float(quote.extra_distance_cost) > 0:
-            items.append({
-                "description": f"Extra cable run ({quote.extra_distance_meters}m)",
-                "quantity": "1", "unit_price": f"${float(quote.extra_distance_cost):.2f}", "amount": float(quote.extra_distance_cost),
-            })
-        items.append({"description": "Permit fee", "quantity": "1", "unit_price": f"${float(quote.permit_fee):.2f}", "amount": float(quote.permit_fee)})
-        if float(quote.survey_credit) > 0:
-            items.append({"description": "Survey fee credit", "quantity": "1", "unit_price": f"-${float(quote.survey_credit):.2f}", "amount": -float(quote.survey_credit)})
+        items = final_invoice_items(quote)
         pdf_attachment = build_invoice_pdf(
             db,
             kind_label="Final Invoice",
