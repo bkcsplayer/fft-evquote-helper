@@ -29,6 +29,13 @@
 
 **2026-07-25:Load Calc 第二轮——"超载!"警告本身就是错的,已撤销,补上真正的 CEC 64-112 母线125%核算**。commit `168e7d3`,已部署。起因:Kuo 找持证电工核实了 SUB-1/SUB-2 的"连接负荷 vs feeder · 超载!"提示,证实这是系统性误报——CEC 判 feeder/母线够不够用只看 demand(套需求系数后的负载),不是断路器铭牌额定值相加(一块 60A feeder 配 175A 断路器额定合计完全正常,这正是需求系数体系存在的意义)。`connectedAmps()` 现在只做中性信息展示,不再判定。真正的约束点是 **CEC 64-112(4)(c)&(d):住宅母线核算,主OCPD+PV回馈断路器额定之和 ≤ 母线额定×125%**(Alberta 住宅是 125%,不是 NEC 的 120%)——已完整实现:新增 busbar 字段(主面板+每个subpanel,默认跟随主开关/feeder,可改)、`busbarCheck()`/`solarAmpsOf()` 纯函数、64-112 状态行(打印可见,校验对象是 Solar 实际所在的那块盘自己的母线,不写死主面板或 subpanel)。位置类合规要求(母线远端、警示标签、line-side vs load-side 判断)一律固定文字提示,不做假的自动判定。STANDATA 24-ECB-008(EV负荷100%不折减、末步加)复核仍然合规。详见记忆 `fft-load-calc-v3.1-fixes`(Round 2 部分)。**FFT-2026-0002 的 SUB-1 现在默认显示 ✗(60+40=100>75),这是设计上正确的保守默认值,不是 bug**,填真实母线额定会转绿。SUB-2 的 175A 断路器额定合计要不要紧,还等 Kuo 提供该盘真实回路负载清单人工核。
 
+**2026-07-28:生产单 FFT-2026-0002(Raju)一次性手工补录 + 管理员账号统一**。按 Kuo 要求直接写生产库(备份 `/root/backups/evquote-full-20260728.sql`,先 ROLLBACK 演练再 COMMIT):补 permit(approved 07-24,检查 08-10 写在 notes——表里没有检查日期字段)、installation(completed 07-27)、5 条状态历史(quoted→…→installed)、审计用 case_note;新建 quote v2($1307.84,v1 归档)。**刻意不做**:不伪造电子签名、不记 payments、不发任何邮件/短信(改后 notifications 仍是 5 条)。走 API 做不到,因为三个端点强制发通知 + `complete_installation` 的完工时间硬编码 `now()`。详见记忆 `fft-raju-manual-backfill`。那 100 元勘察费**确认已收**,故不做抵扣而是记为已收款:quote v2 总额 **$1407.84**、已收 $100、**待收 $1307.84**。
+
+**2026-07-28(同日):修复发票 PDF 漏 addon 行 + 建立 mock 数据体系**。
+- **发票 bug**:`admin/installations.py` 的 Final Invoice PDF items 从来没有 addons 循环,带 addon 的单行项目 ≠ 底部总额(Raju 差 $441.80)。已抽成 `final_invoice_items(quote)` 并补循环,加回归测试 `backend/tests/test_invoice_items.py`(3 用例)。生产用真实数据验过:行项目 1340.80 == subtotal ✓。**⚠️ 本次经 scp + 重建 backend 容器上线,VPS 工作树领先 origin——记得 commit + push,否则下次 `deploy.sh` 的 `git reset --hard origin/main` 会冲掉。**
+- **e-Transfer 收款邮箱(系统级)**:公司收款邮箱固定为 **`bruce@khtain.com`**。此前代码两处硬编码占位假地址 `payments@example.com`——`bootstrap_service` 的默认值(空库首次启动就写假地址)+ `public/payments.py` 的 fallback(设置缺失时客户付款页显示假地址)。现已统一为常量 `DEFAULT_ETRANSFER_RECIPIENT_EMAIL`,生产/本地库的 `etransfer_settings` 也都改了。详见记忆 `fft-etransfer-payee`。
+- **mock 数据**:新增 `backend/scripts/mock_data.py`(seed/purge)。生产唯一真实单是 FFT-2026-0002(Raju),其余全部打上 `MOCK-` 编号 / `Mock-` 名字双标记,一条命令可全清。Kuo 早先手工造的 5 条测试记录只加名字前缀、不改编号(改编号会释放 FFT-2026-0003 让新单复用)。详见记忆 `fft-mock-data-scheme`。
+
 ## 下一步 / 待办
 
 1. **v3.0 尚未部署**:确认没问题后走标准部署(`./deploy.sh` push GitHub → VPS 拉取重建),注意 VPS 库要吃到 v3 迁移(`b1c2d3e4f5a6`,含 `appointment_kind` 枚举扩容,PG 对 `ALTER TYPE...ADD VALUE` 有事务限制,迁移文件已处理但上生产前建议先在 VPS 做一次干跑确认)。
@@ -71,7 +78,7 @@
 
 ## 关键账号 / 路径
 
-- **后台登录**:用户名 **`FFTAdmin`**(不是 admin!)/ 邮箱 `admin@futurefrontiertech.ca`,密码 = `.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`(本次已重置为该值)。`bootstrap` 只在空库时创建管理员,不会用 .env 覆盖已存在账号。
+- **后台登录**:用户名 **`admin`**(2026-07-28 核对生产库 `admin_users` 只有这一行 super_admin,邮箱 `receipe@khtain.com`;此前记的 `FFTAdmin` 是错的)。密码 = 生产 `.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`,2026-07-28 已把 .env 与库内 password_hash 强制同步(`.env` 备份为 `.env.bak-20260728`)。`bootstrap` 只在空库时创建管理员,不会用 .env 覆盖已存在账号——所以改密码必须同时改库,只改 .env 无效。
 - **VPS**:Vultr,公网 `45.76.242.112` / Tailscale `100.125.45.25`,目录 `/www/wwwroot/evquote.khtain.com/fft-evquote-helper`,compose `docker-compose.vps.yml`。
 - **端口**:本地 frontend 7220 / admin 7221 / backend 7222 / db 7223;VPS 127.0.0.1:7620/7621/7622。
 - **VPS root 密码**在 `deploy.sh`(gitignored,勿提交)。
