@@ -47,6 +47,7 @@ services:
       TWILIO_ACCOUNT_SID: ""
       TWILIO_AUTH_TOKEN: ""
       TWILIO_PHONE_NUMBER: ""
+      NUDGE_RUN_KEY: ${NUDGE_RUN_KEY:-test-nudge-key-do-not-use-in-prod}
     volumes:
       - ./uploads:/app/uploads
     healthcheck:
@@ -66,7 +67,22 @@ services:
       API_BASE: http://backend:8000
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin1234}
+      NUDGE_RUN_KEY: ${NUDGE_RUN_KEY:-test-nudge-key-do-not-use-in-prod}
     restart: "no"
+    # This image (Dockerfile.test) installs only pytest+httpx and has no `app` package, so any
+    # test file that imports app.* / sqlalchemy directly can never collect here — those run
+    # standalone in the backend container via `python tests/<file>.py`. Without these ignores,
+    # pytest aborts the *entire* run with "Interrupted: N errors during collection" before any
+    # httpx-based integration test executes. Ignore-list (not a pass-list) so future httpx tests
+    # added to backend/tests/ are picked up automatically. Pre-existing gap, scoped workaround
+    # here — durable home is Dockerfile.test's CMD or a pytest.ini (out of this ticket's file set).
+    command:
+      - pytest
+      - -q
+      - --ignore=tests/test_booking_logic.py
+      - --ignore=tests/test_invoice_items.py
+      - --ignore=tests/test_services_v3.py
+      - --ignore=tests/test_nudge_service.py
 
 volumes:
   pgdata_test:

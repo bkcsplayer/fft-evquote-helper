@@ -13,7 +13,7 @@ Touchpoints (slot consumed):
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -74,6 +74,10 @@ def bird_quote_url(token: str) -> str:
 
 def cleaning_status_url(token: str) -> str:
     return f"{_frontend_base()}/service/status/{token}"
+
+
+def _mark_status_changed(obj) -> None:
+    obj.status_changed_at = datetime.now(timezone.utc)
 
 
 # ── reference numbers ──
@@ -235,6 +239,8 @@ def admin_schedule_booking(
     booking.scheduled_at = start_at
     if technician is not None:
         booking.technician = technician
+    if booking.status != new_status:
+        _mark_status_changed(booking)
     booking.status = new_status
     db.commit()
     db.refresh(booking)
@@ -298,6 +304,8 @@ def admin_create_bird_quote(
     quote.signed_name = None
     quote.approved_at = None
 
+    if booking.status != ServiceBookingStatus.quoted:
+        _mark_status_changed(booking)
     booking.status = ServiceBookingStatus.quoted
     db.commit()
     db.refresh(quote)
@@ -351,6 +359,8 @@ def approve_bird_quote(
     quote.signature_data = signature_data
     quote.signed_name = signed_name
     quote.approved_at = datetime.now().astimezone()
+    if booking.status != ServiceBookingStatus.approved:
+        _mark_status_changed(booking)
     booking.status = ServiceBookingStatus.approved
     db.commit()
     db.refresh(quote)
@@ -449,6 +459,8 @@ def admin_update_status(
         if completion_notes is not None:
             booking.completion_notes = completion_notes
 
+    if booking.status != new_status:
+        _mark_status_changed(booking)
     booking.status = new_status
     db.commit()
     db.refresh(booking)
@@ -536,6 +548,8 @@ def _build_completion_invoice(db: Session, *, booking: ServiceBooking) -> tuple[
 def cancel_booking(db: Session, *, booking: ServiceBooking) -> ServiceBooking:
     for a in _active_appointments(db, service_booking_id=booking.id):
         a.status = AppointmentStatus.cancelled
+    if booking.status != ServiceBookingStatus.cancelled:
+        _mark_status_changed(booking)
     booking.status = ServiceBookingStatus.cancelled
     db.commit()
     db.refresh(booking)
@@ -638,6 +652,8 @@ def create_cleaning_subscription(
 
 def admin_set_cleaning_price(db: Session, *, sub: CleaningSubscription, annual_price: float) -> CleaningSubscription:
     sub.annual_price = annual_price
+    if sub.pricing_status != CleaningPricingStatus.quoted:
+        _mark_status_changed(sub)
     sub.pricing_status = CleaningPricingStatus.quoted
     db.commit()
     db.refresh(sub)
@@ -647,6 +663,8 @@ def admin_set_cleaning_price(db: Session, *, sub: CleaningSubscription, annual_p
 def admin_set_cleaning_payment(
     db: Session, *, sub: CleaningSubscription, payment_status: CleaningPaymentStatus
 ) -> CleaningSubscription:
+    if sub.payment_status != payment_status:
+        _mark_status_changed(sub)
     sub.payment_status = payment_status
     db.commit()
     db.refresh(sub)

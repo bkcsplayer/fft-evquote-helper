@@ -699,6 +699,7 @@ class ServiceBooking(Base, TimestampMixin):
 
     access_token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     disclaimer_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     quote: Mapped["BirdNettingQuote | None"] = relationship(back_populates="booking")
 
@@ -754,6 +755,7 @@ class CleaningSubscription(Base, TimestampMixin):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     access_token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     disclaimer_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     visits: Mapped[list["CleaningVisit"]] = relationship(back_populates="subscription")
 

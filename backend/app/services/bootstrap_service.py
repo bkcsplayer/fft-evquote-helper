@@ -173,6 +173,33 @@ SERVICE_SMS_TEMPLATES = {
     "cleaning_visit_completed": {"body": "{{ brand_name }}\nCleaning complete (Q{{ quarter }})\nRef: {{ reference_number }}"},
 }
 
+NUDGE_EMAIL_TEMPLATES = {
+    "nudge_admin_digest": {
+        "subject": "Stalled-order digest",
+        "html": (
+            '{% extends "base.html" %}{% block content %}'
+            '<h2 style="margin:0 0 8px 0;">Daily stalled-order digest — {{ date }}</h2>'
+            '{% if nudged %}<h3 style="margin:14px 0 6px 0;">Nudged today</h3><ul class="muted small">'
+            '{% for n in nudged %}<li>{{ n.ref }} — {{ n.state }} — {{ n.days }}d — #{{ n.count }} — '
+            'intended: {{ n.intended }}{% if n.redirected %} (redirected){% endif %}'
+            '{% if n.admin_url %} — <a href="{{ n.admin_url }}">view</a>{% endif %}</li>{% endfor %}</ul>{% endif %}'
+            '{% if our_side %}<h3 style="margin:14px 0 6px 0;">Waiting on us</h3><ul class="muted small">'
+            '{% for o in our_side %}<li>{{ o.ref }} — {{ o.state }} — {{ o.days }}d'
+            '{% if o.admin_url %} — <a href="{{ o.admin_url }}">view</a>{% endif %}</li>{% endfor %}</ul>{% endif %}'
+            '{% if needs_followup %}<h3 style="margin:14px 0 6px 0;">Needs manual follow-up</h3><ul class="muted small">'
+            '{% for f in needs_followup %}<li>{{ f.ref }} — {{ f.state }} — {{ f.days }}d'
+            '{% if f.admin_url %} — <a href="{{ f.admin_url }}">view</a>{% endif %}</li>{% endfor %}</ul>{% endif %}'
+            "{% endblock %}"
+        ),
+    },
+}
+NUDGE_SMS_TEMPLATES = {
+    "nudge_customer": {
+        "body": "{{ brand_name }}\nFriendly reminder — {{ reference_number }}\n"
+                "We're waiting on you to {{ action_text }}.\n{{ link }}",
+    },
+}
+
 DEFAULT_BRAND_PROFILE_KEY = "brand_profile"
 
 
@@ -204,6 +231,7 @@ def ensure_defaults(db: Session) -> None:
     _ensure_etransfer_settings(db)
     _ensure_message_templates(db)
     _ensure_service_templates(db)
+    _ensure_nudge_templates(db)
     _ensure_brand_profile(db)
     _ensure_bootstrap_super_admin(db)
     _ensure_dev_super_admin(db)
@@ -250,6 +278,32 @@ def _ensure_service_templates(db: Session) -> None:
     if sms_row:
         changed = False
         for k, v in SERVICE_SMS_TEMPLATES.items():
+            if k not in (sms_row.value or {}):
+                sms_row.value[k] = v
+                changed = True
+        if changed:
+            flag_modified(sms_row, "value")
+            db.add(sms_row)
+            db.commit()
+
+
+def _ensure_nudge_templates(db: Session) -> None:
+    """Seed nudge email/sms templates; merge-without-overwrite (preserves admin edits)."""
+    email_row = db.execute(select(SystemSetting).where(SystemSetting.key == DEFAULT_EMAIL_TEMPLATES_KEY)).scalar_one_or_none()
+    if email_row:
+        changed = False
+        for k, v in NUDGE_EMAIL_TEMPLATES.items():
+            if k not in (email_row.value or {}):
+                email_row.value[k] = v
+                changed = True
+        if changed:
+            flag_modified(email_row, "value")
+            db.add(email_row)
+            db.commit()
+    sms_row = db.execute(select(SystemSetting).where(SystemSetting.key == DEFAULT_SMS_TEMPLATES_KEY)).scalar_one_or_none()
+    if sms_row:
+        changed = False
+        for k, v in NUDGE_SMS_TEMPLATES.items():
             if k not in (sms_row.value or {}):
                 sms_row.value[k] = v
                 changed = True

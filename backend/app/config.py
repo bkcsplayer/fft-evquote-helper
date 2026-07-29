@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     admin_login_max_attempts: int = Field(default=8, validation_alias="ADMIN_LOGIN_MAX_ATTEMPTS")
     admin_login_block_seconds: int = Field(default=600, validation_alias="ADMIN_LOGIN_BLOCK_SECONDS")
 
+    # Stalled-order nudges (see SPEC.md / CONTEXT.md)
+    nudge_run_key: str | None = Field(default=None, validation_alias="NUDGE_RUN_KEY")
+    nudge_redirect: str | None = Field(default=None, validation_alias="NUDGE_REDIRECT")
+    nudge_redirect_sms: str = Field(default="+15879669668", validation_alias="NUDGE_REDIRECT_SMS")
+    nudge_redirect_email: str = Field(default="cool@khtain.com", validation_alias="NUDGE_REDIRECT_EMAIL")
+
     @field_validator("smtp_port", mode="before")
     @classmethod
     def _blank_to_none(cls, v: object) -> object:
@@ -80,6 +86,8 @@ class Settings(BaseSettings):
         "smtp_user",
         "smtp_password",
         "smtp_from_name",
+        "nudge_run_key",
+        "nudge_redirect",
         mode="before",
     )
     @classmethod

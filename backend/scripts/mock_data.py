@@ -447,6 +447,7 @@ def seed_services(db: Session) -> None:
             disclaimer_accepted_at=days(offset),
             created_at=days(offset),
             updated_at=days(offset + 1),
+            status_changed_at=days(-20) if sfx in ("01", "06", "07") else days(offset + 1),
         )
         db.add(booking)
         db.flush()
@@ -515,6 +516,7 @@ def seed_cleaning(db: Session) -> None:
             start_date=(TODAY - timedelta(days=70)).date(),
             access_token=token(), disclaimer_accepted_at=days(-70),
             created_at=days(-70), updated_at=days(-70),
+            status_changed_at=days(-70),
         )
         db.add(sub)
         db.flush()

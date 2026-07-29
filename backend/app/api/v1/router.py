@@ -19,6 +19,7 @@ from app.api.v1.admin import surveys_photos as admin_surveys_photos
 from app.api.v1.admin import scheduling as admin_scheduling
 from app.api.v1.admin import services as admin_services
 from app.api.v1.admin import users as admin_users
+from app.api.v1 import internal_nudges
 from app.api.v1.public import booking, branding, charger_brands, cases, payments, quotes, survey_photos
 from app.api.v1.public import services as public_services
 
@@ -55,4 +56,7 @@ api_router.include_router(admin_materials.router, tags=["admin"])
 api_router.include_router(admin_bom.router, tags=["admin"])
 api_router.include_router(admin_finance.router, tags=["admin"])
 api_router.include_router(admin_services.router, tags=["admin"])
+
+# Internal (cron-driven, shared-secret auth)
+api_router.include_router(internal_nudges.router, tags=["internal"])
 
