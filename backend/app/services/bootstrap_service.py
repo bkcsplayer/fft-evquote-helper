@@ -107,9 +107,14 @@ DEFAULT_SMS_TEMPLATES_VALUE = {
 }
 
 DEFAULT_ETRANSFER_SETTINGS_KEY = "etransfer_settings"
+# The company's real Interac e-Transfer payee. Every customer-facing payment instruction
+# (invoice PDFs, the deposit payment page) resolves to this unless an admin overrides it in
+# Settings. It used to be a placeholder@example.com, which meant a fresh database — or any
+# code path falling back to the default — quietly told customers to pay a non-existent address.
+DEFAULT_ETRANSFER_RECIPIENT_EMAIL = "bruce@khtain.com"
 DEFAULT_ETRANSFER_SETTINGS_VALUE = {
     "recipient_name": "FutureFrontier Technology",
-    "recipient_email": "payments@example.com",
+    "recipient_email": DEFAULT_ETRANSFER_RECIPIENT_EMAIL,
     "instructions": "Please send an Interac e-transfer for the survey deposit amount. Include your case reference number in the message.",
 }
 

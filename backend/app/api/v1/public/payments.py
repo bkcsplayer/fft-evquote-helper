@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.models import Case, CaseNote, CaseStatusHistory, Survey, SystemSetting
+from app.services.bootstrap_service import DEFAULT_ETRANSFER_RECIPIENT_EMAIL
 from app.services.notification_service import notify_admin_event
 
 
@@ -53,7 +54,7 @@ def etransfer_info(token: str, db: Session = Depends(get_db)):
 
     settings_row = db.execute(select(SystemSetting).where(SystemSetting.key == "etransfer_settings")).scalar_one_or_none()
     et = (settings_row.value if settings_row else {}) or {}
-    recipient_email = et.get("recipient_email") or "payments@example.com"
+    recipient_email = et.get("recipient_email") or DEFAULT_ETRANSFER_RECIPIENT_EMAIL
 
     return ETransferInfoOut(
         recipient_name=et.get("recipient_name"),
