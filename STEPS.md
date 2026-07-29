@@ -1,494 +1,857 @@
-# STEPS: Load Calculator 第二轮专业审查 — 撤销伪"超载"判定 + CEC 64-112(4)(c)(d) 125% 母线核算 + STANDATA 24-ECB-008 合规文案
+# STEPS: 14 天无动作自动催单（stalled-order nudges）
 
-> Task tier: **STANDARD** · Skill Manifest: `cmm`, `codebase-memory`, `ponytail-review`(MANDATORY-INFRA), `ui-ux-pro-max`(UI 权威,已咨询并折入) — implementer/tester may invoke ONLY these skills.
-> NO-ADVISOR ZONE: executing these approved steps never triggers an advisor consult (economy policy F), except the stuck-escalation condition (policy D).
-
-**Kuo's §8 decisions applied (see DESIGN.md `## Review` for full reasoning):**
-- Q1: upstream cascade (PV in a subpanel → does the MAIN panel's own busbar also get numerically checked) stays **text-only, not implemented in code** — same as architect default. PLUS Kuo's own addition: the §3.2.5 hint text now leads with a **load-side backfeed vs. line-side tap** determination (line-side tap consumes zero busbar headroom at any layer and is out of scope entirely) — this is now item ① of the hint, with the architect's original ①②③ renumbered ②③④. The exact finalized 4-item string is in Step 18 below; do not paraphrase it.
-- Q2: connected-breaker-total row stays as a neutral info pill (not deleted) — Step 2.
-- Q3: no code — SUB-2 circuit wattage review is Kuo's own manual work, not represented in any step.
-- Q4: Survey checklist stays out of scope. **No backend/model/migration/admin-form step exists anywhere in this file.**
-- Q5: EVEMS verdict sentence (ULC-ORD-3141 / accepted-models-list) is included — Step 19.
-
-**Do NOT build**, even if it looks like a natural extension: a numeric upstream-cascade check on the main panel's busbar when PV lives in a subpanel (Q1, text-only this round); any non-dwelling (120%/commercial) branch in `busbarCheck` (125% dwelling-only, forever, per red line); any automatic inference of PV physical position/wiring topology from slot data (position compliance is fixed text only — red line); any change to `computeLoad`'s signature or body (PV never offsets `calc.amps` — red line, and no step below touches it).
-
-**Step 0 — baseline check (run before Step 1):**
-`cd admin && npm run build` → must succeed with the current, unmodified tree. If it fails, stop and report — do not start Step 1 against a broken baseline.
-
----
-
-## admin/src/utils/cecLoad.js — §3.1 comment rewrite + §3.2.1 new functions
-
-- [ ] **Step 1** — `admin/src/utils/cecLoad.js` — Rewrite the comment above `connectedAmps` to state plainly it is a panel-schedule cross-check, NOT an overload/feeder-adequacy test (CEC judges feeder/busbar adequacy by Section 8 demand load in watts, never by summing branch breaker nameplate ratings).
-      Find:
-      ```js
-      // Connected breaker load of a panel, in amps — sum of every circuit's rating.
-      // Used only to flag an oversized subpanel vs its feeder breaker.
-      // ponytail: connected-load estimate, not a full 8-200 demand calc; conservative (high). Feeder + solar breakers excluded — solar is a source, not a load, and must never inflate a "connected load" figure.
-      export function connectedAmps(units) {
-      ```
-      Replace with:
-      ```js
-      // Connected breaker rating total of a panel, in amps — for cross-checking entered breakers against
-      // the physical panel schedule only. NOT an overload/feeder-adequacy check: CEC judges feeder and busbar
-      // adequacy by Section 8 demand load (watts, with demand factors) — summing branch breaker nameplate
-      // ratings is not a valid test, and is routinely far above the feeder rating on any normal panel.
-      // ponytail: connected-load estimate; conservative (high). Feeder + solar breakers excluded — solar is a source, not a load, and must never inflate a "connected load" figure.
-      export function connectedAmps(units) {
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "NOT an overload/feeder-adequacy check" admin/src/utils/cecLoad.js` → 1 match.
-
-- [ ] **Step 2** — `admin/src/utils/cecLoad.js` — Add `busbarCheck` and `solarAmpsOf`, inserted directly after `connectedAmps`'s closing brace and before the `computeLoad` comment block.
-      Find:
-      ```js
-        return sum + (u.circuits || []).reduce((a, c) => a + (Number(c.amp) || 0), 0)
-        }, 0)
-      }
-
-      // Full 8-200(1)(a) calculated load. Inputs area in m², heat/ac/range/wh/other in kW,
-      ```
-      Replace with:
-      ```js
-        return sum + (u.circuits || []).reduce((a, c) => a + (Number(c.amp) || 0), 0)
-        }, 0)
-      }
-
-      // CEC 64-112(4)(c)&(d) — dwelling: Σ(supply-side OCPD ratings feeding the busbar) ≤ busbar × 1.25.
-      // mainOcpd = the panel's own supply breaker (main breaker, or feeder rating for a subpanel).
-      export function busbarCheck({ busbar, mainOcpd, solarA }) {
-        if (!(busbar > 0) || !(mainOcpd > 0)) return null // insufficient data → no verdict
-        const limit = busbar * 1.25
-        const sum = mainOcpd + solarA
-        return { sum, limit, maxPv: Math.max(0, limit - mainOcpd), ok: sum <= limit }
-      }
-
-      // Total PV backfeed breaker rating physically in one panel (0 when no solar).
-      export const solarAmpsOf = (units) => (units || [])
-        .filter((u) => u.kind === 'solar')
-        .reduce((a, u) => a + (u.circuits || []).reduce((b, c) => b + (Number(c.amp) || 0), 0), 0)
-
-      // Full 8-200(1)(a) calculated load. Inputs area in m², heat/ac/range/wh/other in kW,
-      ```
-      Note: the indentation above is written for readability in this document; match the file's actual 2-space indent when editing (i.e. `return sum + ...` and `}, 0)` are indented one level inside the function, not flush left as shown in the "Find" block's second line — copy the exact surrounding whitespace from the live file, only insert the new block between `connectedAmps`'s closing `}` and the `computeLoad` comment.
-      verify: `cd admin && npm run build` → succeeds. `grep -n "export function busbarCheck\|export const solarAmpsOf" admin/src/utils/cecLoad.js` → 2 matches.
-
-## admin/src/pages/LoadCalc.jsx — §3.1 "超载!" judgment removal (one atomic step: leaves no intermediate reference to a deleted `oload`)
-
-- [ ] **Step 3** — `admin/src/pages/LoadCalc.jsx` — Remove the `oload` boolean and replace the amber/red "超载!" pill with a neutral info pill. Both hunks in this one step — doing them separately leaves a `ReferenceError: oload is not defined` at runtime between steps (Rollup/Vite build will NOT catch this — it's a JSX runtime reference, not a static import error).
-      Hunk 1 — find:
-      ```jsx
-                  {subEnabled && subpanels.map((sp) => {
-                    const camps = connectedAmps(sp.units)
-                    const oload = camps > sp.feederAmp
-                    return (
-      ```
-      Replace with:
-      ```jsx
-                  {subEnabled && subpanels.map((sp) => {
-                    const camps = connectedAmps(sp.units)
-                    return (
-      ```
-      Hunk 2 — find:
-      ```jsx
-                          <span className={`oload ${oload ? 'bad' : 'ok'}`}>连接负荷 {camps}A / feeder {sp.feederAmp}A{oload ? ' · 超载!' : ''}</span>
-      ```
-      Replace with:
-      ```jsx
-                          <span className="oload info">断路器额定合计 {camps}A · 非负荷计算,仅供与实物面板核对</span>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "const oload" admin/src/pages/LoadCalc.jsx` → 0 matches. `grep -n "oload info" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 4** — `admin/src/pages/LoadCalc.jsx` (CSS string) — Replace the two-tone `.oload.ok`/`.oload.bad` rules with a single neutral `.oload.info` rule.
-      Find:
-      ```css
-      .lc .subctl .oload{font-size:11px;font-weight:700;font-family:"Fira Code",monospace;padding:3px 9px;border-radius:999px}
-      .lc .subctl .oload.ok{color:var(--accent-d);background:var(--accent-bg);border:1px solid #A7F3D0}
-      .lc .subctl .oload.bad{color:#B45309;background:#FFFBEB;border:1px solid #FDE68A}
-      ```
-      Replace with:
-      ```css
-      .lc .subctl .oload{font-size:11px;font-weight:700;font-family:"Fira Code",monospace;padding:3px 9px;border-radius:999px}
-      .lc .subctl .oload.info{color:var(--ink3);background:var(--app);border:1px solid var(--line2)}
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "oload.ok\|oload.bad" admin/src/pages/LoadCalc.jsx` → 0 matches. `grep -n "oload.info" admin/src/pages/LoadCalc.jsx` → 1 match (CSS rule; the JSX className match from Step 3 is a separate string `"oload info"` without the dot, so this grep only counts the CSS selector).
-
-## admin/src/pages/LoadCalc.jsx — §3.2 wiring: import, state, persistence, setters
-
-- [ ] **Step 5** — `admin/src/pages/LoadCalc.jsx` — Import the two new pure functions from `cecLoad.js`.
-      Find:
-      ```js
-      import { computeLoad, connectedAmps } from '../utils/cecLoad.js'
-      ```
-      Replace with:
-      ```js
-      import { computeLoad, connectedAmps, busbarCheck, solarAmpsOf } from '../utils/cecLoad.js'
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "busbarCheck, solarAmpsOf" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 6** — `admin/src/pages/LoadCalc.jsx` — Add the top-level `busbar` state (main panel), `null` = follow the main breaker rating.
-      Find:
-      ```js
-        const [brand, setBrand] = useState('Square D QO')
-        const [main, setMain] = useState('100 A')
-        const [slots, setSlots] = useState(30)
-        const [units, setUnits] = useState([])
-        const [subEnabled, setSubEnabled] = useState(false)
-        const [subpanels, setSubpanels] = useState([]) // [{ id, name, feederAmp, slots, units }]
-      ```
-      Replace with:
-      ```js
-        const [brand, setBrand] = useState('Square D QO')
-        const [main, setMain] = useState('100 A')
-        const [busbar, setBusbar] = useState(null) // null = follow main breaker rating (CEC 64-112 busbar rating, may exceed main OCPD)
-        const [slots, setSlots] = useState(30)
-        const [units, setUnits] = useState([])
-        const [subEnabled, setSubEnabled] = useState(false)
-        const [subpanels, setSubpanels] = useState([]) // [{ id, name, feederAmp, slots, units, busbar }]
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "const \[busbar, setBusbar\]" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 7** — `admin/src/pages/LoadCalc.jsx` — Restore `busbar` on load. (Subpanel `busbar` needs no separate line — it flows through automatically as part of the whole `subpanels` array already restored by `setSubpanels(subs)`, same as `feederAmp`/`name`.)
-      Find:
-      ```js
-            if (v.brand != null) setBrand(v.brand)
-            if (v.main != null) setMain(v.main)
-            if (v.slots != null) setSlots(v.slots)
-      ```
-      Replace with:
-      ```js
-            if (v.brand != null) setBrand(v.brand)
-            if (v.main != null) setMain(v.main)
-            if (v.busbar != null) setBusbar(v.busbar)
-            if (v.slots != null) setSlots(v.slots)
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "if (v.busbar != null) setBusbar(v.busbar)" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 8** — `admin/src/pages/LoadCalc.jsx` — Include `busbar` in the saved value object. (Subpanel `busbar` needs no separate handling — it's already part of each subpanel object in the `subpanels` array.)
-      Find:
-      ```js
-          const value = { brand, main, slots, units, subEnabled, subpanels, calc: { area, heatType, heat, acOn, ac, range, whType, whKw, hottubOn, hottubKw, poolOn, poolKw, other } }
-      ```
-      Replace with:
-      ```js
-          const value = { brand, main, busbar, slots, units, subEnabled, subpanels, calc: { area, heatType, heat, acOn, ac, range, whType, whKw, hottubOn, hottubKw, poolOn, poolKw, other } }
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "brand, main, busbar, slots" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 9** — `admin/src/pages/LoadCalc.jsx` — Add `setSubBusbar(sid, n)`, right after `setSubFeeder`. Mirrors `setSubFeeder`'s pattern but only touches the `subpanels` array (busbar isn't mirrored onto any `units` circuit the way feeder amp is onto the feeder breaker's label).
-      Find:
-      ```js
-        function setSubFeeder(sid, amp) {
-          setSubpanels((ps) => ps.map((s) => (s.id === sid ? { ...s, feederAmp: amp } : s)))
-          setUnits((p) => p.map((u) => (u.kind === 'feeder' && u.subId === sid)
-            ? { ...u, circuits: [{ ...u.circuits[0], amp }] } : u))
-        }
-      ```
-      Replace with:
-      ```js
-        function setSubFeeder(sid, amp) {
-          setSubpanels((ps) => ps.map((s) => (s.id === sid ? { ...s, feederAmp: amp } : s)))
-          setUnits((p) => p.map((u) => (u.kind === 'feeder' && u.subId === sid)
-            ? { ...u, circuits: [{ ...u.circuits[0], amp }] } : u))
-        }
-
-        function setSubBusbar(sid, n) {
-          setSubpanels((ps) => ps.map((s) => (s.id === sid ? { ...s, busbar: n } : s)))
-        }
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "function setSubBusbar" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 10** — `admin/src/pages/LoadCalc.jsx` — Add `mainOcpdA`, `busbarEffMain`, and `anySolar` consts, right after `brandTag`.
-      Find:
-      ```js
-        const brandTag = (brand.split(' ')[0] || 'PANEL').toUpperCase()
-      ```
-      Replace with:
-      ```js
-        const brandTag = (brand.split(' ')[0] || 'PANEL').toUpperCase()
-        const mainOcpdA = parseInt(main, 10) || 100
-        const busbarEffMain = busbar ?? mainOcpdA
-        const anySolar = solarAmpsOf(units) > 0 || subpanels.some((s) => solarAmpsOf(s.units) > 0)
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "const busbarEffMain\|const anySolar" admin/src/pages/LoadCalc.jsx` → 2 matches.
-
-## admin/src/pages/LoadCalc.jsx — §3.2.4 render64112 helper (must exist before Steps 13/14 call it)
-
-- [ ] **Step 11** — `admin/src/pages/LoadCalc.jsx` — Add the `render64112` helper right after `renderUnit`'s closing brace, before the `renderPanel` comment.
-      Find:
-      ```jsx
-              <button className="del" onClick={(e) => { e.stopPropagation(); deleteUnit(pid, u.id) }}>×</button>
-            </div>
-          )
-        }
-
-        /* ---------- render one panel (main or a subpanel) ---------- */
-        function renderPanel(pid, pslots, punits, tag, ttl, mainLine, extraClass) {
-      ```
-      Replace with:
-      ```jsx
-              <button className="del" onClick={(e) => { e.stopPropagation(); deleteUnit(pid, u.id) }}>×</button>
-            </div>
-          )
-        }
-
-        // CEC 64-112(4)(c)&(d) dwelling 125% busbar check for one panel (main or a subpanel).
-        // Returns null (renders nothing) when the panel has no solar breaker, or when busbar/mainOcpd data is insufficient — never a guessed verdict.
-        function render64112(punits, mainOcpd, busbarEff) {
-          const solarA = solarAmpsOf(punits)
-          if (solarA === 0) return null
-          const chk = busbarCheck({ busbar: busbarEff, mainOcpd, solarA })
-          if (!chk) return null
-          return (
-            <div className={`code64 ${chk.ok ? 'ok' : 'bad'}`}>
-              {chk.ok ? '✓' : '✗'} 64-112(4)(c)(d): 主OCPD {mainOcpd}A + PV {solarA}A = {chk.sum}A
-              {chk.ok ? ' ≤ ' : ' > '}busbar {busbarEff}A × 125% = {chk.limit}A
-              {!chk.ok && <div className="fixpath">超限 · 本盘 PV breaker 上限 {chk.maxPv}A · 出路: line-side tap / 64-112(g) 限流 / 换大 busbar 的盘</div>}
-            </div>
-          )
-        }
-
-        /* ---------- render one panel (main or a subpanel) ---------- */
-        function renderPanel(pid, pslots, punits, tag, ttl, mainLine, extraClass) {
-      ```
-      Note: match the file's actual indentation (top-level functions inside the component are indented 2 spaces, as shown by the surrounding `function renderPanel` line) — the snippet above uses that same indent level for consistency with the rest of this file's conventions.
-      verify: `cd admin && npm run build` → succeeds. `grep -n "function render64112" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-## admin/src/pages/LoadCalc.jsx — §3.2.3 UI inputs (main + subpanel)
-
-- [ ] **Step 12** — `admin/src/pages/LoadCalc.jsx` — Add the main-panel `Busbar (A)` input in `.cfg`, between `Main breaker` and `Spaces (slots)`.
-      Find:
-      ```jsx
-              <label>Main breaker
-                <select className="w-amp" value={main} onChange={(e) => setMain(e.target.value)}>
-                  <option>60 A</option><option>100 A</option><option>125 A</option><option>200 A</option>
-                </select>
-              </label>
-              <label>Spaces (slots)<input className="w-slot" type="number" value={slots} min="12" max="60" step="2" onChange={(e) => changeSlots('main', e.target.value)} /></label>
-      ```
-      Replace with:
-      ```jsx
-              <label>Main breaker
-                <select className="w-amp" value={main} onChange={(e) => setMain(e.target.value)}>
-                  <option>60 A</option><option>100 A</option><option>125 A</option><option>200 A</option>
-                </select>
-              </label>
-              <label>Busbar (A)
-                <input className="w-slot" type="number" min="15" max="800" step="5"
-                  placeholder={String(mainOcpdA)}
-                  value={busbar ?? ''}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    if (v === '') { setBusbar(null); return }
-                    const n = parseInt(v, 10)
-                    if (Number.isFinite(n) && n > 0) setBusbar(n)
-                  }} />
-              </label>
-              <label>Spaces (slots)<input className="w-slot" type="number" value={slots} min="12" max="60" step="2" onChange={(e) => changeSlots('main', e.target.value)} /></label>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "Busbar (A)" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 13** — `admin/src/pages/LoadCalc.jsx` — Insert the main-panel `render64112` call, right after the main `renderPanel(...)` call inside `.stage`.
-      Find:
-      ```jsx
-                  <div className="stage" id="panelPrint">
-                    {renderPanel('main', slots, units, brandTag, 'Load Centre',
-                      <><span className="dot" /> MAIN <span className="mono">{calc.svc}A</span></>)}
-
-                    {subEnabled && <datalist id="feederPresets">{FEEDER_AMPS.map((a) => <option key={a} value={a} />)}</datalist>}
-      ```
-      Replace with:
-      ```jsx
-                  <div className="stage" id="panelPrint">
-                    {renderPanel('main', slots, units, brandTag, 'Load Centre',
-                      <><span className="dot" /> MAIN <span className="mono">{calc.svc}A</span></>)}
-                    {render64112(units, mainOcpdA, busbarEffMain)}
-
-                    {subEnabled && <datalist id="feederPresets">{FEEDER_AMPS.map((a) => <option key={a} value={a} />)}</datalist>}
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "render64112(units, mainOcpdA, busbarEffMain)" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 14** — `admin/src/pages/LoadCalc.jsx` — Insert the subpanel `render64112` call, between the subpanel's `renderPanel(...)` call and the `.subctl` div (NEVER inside `.subctl` — it's `display:none` in print, per DESIGN.md §3.2.4).
-      Find:
-      ```jsx
-                            {' '}<span className="mono">{sp.feederAmp}A</span></>, 'sub')}
-                          <div className="subctl">
-      ```
-      Replace with:
-      ```jsx
-                            {' '}<span className="mono">{sp.feederAmp}A</span></>, 'sub')}
-                          {render64112(sp.units, sp.feederAmp, sp.busbar ?? sp.feederAmp)}
-                          <div className="subctl">
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "render64112(sp.units, sp.feederAmp" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-- [ ] **Step 15** — `admin/src/pages/LoadCalc.jsx` — Add the subpanel `Busbar` input in `.subctl`, after `Slots` and before the (now-neutral) `oload` info pill from Step 3.
-      Find:
-      ```jsx
-                            <label>Slots
-                              <input type="number" min="6" max="42" step="2" value={sp.slots} onChange={(e) => changeSlots(sp.id, e.target.value)} />
-                            </label>
-                            <span className="oload info">断路器额定合计 {camps}A · 非负荷计算,仅供与实物面板核对</span>
-      ```
-      Replace with:
-      ```jsx
-                            <label>Slots
-                              <input type="number" min="6" max="42" step="2" value={sp.slots} onChange={(e) => changeSlots(sp.id, e.target.value)} />
-                            </label>
-                            <label>Busbar
-                              <input type="number" min="15" max="800" step="5" placeholder={String(sp.feederAmp)}
-                                value={sp.busbar ?? ''}
-                                onChange={(e) => {
-                                  const v = e.target.value
-                                  if (v === '') { setSubBusbar(sp.id, null); return }
-                                  const n = parseInt(v, 10)
-                                  if (Number.isFinite(n) && n > 0) setSubBusbar(sp.id, n)
-                                }} />
-                            </label>
-                            <span className="oload info">断路器额定合计 {camps}A · 非负荷计算,仅供与实物面板核对</span>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "setSubBusbar(sp.id" admin/src/pages/LoadCalc.jsx` → 2 matches (the `null` branch and the `n` branch).
-
-## admin/src/pages/LoadCalc.jsx — §3.2.4 CSS for `.code64`
-
-- [ ] **Step 16** — `admin/src/pages/LoadCalc.jsx` (CSS string) — Add `.code64` styles, right after the `.subctl .rmsub:hover` rule and before `.kv`.
-      Find:
-      ```css
-      .lc .subctl .rmsub:hover{background:#FEE2E2}
-
-      .lc .kv{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px dashed var(--line2)}
-      ```
-      Replace with:
-      ```css
-      .lc .subctl .rmsub:hover{background:#FEE2E2}
-
-      .lc .code64{width:100%;max-width:400px;margin-top:2px;padding:9px 12px;border-radius:10px;font-size:11.5px;font-weight:700;font-family:"Fira Code",monospace;line-height:1.5}
-      .lc .code64.ok{color:var(--accent-d);background:var(--accent-bg);border:1px solid #A7F3D0}
-      .lc .code64.bad{color:var(--rose);background:var(--red-bg);border:1px solid #FECACA}
-      .lc .code64 .fixpath{margin-top:4px;font-weight:600;font-size:11px;opacity:.9}
-
-      .lc .kv{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px dashed var(--line2)}
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "\.lc \.code64{" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-## admin/src/pages/LoadCalc.jsx — §3.2.5 hint/tip text (Kuo's Q1 addition lives here)
-
-- [ ] **Step 17** — `admin/src/pages/LoadCalc.jsx` — Rewrite the palette `.tip` text: remove the old "并网母线校验(120% 规则)不在本工具范围" sentence, replace with the new 64-112 pointer.
-      Find:
-      ```jsx
-                  <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。Solar 为发电源,不抵扣 8-200 计算负荷;并网母线校验(120% 规则)不在本工具范围,由电工在图纸阶段确认。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
-      ```
-      Replace with:
-      ```jsx
-                  <div className="tip">点击已放入的 breaker 可<b>命名 + 设容量</b>。EV 自动按 100% 计入负荷(主面板 + 所有 subpanel 一起算),Solar 不计入需求负荷。Solar 为发电源,不抵扣 8-200 计算负荷;盘内放入 Solar breaker 后自动按 64-112(4)(c)(d) 做 125% 母线核算(住宅);busbar 额定请照铭牌填写,不填时按主开关/feeder 额定保守取值。{subEnabled ? '加 subpanel 后主面板自动生成一条紫色 feeder,拖 breaker 到 subpanel 里即可。盘内已放的 breaker / feeder 可再<b>拖动换位置</b>(如留 1+3 布局)。' : '需要分面板时,上方打开 Subpanel 开关。'}</div>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "自动按 64-112(4)(c)(d) 做 125% 母线核算" admin/src/pages/LoadCalc.jsx` → 1 match. `grep -n "并网母线校验(120% 规则)不在本工具范围" admin/src/pages/LoadCalc.jsx` → 0 matches.
-
-- [ ] **Step 18** — `admin/src/pages/LoadCalc.jsx` — Add the conditional 64-112 hint line at the bottom of `.stage`, rendered only when any panel (main or a subpanel) has a solar breaker. **Use this exact 4-item string** (DESIGN.md `## Review`, Q1: Kuo's line-side-tap-vs-load-side-backfeed determination is item ①, front-loaded; the architect's original ①②③ are renumbered ②③④ — do not reorder, do not paraphrase, do not add a 5th bullet).
-      Find:
-      ```jsx
-                    <div className="hint" style={{ width: '100%', textAlign: 'center' }}>计算负荷不低于 CEC 8-200(1)(b) 最小 service 下限(minSvc {calc.minSvc}A)。</div>
-                  </div>
-                </div>
-              </div>
-      ```
-      Replace with:
-      ```jsx
-                    <div className="hint" style={{ width: '100%', textAlign: 'center' }}>计算负荷不低于 CEC 8-200(1)(b) 最小 service 下限(minSvc {calc.minSvc}A)。</div>
-                    {anySolar && (
-                      <div className="hint" style={{ width: '100%', textAlign: 'center' }}>64-112 附带条件(电工现场核实):① 先确认现有 PV 是 load-side backfeed(经断路器接入母线,需按 64-112 核算)还是 line-side tap(计量表前/进线侧接入,不占用任何一层母线余量,不在本核算范围——line-side 接入请勿在图内放置 Solar breaker,以下②-④ 均不适用);② PV breaker 须位于母线远离主进线的一端,且贴永久"不得移位"标签;③ 多电源盘按 14-414 设"断开全部隔离开关方可断电"警示;④ PV 位于 subpanel 时,上游主面板母线是否同样需按 64-112 复核(feeder 视为电源侧 OCPD)由电工判定。</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "先确认现有 PV 是 load-side backfeed" admin/src/pages/LoadCalc.jsx` → 1 match. `grep -n "anySolar &&" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-## admin/src/pages/LoadCalc.jsx — §3.3 EVEMS verdict text
-
-- [ ] **Step 19** — `admin/src/pages/LoadCalc.jsx` — Append the EVEMS certification/accepted-list sentence to the verdict's over-capacity branch small text.
-      Find:
-      ```jsx
-                      <small>{over
-                        ? '缺口 ' + (calc.amps - calc.svc).toFixed(0) + ' A · CEC 8-106(10) 加 EVEMS 可把 EV 限到剩余容量免升级。' + note
-                        : '余量 ' + (calc.svc - calc.amps).toFixed(0) + ' A。' + note}</small>
-      ```
-      Replace with:
-      ```jsx
-                      <small>{over
-                        ? '缺口 ' + (calc.amps - calc.svc).toFixed(0) + ' A · CEC 8-106(10) 加 EVEMS 可把 EV 限到剩余容量免升级。EVEMS 设备须 ULC-ORD-3141 认证或在 City of Calgary accepted models list 上(不在名单可邮件 electricaltac@calgary.ca 评审)。' + note
-                        : '余量 ' + (calc.svc - calc.amps).toFixed(0) + ' A。' + note}</small>
-      ```
-      verify: `cd admin && npm run build` → succeeds. `grep -n "ULC-ORD-3141" admin/src/pages/LoadCalc.jsx` → 1 match.
-
-## admin/src/utils/cecLoad.selfcheck.mjs — §3.5 regression assertions
-
-- [ ] **Step 20** — `admin/src/utils/cecLoad.selfcheck.mjs` — Import `busbarCheck` and `solarAmpsOf`.
-      Find:
-      ```js
-      import { basicLoad, heatDemand, rangeDemand, otherDemand, computeLoad, connectedAmps } from './cecLoad.js'
-      ```
-      Replace with:
-      ```js
-      import { basicLoad, heatDemand, rangeDemand, otherDemand, computeLoad, connectedAmps, busbarCheck, solarAmpsOf } from './cecLoad.js'
-      ```
-      verify: `cd admin && node src/utils/cecLoad.selfcheck.mjs` → still prints `cecLoad self-check: all assertions passed` (Step 21 not yet applied, but the import itself must resolve without error once Step 2 has landed). `grep -n "busbarCheck, solarAmpsOf" admin/src/utils/cecLoad.selfcheck.mjs` → 1 match.
-
-- [ ] **Step 21** — `admin/src/utils/cecLoad.selfcheck.mjs` — Add the 64-112 table assertions and the STANDATA EV-dilution assertion, before the final `console.log`. The `busbar:60, mainOcpd:60, solarA:40 → ok:false` case is the FFT-2026-0002 SUB-1 default (busbar unfilled → follows the 60A feeder) — **this is the correct, designed-for behavior, not a bug**; do not "fix" it by changing the assertion or the underlying `busbarCheck` logic (see DESIGN.md §3.2.4 "预期行为声明").
-      Find:
-      ```js
-      assert.equal(connectedAmps(sub1Shape), 85) // loads only: 30+30+25; both 20A solar breakers excluded (was 125 before the fix)
-
-      console.log('cecLoad self-check: all assertions passed')
-      ```
-      Replace with:
-      ```js
-      assert.equal(connectedAmps(sub1Shape), 85) // loads only: 30+30+25; both 20A solar breakers excluded (was 125 before the fix)
-
-      // CEC 64-112(4)(c)&(d) dwelling table (authoritative input 2026-07):
-      // busbar/main → PV max: 100/100→25, 125/100→56.25, 200/200→50, 225/200→81.25
-      assert.equal(busbarCheck({ busbar: 100, mainOcpd: 100, solarA: 0 }).maxPv, 25)
-      assert.equal(busbarCheck({ busbar: 125, mainOcpd: 100, solarA: 0 }).maxPv, 56.25)
-      assert.equal(busbarCheck({ busbar: 200, mainOcpd: 200, solarA: 0 }).maxPv, 50)
-      assert.equal(busbarCheck({ busbar: 225, mainOcpd: 200, solarA: 0 }).maxPv, 81.25)
-      assert.equal(busbarCheck({ busbar: 100, mainOcpd: 100, solarA: 25 }).ok, true)   // exactly at limit
-      assert.equal(busbarCheck({ busbar: 100, mainOcpd: 100, solarA: 30 }).ok, false)
-      assert.equal(busbarCheck({ busbar: 60, mainOcpd: 60, solarA: 40 }).ok, false)    // FFT-2026-0002 SUB-1, busbar unfilled → follows 60A feeder → conservative fail. EXPECTED, not a bug — see DESIGN.md §3.2.4.
-      assert.equal(busbarCheck({ busbar: 100, mainOcpd: 60, solarA: 40 }).ok, true)    // same panel with real 100A bus recorded
-      assert.equal(busbarCheck({ busbar: 0, mainOcpd: 100, solarA: 20 }), null)        // insufficient data → no verdict, never a guess
-      assert.equal(solarAmpsOf([{ kind: 'solar', circuits: [{ amp: 20 }] }, { kind: 'solar', circuits: [{ amp: 20 }] }, { kind: 'normal', circuits: [{ amp: 40 }] }]), 40)
-
-      // STANDATA 24-ECB-008: evW must not be diluted by any demand factor — delta of totals with/without EV === full evW
-      const noEv = computeLoad({ area: 200, heat: 15, ac: 5, range: 12, wh: 5, other: 6, heatType: 'electric', main: '100 A', evW: 0 })
-      const withEv = computeLoad({ area: 200, heat: 15, ac: 5, range: 12, wh: 5, other: 6, heatType: 'electric', main: '100 A', evW: 11520 })
-      assert.equal(withEv.total - noEv.total, 11520)
-
-      console.log('cecLoad self-check: all assertions passed')
-      ```
-      verify: `cd admin && node src/utils/cecLoad.selfcheck.mjs` → prints `cecLoad self-check: all assertions passed`, exit code 0.
+> Task tier: **CRITICAL** · Skill Manifest (copied verbatim from DESIGN.md §0 — implementer/tester
+> may invoke ONLY these skills):
+> - MANDATORY-INFRA: `cmm`, `codebase-memory`, `ponytail-review`
+> - DEV-CONDITIONAL: `ecc:python-patterns`, `ecc:python-testing`, `ecc:postgres-patterns`,
+>   `ecc:database-migrations`, `ecc:docker-patterns`, `ecc:deployment-patterns`
+> - 无 UI 工作，不含 `ui-ux-pro-max`。
+>
+> UI contract: none（纯后端 + cron，无前端改动）。
+> NO-ADVISOR ZONE: executing these approved steps never triggers an advisor consult (economy
+> policy F), except the stuck-escalation condition (policy D). DESIGN.md §0 planned 2 consults:
+> one after T2 (redirect single-exit + counting judgement), one at completion sign-off.
+>
+> 术语见 `CONTEXT.md`：停滞 / 催单 / 球在客户 / 球在我们 / 催单重定向 / 待人工跟进。
+> 全部三张票**串行**（DESIGN §5 已声明，复审确认不降级为并行）。
+> 所有命令假设本地开发栈已起：`docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`，
+> backend 容器名记作 `<backend>`（`docker ps` 查真实名，通常 `fft-evquote-helper-backend-1`）。
 
 ---
 
-## Test plan
+## Ticket 1 — 停滞时钟落地（地基）  [Blocked by: none] [serial]
+**Files**: `backend/migrations/versions/<new_revision>.py`（新建）、`backend/app/models/models.py`、
+`backend/app/services/service_booking_flow.py`、`backend/app/config.py`、`.env.example`、
+`backend/scripts/mock_data.py`
 
-- **Full self-check**: `cd admin && node src/utils/cecLoad.selfcheck.mjs` → all assertions pass, including the new 64-112 table and STANDATA delta assertions from Step 21.
-- **Build**: `cd admin && npm run build` → succeeds with no errors (run once more at the end, after all 21 steps, as the final gate).
-- **Lint** (final gate only): `cd admin && npm run lint` → no new errors in `LoadCalc.jsx` / `cecLoad.js` / `cecLoad.selfcheck.mjs` compared to a pre-change baseline run.
-- **Manual — §3.1 info pill**: open a case's Load Calc, enable a subpanel with breakers whose ratings sum above the feeder rating. Confirm the pill reads "断路器额定合计 {N}A · 非负荷计算,仅供与实物面板核对" in **neutral grey**, with no "超载!" text and no red/amber coloring anywhere on that pill, regardless of how high the sum is relative to the feeder rating.
-- **Manual — §3.2 busbar input, main panel**: leave `Busbar (A)` empty → placeholder shows the main breaker's numeric rating (e.g. "100"). Type `225`, tab away → value persists as `225`; clear the field → reverts to placeholder/follow behavior (not a literal `0`).
-- **Manual — §3.2 busbar input, subpanel**: same behavior in a subpanel's `Busbar` field inside `.subctl`, placeholder = that subpanel's current feeder rating.
-- **Manual — §3.2.4 64-112 status line, no-solar case**: a panel (main or subpanel) with zero solar breakers shows NO 64-112 row at all — confirm it doesn't render even as an empty/blank line.
-- **Manual — §3.2.4 64-112 status line, FFT-2026-0002 SUB-1 default-✗ (EXPECTED BEHAVIOR, do not treat as a bug)**: create a subpanel with feeder 60A and two 20A solar breakers, leave its Busbar field empty. Confirm the 64-112 row shows **✗** with "主OCPD 60A + PV 40A = 100A > busbar 60A × 125% = 75A" and a red `.code64.bad` pill with the `fixpath` line underneath. Then fill Busbar with `100` → row flips to **✓** green, "100+40=140A ≤ 100×1.25=125A" — wait, verify the exact printed numbers match what `busbarCheck({busbar:100, mainOcpd:60, solarA:40})` actually returns (sum=100, limit=125, ok=true) rather than assuming; the point of this check is confirming the default-conservative-then-corrects-with-real-data behavior, not a specific narrative.
-- **Manual — §3.2.4 print visibility**: with at least one panel showing a 64-112 row (✓ or ✗), open the browser print preview (`window.print()`). Confirm the 64-112 row IS visible in the print preview for both the main panel and any subpanel (it must NOT disappear the way anything inside `.subctl` does — `.subctl` is `display:none` in print). Also place a PV breaker on the **main** panel specifically, print-preview, and confirm the 64-112 row stays attached to the main panel and is not orphaned onto a separate page by itself — this is the one pagination risk DESIGN.md §6 flags as needing real verification (subpanels are already inside `.substage`'s `break-inside:avoid` box and are not at risk; only the main panel's row sits as a loose sibling in `.stage`). If it does get orphaned, do not silently patch it — report to Kuo/implementer for a follow-up fix (e.g. wrapping the main panel + its 64-112 row in a shared `break-inside:avoid` container), it is out of this round's atomic step scope.
-- **Manual — §3.2.5 hint text**: with no solar breakers placed anywhere, confirm the "64-112 附带条件" hint line does NOT appear at all (only the pre-existing "计算负荷不低于 CEC 8-200(1)(b)…" line shows). Place one solar breaker anywhere (main or subpanel) → confirm the second hint line appears, starting with "① 先确认现有 PV 是 load-side backfeed…" and reads all four numbered items in order (① line-side/load-side determination, ② busbar-end placement + permanent label, ③ 14-414 warning label, ④ upstream cascade judgment call) — exact text must match Step 18 verbatim, not a paraphrase.
-- **Manual — §3.2.5 tip text**: palette `.tip` text no longer contains "并网母线校验(120% 规则)不在本工具范围"; it now reads "...盘内放入 Solar breaker 后自动按 64-112(4)(c)(d) 做 125% 母线核算(住宅);busbar 额定请照铭牌填写,不填时按主开关/feeder 额定保守取值。"
-- **Manual — §3.3 EVEMS text**: push the calculated load over the service capacity (e.g. add a large EV breaker on a small service) → verdict's small text under "超出 service 容量…" includes "EVEMS 设备须 ULC-ORD-3141 认证或在 City of Calgary accepted models list 上(不在名单可邮件 electricaltac@calgary.ca 评审)。" before the "最小 service …" note. Confirm the under-capacity (ok) branch is unchanged (no EVEMS sentence there — it's not relevant when there's no gap to fill with EVEMS).
-- **Manual — save/load round-trip**: set a main-panel Busbar value and a subpanel Busbar value, click "Save to case", reload the page. Confirm both values are restored exactly (not reverted to placeholder/follow). Then clear the main Busbar field, save, reload — confirm it comes back empty/following (not a stale old value).
-- **Red-line spot checks**:
-  - *Electrical correctness — 125% dwelling-only*: `grep -n "1.25" admin/src/utils/cecLoad.js` → exactly 1 match, inside `busbarCheck`, with no conditional/branch around it for a non-dwelling case anywhere in the file.
-  - *Electrical correctness — no guessing on insufficient data*: `grep -n "insufficient data" admin/src/utils/cecLoad.js` → 1 match (the `return null` comment in `busbarCheck`); confirm by reading `render64112` in `LoadCalc.jsx` that a `null` `chk` renders nothing, never a fabricated ✓ or ✗.
-  - *Electrical correctness — PV never offsets calc.amps*: `grep -n "evW\|computeLoad(" admin/src/pages/LoadCalc.jsx` — confirm `calc` (the `useMemo` computing `computeLoad(...)`) has no `busbar`, `busbarCheck`, or `solarA` argument anywhere in its call or its dependency array; `grep -n "function computeLoad" admin/src/utils/cecLoad.js` → signature unchanged from before this round (no new parameter).
-  - *Electrical correctness — position compliance is text-only*: `grep -n "render64112\|busbarCheck" admin/src/pages/LoadCalc.jsx` — confirm every call site only ever renders `chk.ok`/`chk.sum`/`chk.limit`/`chk.maxPv` (numeric verdict), and that the position/label/cascade/line-side-tap content added in Step 18 is a static JSX string with no computed condition beyond `anySolar` (which only gates whether the paragraph shows, not what it says).
-  - *Trust-boundary validation*: `grep -n "Number.isFinite(n) && n > 0" admin/src/pages/LoadCalc.jsx` → at least 4 matches (pre-existing feeder/slots guards + the two new busbar guards from Steps 12/15).
-  - *Data loss*: `grep -n "window.confirm" admin/src/pages/LoadCalc.jsx` → still present (subpanel-removal confirm, untouched); `save()`'s catch block still calls `flash(...)` on failure (`grep -n "flash(e?.response" admin/src/pages/LoadCalc.jsx` → 1 match, unchanged).
-  - *Accessibility*: both new Busbar inputs are inside real `<label>` elements (`grep -n "<label>Busbar" admin/src/pages/LoadCalc.jsx` → 2 matches — main cfg + subctl); the `.code64` row shows `✓`/`✗` glyphs together with full numeric text, never color alone (visually confirm in a black-and-white print preview that ok/bad are still distinguishable by the glyph and text, not just by red/green).
-  - *Scope discipline (Q4)*: `grep -rn "busbar\|64-112\|Survey" backend/app/models/models.py backend/app/api/v1/admin/cases.py` → 0 matches for `busbar`/`64-112`, confirming zero backend/model changes landed; the `Survey` model (if matched at all) shows no new fields beyond what existed before this round.
+- [x] **Step 1.1** — 生成迁移骨架 — 运行
+      `docker exec -w /app <backend> alembic revision -m "nudge_status_changed_at"`
+      verify: 命令打印新文件路径，`backend/migrations/versions/` 下出现一个新 `*.py` 文件。
+
+- [x] **Step 1.2** — `backend/migrations/versions/<new_revision>.py` — 把生成的骨架改成：
+      `down_revision = "b1c2d3e4f5a6"`；`upgrade()` 依次执行：
+      1) `op.add_column("service_bookings", sa.Column("status_changed_at", sa.DateTime(timezone=True), nullable=True, server_default=sa.func.now()))`
+      2) 同上对 `cleaning_subscriptions`
+      3) `op.execute("UPDATE service_bookings SET status_changed_at = COALESCE(updated_at, created_at, now())")`
+      4) 同上对 `cleaning_subscriptions`
+      5) `op.alter_column("service_bookings", "status_changed_at", nullable=False)`
+      6) 同上对 `cleaning_subscriptions`
+      **必须用 `COALESCE(updated_at, created_at, now())`，不能只写 `= updated_at`**——这两张表在
+      `b1c2d3e4f5a6` 建表时 `created_at`/`updated_at` 都没标 `nullable=False`，直接赋值遇到 NULL
+      行会导致第 5/6 步 `SET NOT NULL` 失败。`downgrade()` 依次
+      `op.drop_column("service_bookings", "status_changed_at")` 和对 `cleaning_subscriptions` 同样操作。
+      verify: `docker exec -w /app <backend> alembic upgrade head` 退出码 0；
+      `docker exec -w /app <backend> alembic downgrade -1 && alembic upgrade head` 往返无报错。
+
+- [x] **Step 1.3** — `backend/app/models/models.py` — 在 `ServiceBooking` 类的 `updated_at`
+      （继承自 `TimestampMixin`）之后新增一行：
+      `status_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())`；
+      在 `CleaningSubscription` 类同样位置加同一行。
+      verify: `docker exec -w /app <backend> python -c "from app.models.models import ServiceBooking, CleaningSubscription; print(ServiceBooking.status_changed_at, CleaningSubscription.status_changed_at)"` 无报错打印出列对象。
+
+- [x] **Step 1.4** — `backend/app/services/service_booking_flow.py` — 顶部 `from datetime import date, datetime`
+      改成 `from datetime import date, datetime, timezone`；在 `_next_reference` 函数之前新增：
+      ```python
+      def _mark_status_changed(obj) -> None:
+          obj.status_changed_at = datetime.now(timezone.utc)
+      ```
+      verify: `docker exec -w /app <backend> python -c "import app.services.service_booking_flow"` 无报错。
+
+- [x] **Step 1.5** — `admin_schedule_booking` 函数 — `booking.status = new_status` 这一行改为：
+      ```python
+      if booking.status != new_status:
+          _mark_status_changed(booking)
+      booking.status = new_status
+      ```
+      verify: `grep -c "_mark_status_changed(booking)" backend/app/services/service_booking_flow.py` = 1。
+
+- [x] **Step 1.6** — `admin_create_bird_quote` 函数 — `booking.status = ServiceBookingStatus.quoted`
+      改为同 1.5 的 `if/then` 模式（比较值为 `ServiceBookingStatus.quoted`）。
+      verify: 累计命中数为 2。
+
+- [x] **Step 1.7** — `approve_bird_quote` 函数 — `booking.status = ServiceBookingStatus.approved`
+      改为同模式（比较值 `ServiceBookingStatus.approved`）。
+      verify: 累计命中数为 3。
+
+- [x] **Step 1.8** — `admin_update_status` 函数 — `booking.status = new_status` 改为同模式。
+      verify: 累计命中数为 4。
+
+- [x] **Step 1.9** — `cancel_booking` 函数 — `booking.status = ServiceBookingStatus.cancelled`
+      改为同模式。
+      verify: 累计命中数为 5（`grep -c "_mark_status_changed(booking)"` = 5）。
+
+- [x] **Step 1.10** — `admin_set_cleaning_price` 函数 — `sub.pricing_status = CleaningPricingStatus.quoted`
+      改为：
+      ```python
+      if sub.pricing_status != CleaningPricingStatus.quoted:
+          _mark_status_changed(sub)
+      sub.pricing_status = CleaningPricingStatus.quoted
+      ```
+      verify: `grep -c "_mark_status_changed(sub)" backend/app/services/service_booking_flow.py` = 1。
+
+- [x] **Step 1.11** — `admin_set_cleaning_payment` 函数 — `sub.payment_status = payment_status`
+      改为：
+      ```python
+      if sub.payment_status != payment_status:
+          _mark_status_changed(sub)
+      sub.payment_status = payment_status
+      ```
+      verify: `grep -c "_mark_status_changed(sub)" backend/app/services/service_booking_flow.py` = 2。
+      **不要**改 `create_service_booking` / `create_cleaning_subscription`——新建行的
+      `status_changed_at` 由 Step 1.3 的 `server_default=now()` 自动对齐，不需要调用 helper。
+
+- [x] **Step 1.12** — `backend/app/config.py` — 在 `admin_login_block_seconds` 字段之后新增 4 个字段：
+      ```python
+      nudge_run_key: str | None = Field(default=None, validation_alias="NUDGE_RUN_KEY")
+      nudge_redirect: str | None = Field(default=None, validation_alias="NUDGE_REDIRECT")
+      nudge_redirect_sms: str = Field(default="+15879669668", validation_alias="NUDGE_REDIRECT_SMS")
+      nudge_redirect_email: str = Field(default="cool@khtain.com", validation_alias="NUDGE_REDIRECT_EMAIL")
+      ```
+      把 `nudge_run_key` 和 `nudge_redirect` 加进已有的 `_blank_str_to_none`
+      `@field_validator(...)` 装饰器的字段列表里（与 `admin_notify_email` 等同一个校验器，
+      让空字符串环境变量视为未设置）。
+      verify: `docker exec -w /app <backend> python -c "from app.config import get_settings; s=get_settings(); print(s.nudge_run_key, s.nudge_redirect, s.nudge_redirect_sms, s.nudge_redirect_email)"` 打印
+      `None None +15879669668 cool@khtain.com`（未设置任何 env 时）。
+
+- [x] **Step 1.13** — `.env.example` — 新增一段：
+      ```
+      # Stalled-order nudges (see SPEC.md / CONTEXT.md). Missing NUDGE_RUN_KEY disables the endpoint
+      # (returns 503). Missing/blank/anything-other-than-"off" NUDGE_REDIRECT keeps redirect ON —
+      # only the literal value "off" sends nudges to real customers.
+      NUDGE_RUN_KEY=
+      NUDGE_REDIRECT=
+      NUDGE_REDIRECT_SMS=+15879669668
+      NUDGE_REDIRECT_EMAIL=cool@khtain.com
+      ```
+      verify: `grep -c "^NUDGE_" .env.example` = 4。
+
+- [x] **Step 1.14** — `backend/scripts/mock_data.py` — `ServiceBooking(...)` 构造调用（`seed_services`
+      函数内）新增一个关键字参数：
+      ```python
+      status_changed_at=days(-20) if sfx in ("01", "06", "07") else days(offset + 1),
+      ```
+      放在 `updated_at=days(offset + 1),` 之后一行。
+      verify: `grep -n "status_changed_at" backend/scripts/mock_data.py` 命中数 ≥1（本步之后）。
+
+- [x] **Step 1.15** — `backend/scripts/mock_data.py` — `CleaningSubscription(...)` 构造调用（`seed_cleaning`
+      函数内）新增：`status_changed_at=days(-70),`（放在 `updated_at=days(-70),` 之后一行——
+      三个订阅本来就统一用 `-70`，不需要按 idx 区分）。
+      verify: `grep -c "status_changed_at" backend/scripts/mock_data.py` = 2。
+
+- [x] **Step 1.16** — 重新种子并核对 —
+      `docker exec -w /app <backend> python - seed < backend/scripts/mock_data.py`（Windows PowerShell：
+      `Get-Content backend/scripts/mock_data.py | docker exec -i -w /app <backend> python - seed`）。
+      verify:
+      `docker exec <db容器> psql -U ev_charger -d ev_charger_quote -c "select reference_number, status_changed_at from service_bookings where reference_number in ('MOCK-DG-01','MOCK-BN-06','MOCK-BN-07');"`
+      三行 `status_changed_at` 都是 `2026-07-08 00:00:00+00`（TODAY 2026-07-28 减 20 天；该列是
+      `timestamptz`，psql 会打印完整时间戳而不是裸日期，看到这个格式属于验证通过，不是异常）；
+      `select reference_number, status_changed_at from cleaning_subscriptions;` 三行都是
+      `2026-05-19 00:00:00+00`（减 70 天）。
+
+**Ticket 1 Test plan**: 上面 16 步各自的 verify 已覆盖；额外跑一次现有回归防手滑——
+`docker compose -f docker-compose.test.yml --env-file .env up --build --abort-on-container-exit --exit-code-from tests`
+（本票没碰任何被这套测试覆盖的行为，应保持全绿，证明没有误改到 `service_booking_flow.py`
+其它逻辑）。
+
+---
+
+## Ticket 2 — 催单引擎  [Blocked by: 1] [serial]
+**Files**: `backend/app/services/nudge_service.py`（新建）、`backend/app/services/bootstrap_service.py`、
+`backend/tests/test_nudge_service.py`（新建）
+
+### 模板种子
+
+- [x] **Step 2.1** — `backend/app/services/bootstrap_service.py` — 在 `SERVICE_SMS_TEMPLATES`
+      定义之后新增两个模块级常量：
+      ```python
+      NUDGE_EMAIL_TEMPLATES = {
+          "nudge_admin_digest": {
+              "subject": "Stalled-order digest",
+              "html": (
+                  '{% extends "base.html" %}{% block content %}'
+                  '<h2 style="margin:0 0 8px 0;">Daily stalled-order digest — {{ date }}</h2>'
+                  '{% if nudged %}<h3 style="margin:14px 0 6px 0;">Nudged today</h3><ul class="muted small">'
+                  '{% for n in nudged %}<li>{{ n.ref }} — {{ n.state }} — {{ n.days }}d — #{{ n.count }} — '
+                  'intended: {{ n.intended }}{% if n.redirected %} (redirected){% endif %}'
+                  '{% if n.admin_url %} — <a href="{{ n.admin_url }}">view</a>{% endif %}</li>{% endfor %}</ul>{% endif %}'
+                  '{% if our_side %}<h3 style="margin:14px 0 6px 0;">Waiting on us</h3><ul class="muted small">'
+                  '{% for o in our_side %}<li>{{ o.ref }} — {{ o.state }} — {{ o.days }}d'
+                  '{% if o.admin_url %} — <a href="{{ o.admin_url }}">view</a>{% endif %}</li>{% endfor %}</ul>{% endif %}'
+                  '{% if needs_followup %}<h3 style="margin:14px 0 6px 0;">Needs manual follow-up</h3><ul class="muted small">'
+                  '{% for f in needs_followup %}<li>{{ f.ref }} — {{ f.state }} — {{ f.days }}d'
+                  '{% if f.admin_url %} — <a href="{{ f.admin_url }}">view</a>{% endif %}</li>{% endfor %}</ul>{% endif %}'
+                  "{% endblock %}"
+              ),
+          },
+      }
+      NUDGE_SMS_TEMPLATES = {
+          "nudge_customer": {
+              "body": "{{ brand_name }}\nFriendly reminder — {{ reference_number }}\n"
+                      "We're waiting on you to {{ action_text }}.\n{{ link }}",
+          },
+      }
+      ```
+      然后新增一个函数，逐字照抄 `_ensure_service_templates` 的结构（merge-without-overwrite，
+      靠 `flag_modified`），一段合并 `DEFAULT_EMAIL_TEMPLATES_KEY` 里的 `NUDGE_EMAIL_TEMPLATES`，
+      一段合并 `DEFAULT_SMS_TEMPLATES_KEY` 里的 `NUDGE_SMS_TEMPLATES`：
+      ```python
+      def _ensure_nudge_templates(db: Session) -> None:
+          """Seed nudge email/sms templates; merge-without-overwrite (preserves admin edits)."""
+          email_row = db.execute(select(SystemSetting).where(SystemSetting.key == DEFAULT_EMAIL_TEMPLATES_KEY)).scalar_one_or_none()
+          if email_row:
+              changed = False
+              for k, v in NUDGE_EMAIL_TEMPLATES.items():
+                  if k not in (email_row.value or {}):
+                      email_row.value[k] = v
+                      changed = True
+              if changed:
+                  flag_modified(email_row, "value")
+                  db.add(email_row)
+                  db.commit()
+          sms_row = db.execute(select(SystemSetting).where(SystemSetting.key == DEFAULT_SMS_TEMPLATES_KEY)).scalar_one_or_none()
+          if sms_row:
+              changed = False
+              for k, v in NUDGE_SMS_TEMPLATES.items():
+                  if k not in (sms_row.value or {}):
+                      sms_row.value[k] = v
+                      changed = True
+              if changed:
+                  flag_modified(sms_row, "value")
+                  db.add(sms_row)
+                  db.commit()
+      ```
+      **不要忘 `flag_modified`**——这是本项目已经踩过一次的坑（v3.0 的 7 个模板曾因为漏这行
+      静默丢失）。最后在 `ensure_defaults()` 里 `_ensure_service_templates(db)` 那一行之后加一行
+      `_ensure_nudge_templates(db)`。
+      verify: `docker compose -f docker-compose.yml -f docker-compose.dev.yml restart backend`
+      （触发 `@app.on_event("startup")` 重跑 `ensure_defaults`），然后
+      `docker exec <db> psql -U ev_charger -d ev_charger_quote -c "select value ? 'nudge_customer' from system_settings where key='sms_templates';"`
+      返回 `t`；同样查 `email_templates` 的 `nudge_admin_digest` 也返回 `t`。**这两行 SystemSetting
+      在本地库里早就存在**（v3.0 就种过），所以这个 verify 恰好复现了当年漏 `flag_modified` 的
+      那个 bug 场景——如果验证失败先检查有没有漏 `flag_modified`。
+
+### 引擎模块
+
+- [x] **Step 2.2** — 新建 `backend/app/services/nudge_service.py`，写入模块 docstring + imports：
+      ```python
+      from __future__ import annotations
+
+      from datetime import datetime, timedelta, timezone
+      from typing import Literal, NamedTuple
+      from zoneinfo import ZoneInfo
+
+      from sqlalchemy import select, func
+      from sqlalchemy.orm import Session
+
+      from app.config import get_settings
+      from app.models.models import (
+          BirdNettingQuote, Case, CaseNote, CaseStatus, CaseStatusHistory,
+          CleaningPaymentStatus, CleaningPricingStatus, CleaningSubscription,
+          Notification, NotificationStatus, ServiceBooking, ServiceBookingStatus, ServiceType,
+          SystemSetting,
+      )
+      from app.services.notification_service import (
+          _get_system_setting, _templates_env, _with_brand_profile,
+          admin_case_url, notify_sms, render_sms_from_db_or_fallback,
+          _send_service_email, _send_service_sms,
+      )
+      from app.services.service_booking_flow import bird_quote_url, cleaning_status_url, service_status_url
+
+      CALGARY_TZ = ZoneInfo("America/Edmonton")
+      NUDGE_CUSTOMER_TEMPLATE = "nudge_customer"
+      NUDGE_DIGEST_TEMPLATE = "nudge_admin_digest"
+      NUDGE_CAP = 3
+      NUDGE_INTERVAL_DAYS = 14
+      Bucket = Literal["customer", "ours", "none"]
+
+
+      class StalledTarget(NamedTuple):
+          kind: Literal["ev", "diagnostic", "bird_netting", "cleaning"]
+          id: str
+          reference_number: str
+          status_label: str
+          stalled_days: int
+          clock: datetime
+          bucket: Bucket
+          customer_name: str
+          phone: str | None
+          email: str | None
+          action_text: str | None
+          link: str | None
+          admin_url: str | None
+      ```
+      verify: `docker exec -w /app <backend> python -c "import app.services.nudge_service"` 无报错。
+
+- [x] **Step 2.3** — 追加 EV 分类表（穷举全部 13 个 `CaseStatus`）：
+      ```python
+      _EV_CLASSIFY: dict[CaseStatus, Bucket] = {
+          CaseStatus.pending: "customer",
+          CaseStatus.survey_scheduled: "none",
+          CaseStatus.survey_completed: "ours",
+          CaseStatus.quoting: "ours",
+          CaseStatus.quoted: "customer",
+          CaseStatus.customer_approved: "ours",
+          CaseStatus.permit_applied: "ours",
+          CaseStatus.permit_approved: "customer",
+          CaseStatus.installation_scheduled: "none",
+          CaseStatus.installed: "customer",
+          CaseStatus.completed: "none",
+          CaseStatus.cancelled: "none",
+          CaseStatus.lost: "none",
+      }
+      _EV_ACTION: dict[CaseStatus, str] = {
+          CaseStatus.pending: "book a site-survey time",
+          CaseStatus.quoted: "review and sign your quote",
+          CaseStatus.permit_approved: "book your installation time",
+          CaseStatus.installed: "settle the final balance",
+      }
+      ```
+      verify: `python -c "from app.services.nudge_service import _EV_CLASSIFY; from app.models.models import CaseStatus; assert set(_EV_CLASSIFY) == set(CaseStatus); print('ok')"` 打印 `ok`。
+
+- [x] **Step 2.4** — 追加服务单分类表（穷举诊断 5 态 + 鸟网 7 态，键为 `(ServiceType, ServiceBookingStatus)`）：
+      ```python
+      _SERVICE_CLASSIFY: dict[tuple[ServiceType, ServiceBookingStatus], Bucket] = {
+          (ServiceType.diagnostic, ServiceBookingStatus.submitted): "customer",
+          (ServiceType.diagnostic, ServiceBookingStatus.scheduled): "none",
+          (ServiceType.diagnostic, ServiceBookingStatus.in_progress): "none",
+          (ServiceType.diagnostic, ServiceBookingStatus.completed): "none",
+          (ServiceType.diagnostic, ServiceBookingStatus.cancelled): "none",
+          (ServiceType.bird_netting, ServiceBookingStatus.submitted): "none",
+          (ServiceType.bird_netting, ServiceBookingStatus.survey_scheduled): "ours",
+          (ServiceType.bird_netting, ServiceBookingStatus.quoted): "customer",
+          (ServiceType.bird_netting, ServiceBookingStatus.approved): "customer",
+          (ServiceType.bird_netting, ServiceBookingStatus.install_scheduled): "none",
+          (ServiceType.bird_netting, ServiceBookingStatus.completed): "none",
+          (ServiceType.bird_netting, ServiceBookingStatus.cancelled): "none",
+      }
+      _SERVICE_ACTION: dict[tuple[ServiceType, ServiceBookingStatus], str] = {
+          (ServiceType.diagnostic, ServiceBookingStatus.submitted): "confirm your diagnostic visit time",
+          (ServiceType.bird_netting, ServiceBookingStatus.quoted): "review and sign your quote",
+          (ServiceType.bird_netting, ServiceBookingStatus.approved): "settle the deposit so we can schedule your install",
+      }
+      ```
+      verify: 先跑 `python -c "import app.services.nudge_service"` 确认无语法错误；完整穷举断言在 Step 2.13。
+
+- [x] **Step 2.5** — 追加清洁订阅分类表（穷举全部 6 个 `(pricing_status, payment_status)` 组合）：
+      ```python
+      _CLEANING_CLASSIFY: dict[tuple[CleaningPricingStatus, CleaningPaymentStatus], Bucket] = {
+          (CleaningPricingStatus.quoted, CleaningPaymentStatus.unpaid): "customer",
+          (CleaningPricingStatus.quoted, CleaningPaymentStatus.paid): "none",
+          (CleaningPricingStatus.quoted, CleaningPaymentStatus.refunded): "none",
+          (CleaningPricingStatus.pending_quote, CleaningPaymentStatus.unpaid): "ours",
+          (CleaningPricingStatus.pending_quote, CleaningPaymentStatus.paid): "ours",
+          (CleaningPricingStatus.pending_quote, CleaningPaymentStatus.refunded): "none",
+      }
+      _CLEANING_ACTION = "complete payment for your cleaning subscription"
+      ```
+      verify: 语法检查通过（同上命令）。
+
+- [x] **Step 2.6** — 追加纯函数（无 DB）：
+      ```python
+      def should_nudge(stalled_days: int, sent_count: int) -> bool:
+          return sent_count < NUDGE_CAP and stalled_days >= NUDGE_INTERVAL_DAYS * (sent_count + 1)
+
+
+      def redirect_enabled() -> bool:
+          value = (get_settings().nudge_redirect or "").strip().casefold()
+          return value != "off"
+
+
+      def resolve_recipient(is_sms: bool, real_contact: str) -> tuple[str, bool]:
+          if not redirect_enabled():
+              return real_contact, False
+          s = get_settings()
+          return (s.nudge_redirect_sms if is_sms else s.nudge_redirect_email), True
+
+
+      def _calgary_day_bounds_utc(now: datetime) -> tuple[datetime, datetime]:
+          local = now.astimezone(CALGARY_TZ)
+          start_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
+          return start_local.astimezone(timezone.utc), (start_local + timedelta(days=1)).astimezone(timezone.utc)
+      ```
+      verify: `python -c "from app.services.nudge_service import should_nudge as f; assert (f(13,0),f(14,0),f(27,1),f(28,1),f(42,2),f(56,3))==(False,True,False,True,True,False); print('ok')"` 打印 `ok`。
+
+- [x] **Step 2.7** — 追加三个扫描函数 `_scan_ev(db, now)` / `_scan_services(db, now)` /
+      `_scan_cleaning(db, now)`，各返回 `list[StalledTarget]`，只保留 `bucket != "none"`：
+      - `_scan_ev`：SQL 用 `select(Case, func.coalesce(func.max(CaseStatusHistory.created_at), Case.created_at)).outerjoin(CaseStatusHistory, CaseStatusHistory.case_id == Case.id).group_by(Case.id)`
+        （不必在 SQL 里按状态过滤——`_EV_CLASSIFY` 本就穷举全部 13 态，Python 里判 `bucket=="none"`
+        就地跳过即可，避免以后分类表改了要同步改两处 SQL）。`clock` = 查出来的 coalesce 值
+        （确保 tz-aware，缺省时 `.replace(tzinfo=timezone.utc)`）。`stalled_days = (now - clock).days`。
+        `link = f"{get_settings().frontend_url.rstrip('/')}/quote/status/{case.access_token}"`。
+        `admin_url = admin_case_url(str(case.id))`（EV 专属，恒有值）。`customer_name/phone/email`
+        取 `case.customer.nickname/.phone/.email`（用 `db.get(Customer, case.customer_id)` 或依赖
+        已有的 relationship）。`action_text = _EV_ACTION.get(case.status)`（只有 bucket=="customer"
+        才非 None）。
+      - `_scan_services`：`select(ServiceBooking)`，按 `(service_type, status)` 查
+        `_SERVICE_CLASSIFY`（缺失 key 的组合视为 "none"）。`clock = booking.status_changed_at`。
+        `link`：诊断用 `service_status_url(booking.access_token)`；鸟网用
+        `bird_quote_url(booking.access_token)`。`admin_url = None`（ctx 契约已声明
+        `admin_url: str|None`，服务单没有可复用的后台详情链接）。`action_text =
+        _SERVICE_ACTION.get((service_type, status))`。`kind = "diagnostic"` 或 `"bird_netting"`
+        按 `service_type`。
+      - `_scan_cleaning`：`select(CleaningSubscription)`，按 `(pricing_status, payment_status)`
+        查 `_CLEANING_CLASSIFY`。`clock = sub.status_changed_at`。`link = cleaning_status_url(sub.access_token)`。
+        `action_text = _CLEANING_ACTION if bucket=="customer" else None`。`admin_url = None`。
+      - **防御性降级（三个扫描函数共用同一条规则）**：分类结果为 `bucket=="customer"` 时，
+        如果该目标的 `phone` 为空字符串或 `None`，**把 `bucket` 强制改成 `"ours"`**（连带
+        `action_text`/`link` 保留原值，反正 "ours" 分支不使用它们；进摘要邮件"球在我们"节，
+        而不是尝试发一条注定失败的短信）。EV/服务单/清洁订阅三张表的 `phone` 字段都是
+        `NOT NULL`，正常情况下这个分支不会触发，纯属纵深防御——不加这一步的后果是：万一真出现
+        空号数据，`_deliver_customer_sms` 会对着 `to_phone=""` 天天调 Twilio、天天记一条
+        `failed` 通知，且这条"失败"会被 `_already_attempted_today` 当成"今天试过了"，永远不会
+        被人发现也永远不会自愈。
+      verify: 语法检查 `python -c "import app.services.nudge_service"` 通过；完整行为由 Step 2.13
+      的测试文件验证。
+
+- [x] **Step 2.8** — 追加三个基于 `Notification` 表的查询函数：
+      ```python
+      def _target_fk_filter(target: StalledTarget):
+          if target.kind == "ev":
+              return Notification.case_id == target.id
+          if target.kind == "cleaning":
+              return Notification.cleaning_subscription_id == target.id
+          return Notification.service_booking_id == target.id
+
+
+      def _sent_count(db: Session, target: StalledTarget) -> int:
+          return db.execute(
+              select(func.count()).select_from(Notification).where(
+                  _target_fk_filter(target),
+                  Notification.template_name == NUDGE_CUSTOMER_TEMPLATE,
+                  Notification.status == NotificationStatus.sent,
+                  Notification.created_at > target.clock,
+              )
+          ).scalar_one()
+
+
+      def _already_attempted_today(db: Session, target: StalledTarget, now: datetime) -> bool:
+          start, end = _calgary_day_bounds_utc(now)
+          return db.execute(
+              select(func.count()).select_from(Notification).where(
+                  _target_fk_filter(target),
+                  Notification.template_name == NUDGE_CUSTOMER_TEMPLATE,
+                  Notification.created_at >= start, Notification.created_at < end,
+              )
+          ).scalar_one() > 0
+
+
+      def _digest_already_sent_today(db: Session, now: datetime) -> bool:
+          start, end = _calgary_day_bounds_utc(now)
+          return db.execute(
+              select(func.count()).select_from(Notification).where(
+                  Notification.template_name == NUDGE_DIGEST_TEMPLATE,
+                  Notification.created_at >= start, Notification.created_at < end,
+              )
+          ).scalar_one() > 0
+      ```
+      verify: 语法检查通过；行为由测试文件验证。
+
+- [x] **Step 2.9** — 追加两个 deliver 函数（**全模块唯一允许调用 `notify_sms` /
+      `_send_service_sms` / `_send_service_email` 的两处**）：
+      ```python
+      def _deliver_customer_sms(db: Session, target: StalledTarget, now: datetime) -> Literal["sent", "failed"]:
+          real_contact = target.phone or ""
+          recipient, redirected = resolve_recipient(True, real_contact)
+          body = render_sms_from_db_or_fallback(
+              db, template_key=NUDGE_CUSTOMER_TEMPLATE,
+              ctx={"reference_number": target.reference_number, "action_text": target.action_text, "link": target.link},
+              fallback="{{ brand_name }}\nFriendly reminder — {{ reference_number }}\nWe're waiting on you to {{ action_text }}.\n{{ link }}",
+          )
+          if redirected:
+              body = f"[→ {target.customer_name} {real_contact}] " + body
+          if target.kind == "ev":
+              n = notify_sms(db, case_id=target.id, to_phone=recipient, template_name=NUDGE_CUSTOMER_TEMPLATE, body=body)
+          else:
+              n = _send_service_sms(
+                  db, to_phone=recipient, template_name=NUDGE_CUSTOMER_TEMPLATE, body=body,
+                  service_booking_id=target.id if target.kind != "cleaning" else None,
+                  cleaning_subscription_id=target.id if target.kind == "cleaning" else None,
+              )
+          db.commit()
+          return "sent" if n is not None and n.status == NotificationStatus.sent else "failed"
+
+
+      def _deliver_digest_email(db: Session, ctx: dict, now: datetime) -> None:
+          merged = _with_brand_profile(db, ctx)
+          templates = _get_system_setting(db, "email_templates") or {}
+          tpl = templates.get(NUDGE_DIGEST_TEMPLATE)
+          if isinstance(tpl, dict) and tpl.get("html"):
+              subject = str(tpl.get("subject") or f"Stalled-order digest — {ctx['date']}")
+              html = _templates_env().from_string(str(tpl["html"])).render(**merged)
+          else:
+              subject = f"Stalled-order digest — {ctx['date']}"
+              html = _templates_env().from_string(
+                  '{% extends "base.html" %}{% block content %}<p>No template found.</p>{% endblock %}'
+              ).render(**merged)
+          s = get_settings()
+          _send_service_email(
+              db, to_email=s.nudge_redirect_email, template_name=NUDGE_DIGEST_TEMPLATE,
+              subject=subject, html=html, service_booking_id=None, cleaning_subscription_id=None,
+          )
+          db.commit()
+      ```
+      （Step 2.7 的防御性降级已保证走到这里的 `target.phone` 一定非空，所以 `real_contact = target.phone or ""`
+      这里的 `""` 分支实际不可达，保留只是为了类型安全。）
+      **`db.commit()` 必须紧跟在每次 `_record_notification`（即 `notify_sms`/`_send_service_sms`/
+      `_send_service_email` 返回）之后，不能等整批扫描结束再统一提交**——原因见 DESIGN.md
+      `## Review` 红线核对表：`run_daily_nudges` 一次跑几十个目标，中途崩溃如果只有一次收尾
+      commit，会丢失"已经真实发送但未落库"的 notifications 行，次日（或同日第二条 cron）会
+      误判"没催过"从而对真实客户重复发短信。
+      verify: `grep -n "notify_sms\|_send_service_sms\|_send_service_email" backend/app/services/nudge_service.py`
+      的命中行必须全部落在 `_deliver_customer_sms` 或 `_deliver_digest_email` 函数体内（人工核对，
+      不应出现在 `run_daily_nudges` 或任何 `_scan_*` 函数里）。
+
+- [x] **Step 2.10** — 追加待人工跟进的 CaseNote 去重写入函数（仅 EV）：
+      ```python
+      def _needs_followup_case_note(db: Session, target: StalledTarget) -> None:
+          exists = db.execute(
+              select(func.count()).select_from(CaseNote).where(
+                  CaseNote.case_id == target.id,
+                  CaseNote.content.like("NUDGE:%"),
+                  CaseNote.created_at > target.clock,
+              )
+          ).scalar_one() > 0
+          if exists:
+              return
+          db.add(CaseNote(
+              case_id=target.id, admin_user_id=None,
+              content=f"NUDGE: reached {NUDGE_CAP} auto-reminders at {target.stalled_days} days stalled "
+                      f"({target.status_label}); needs manual follow-up.",
+          ))
+          db.commit()
+      ```
+      verify: 语法检查通过。
+
+- [x] **Step 2.11** — 追加 `_build_digest_ctx(nudged, our_side, needs_followup, now) -> dict`
+      纯函数，按 DESIGN §3.5 的 ctx 契约组装（`date` 用 `now.astimezone(CALGARY_TZ).date().isoformat()`；
+      `nudged` 每项 `{"ref","state","days","count","intended","redirected","admin_url"}`，
+      `intended = f"{t.customer_name} {t.phone or t.email or ''}"`；`our_side`/`needs_followup`
+      每项 `{"ref","state","days","admin_url"}`）。
+      verify: 语法检查通过；行为由测试文件验证。
+
+- [x] **Step 2.12** — 追加编排函数 `run_daily_nudges(db: Session, *, now: datetime | None = None) -> dict`：
+      1. `now = now or datetime.now(timezone.utc)`
+      2. `targets = _scan_ev(db, now) + _scan_services(db, now) + _scan_cleaning(db, now)`
+      3. 拆分 `customer_targets`（`bucket=="customer"`）与 `ours_targets`（`bucket=="ours"`）
+      4. 对每个 `customer_targets`：若 `_already_attempted_today` 为真 → `skipped_today += 1` 并
+         `continue`；否则算 `sent_count = _sent_count(db, t)`；若 `sent_count >= NUDGE_CAP` →
+         加入 `needs_followup`，若 `t.kind=="ev"` 调 `_needs_followup_case_note`，`continue`；
+         否则若 `not should_nudge(t.stalled_days, sent_count)` → `continue`（还没到点）；
+         否则调 `_deliver_customer_sms`，按返回值累加 `customer_nudges_sent`/`customer_nudges_failed`，
+         成功的加入 `nudged` 列表。
+      5. 若 `nudged` 或 `ours_targets` 或 `needs_followup` 三者任一非空，且
+         `not _digest_already_sent_today(db, now)` → 用 `_build_digest_ctx` 组装 ctx，调
+         `_deliver_digest_email`，`digest_sent = True`；否则 `digest_sent = False`。
+      6. 返回
+         `{"date": now.astimezone(CALGARY_TZ).date().isoformat(), "scanned": len(targets),
+           "customer_nudges_sent": ..., "customer_nudges_failed": ..., "skipped_today": ...,
+           "our_side": len(ours_targets), "needs_followup": len(needs_followup), "digest_sent": digest_sent}`
+      verify: `python -c "import app.services.nudge_service"` 无报错；`grep -n "def run_daily_nudges"`
+      命中且签名为 `run_daily_nudges(db: Session, *, now: datetime | None = None) -> dict`。
+
+#### Round-2 追加（必改1/必改2，DESIGN.md Review 核签 APPROVE-WITH-CHANGES 后落地）
+
+- [x] **必改1** — `run_daily_nudges` 里 `targets = _scan_ev(...) + _scan_services(...) + _scan_cleaning(...)`
+      之后、拆分 `customer_targets`/`ours_targets` 之前，加一行咽喉点过滤：
+      `targets = [t for t in targets if not t.reference_number.startswith("MOCK-")]`（附
+      `ponytail:` 注释说明原因：生产 mock 数据的联系方式本不可送达，但催单重定向会把收件人替换
+      成真实手机号，抵消这层保护；且 "ours" 分支没有任何每日幂等门，`MOCK-` 记录会永久污染
+      digest）。**不放进三个 `_scan_*` 函数内**，保持它们可被裸调用做普查。
+      verify: 见 Step 2.13 round-2 追加的 `test_mock_prefix_excluded_everywhere`。
+- [x] **必改2** — 模块级常量 `NUDGE_MAX_PER_RUN = 10`（不进 config）。`run_daily_nudges` 的
+      customer 循环里，在 `should_nudge` 判定通过、真正要发之前插入：
+      `if customer_nudges_sent + customer_nudges_failed >= NUDGE_MAX_PER_RUN: flood_capped += 1; continue`
+      ——不写 Notification 行、不计入 `failed`、不影响 `_already_attempted_today`/`needs_followup`
+      的判定（被闸掉的目标当天没有任何记录，同日重跑或次日 cron 自然继续排空积压）。返回 dict
+      新增 `flood_capped` 键。
+      verify: 见 Step 2.13 round-2 追加的 `test_flood_cap_limits_sends_and_flags_flood_capped`。
+
+### 测试文件
+
+- [x] **Step 2.13** — 新建 `backend/tests/test_nudge_service.py`。**不 `import pytest`**，仿照
+      `backend/tests/test_booking_logic.py` 的写法：普通 `assert`、函数名 `test_*`、文件末尾
+      ```python
+      if __name__ == "__main__":
+          fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+          for fn in fns:
+              fn()
+              print(f"  ok  {fn.__name__}")
+          print(f"\nAll {len(fns)} nudge-service tests passed.")
+      ```
+      测试内容（对照 DESIGN §5 测试接缝 1/2/4，逐条落地）：
+      1. `test_ev_classify_exhaustive` — `assert set(_EV_CLASSIFY) == set(CaseStatus)`。
+      2. `test_service_classify_exhaustive` — 对 `DIAGNOSTIC_TRANSITIONS`/`BIRD_TRANSITIONS`
+         的全部 key 并上 value 集合（即 5 诊断态 + 7 鸟网态），断言
+         `(ServiceType.diagnostic/bird_netting, status)` 都在 `_SERVICE_CLASSIFY` 里，且这两组
+         并起来恰好等于 `_SERVICE_CLASSIFY` 的 key 集合（无多余、无遗漏）。
+      3. `test_cleaning_classify_exhaustive` — `assert set(_CLEANING_CLASSIFY) == {(p, m) for p in CleaningPricingStatus for m in CleaningPaymentStatus}`。
+      4. `test_should_nudge_boundaries` — 断言 `(13,0)→False (14,0)→True (27,1)→False (28,1)→True (42,2)→True (56,3)→False`。
+      5. `test_redirect_default_on_and_off` — **必须 patch `app.services.nudge_service.get_settings`
+         这个模块属性，不是 `app.config.get_settings`**——`nudge_service.py` 用
+         `from app.config import get_settings` 把函数对象绑到了自己的模块命名空间，改
+         `app.config.get_settings` 对已经绑定的引用不生效；且 `get_settings` 本身带
+         `@lru_cache`，不能指望改配置就让它重新求值。具体做法：
+         ```python
+         import app.services.nudge_service as ns
+         from app.config import Settings
+
+         def test_redirect_default_on_and_off():
+             original = ns.get_settings
+             try:
+                 ns.get_settings = lambda: Settings(nudge_redirect=None)
+                 assert ns.redirect_enabled() is True
+                 ns.get_settings = lambda: Settings(nudge_redirect="off")
+                 assert ns.redirect_enabled() is False
+                 ns.get_settings = lambda: Settings(nudge_redirect="FALSE")
+                 assert ns.redirect_enabled() is True  # 不是精确的 "off"，仍重定向
+             finally:
+                 ns.get_settings = original
+         ```
+         **`finally` 里必须还原 `ns.get_settings`**——不还原会让本文件里排在它后面的其它测试
+         （尤其 `test_run_daily_nudges_*` 系列和下面第 11 条）读到被打过补丁的假配置。
+      6. `test_run_daily_nudges_ev_quoted_sends_redirected` — 用 `SessionLocal()` 直连 DB，插入一个
+         **打 `MOCK-`/`Mock-` 标记**的临时 `Customer`+`Case`（status=quoted）+一条
+         `CaseStatusHistory`（`created_at` = `now - 20 days`），调用
+         `run_daily_nudges(db, now=<固定 now>)`，断言：`notifications` 表里恰好新增 1 条
+         `template_name="nudge_customer"` 行，`recipient == "+15879669668"`，`content` 以 `"[→ "` 开头；
+         同一 `now` 下再跑一次 `run_daily_nudges`，断言这次 0 条新增（当日幂等）。测试结束在
+         `finally` 里删除自己插入的行（`Case`/`Customer`/`CaseStatusHistory`/`Notification`）,
+         **不要依赖 `mock_data.py purge`**（避免和它的固定数据集打架）。
+      7. `test_run_daily_nudges_needs_followup_writes_case_note_once` — 同上手法插入一个 EV case，
+         预先手工插入 3 条 `status="sent", template_name="nudge_customer"` 的 `Notification` 行
+         （`created_at` 均晚于 case 的 stalled clock），跑 `run_daily_nudges`，断言：不产生第 4 条
+         `nudge_customer` 行；产生恰好 1 条 `content LIKE 'NUDGE:%'` 的 `CaseNote`；同一 `now` 下
+         再跑一次，`CaseNote` 数量仍为 1（不重复写）。
+      8. `test_run_daily_nudges_service_booking_customer_side` — 对一个临时 `ServiceBooking`
+         （`service_type=bird_netting, status=quoted`, `status_changed_at = now - 20 days`）跑一遍，
+         断言产生 1 条 `service_booking_id` 匹配的 `nudge_customer` 行，`content` 含
+         `bird_quote_url` 的路径片段 `/service/bird-netting/quote/`。
+      9. `test_run_daily_nudges_cleaning_customer_side` — 同上手法对 `CleaningSubscription`
+         （`pricing_status=quoted, payment_status=unpaid`, `status_changed_at = now - 20 days`）验证。
+      10. `test_digest_is_one_row_per_day` — 构造至少 1 个 "ours" 目标 + 1 个上面产生的 "customer"
+          目标，跑 `run_daily_nudges`，断言恰好新增 1 条 `template_name="nudge_admin_digest"` 且
+          三个 FK 全 NULL 的 `Notification` 行；同一天再跑一次断言仍是 1 条。
+      11. `test_redirect_recipient_never_real_contact` — 红线测试，**必须自成一体，不依赖其它
+          测试留下的行**（其它测试大多在 `finally` 里把自己插入的行删掉了，如果这条测试只是
+          去"遍历本文件所有测试产生的行"，很可能遍历到一个空集合，断言在空集合上永远为真，
+          等于没测）：自己新插入一条打 `MOCK-`/`Mock-` 标记、`phone` 为真实构造值（如
+          `"+15550009999"`）的 EV case（`status=quoted`，clock 设为 `now - 20 days`），默认配置
+          （不 monkeypatch）下调用 `run_daily_nudges`，断言产生的那条 `nudge_customer` 行
+          `recipient == "+15879669668"` 且 `recipient != "+15550009999"`（即真实构造的 phone），
+          `finally` 里清理自己插入的行。
+      verify: `docker exec -w /app <backend> python -m tests.test_nudge_service`（注意用
+      `-m tests.test_nudge_service` 而不是 `python tests/test_nudge_service.py`——后者以文件路径
+      启动时 `/app` 不在 `sys.path`，`from app...` 会 `ModuleNotFoundError`，本容器没设
+      `PYTHONPATH`；`docker-compose.dev.yml` 已经 bind-mount 了 `./backend:/app`，本地改完文件
+      容器内直接可见，不需要 `docker cp`）输出 `All 11 nudge-service tests passed.`，退出码 0。
+      >
+      > **Round-2 追加（必改3，见 DESIGN.md Review 核签）**：新增
+      > `test_mock_prefix_excluded_everywhere` + `test_flood_cap_limits_sends_and_flags_flood_capped`
+      > 两条，用例总数变为 13。为配合 `run_daily_nudges` 新增的 `MOCK-` 前缀咽喉点过滤（见 Ticket 2
+      > 引擎模块 round-2 追加小节），测试辅助函数 `_ref()` 改为生成 `TEST-` 前缀（而不是
+      > `MOCK-` 前缀）的 `reference_number`——否则所有跑真实 `run_daily_nudges()` 的现有测试都会
+      > 因为自己的测试行被咽喉点过滤掉而失败。`customer_name`/`email` 仍保留 `Mock-`/`mock+` 内容
+      > 标记（不受过滤影响，纯用于人眼识别）。新增 `_mock_ref()`（**DOES** 生成 `MOCK-` 前缀）
+      > 专供 `test_mock_prefix_excluded_everywhere` 验证过滤本身。verify 命令与用例总数改为
+      > `All 13 nudge-service tests passed.`。
+
+**Ticket 2 Test plan**: Step 2.13 的 13 个 assert 用例（round-2 后）是主体；额外跑一次
+`docker exec -w /app <backend> python -m tests.test_booking_logic` 和上面 Ticket 1 提到的 docker
+pytest e2e，确认没有把 `notification_service.py`（未改动，只读）或 `service_booking_flow.py`
+其它函数带出回归。
+
+---
+
+## Ticket 3 — 端点 + 调度  [Blocked by: 2] [serial]
+**Files**: `backend/app/api/v1/internal_nudges.py`（新建）、`backend/app/api/v1/router.py`、
+`backend/tests/test_nudge_endpoint.py`（新建）、`docker-compose.test.yml`
+
+- [x] **Step 3.1** — 新建 `backend/app/api/v1/internal_nudges.py`：
+      ```python
+      from __future__ import annotations
+
+      import hmac
+
+      from fastapi import APIRouter, Depends, Header, HTTPException
+      from sqlalchemy.orm import Session
+
+      from app.config import get_settings
+      from app.database import get_db
+      from app.services.nudge_service import run_daily_nudges
+
+      router = APIRouter(prefix="/internal")
+
+
+      @router.post("/nudges/run")
+      def run_nudges(
+          db: Session = Depends(get_db),
+          x_nudge_key: str | None = Header(default=None, alias="X-Nudge-Key"),
+      ):
+          settings = get_settings()
+          if not settings.nudge_run_key:
+              raise HTTPException(status_code=503, detail="Nudges are not configured")
+          if not hmac.compare_digest(x_nudge_key or "", settings.nudge_run_key):
+              raise HTTPException(status_code=401, detail="Invalid key")
+          return run_daily_nudges(db)
+      ```
+      **顺序不能反**：先判断 key 是否配置（否则 503），再做 `compare_digest`（否则 401）——反过来
+      会导致"没配置密钥"时也回 401 而不是 503，掩盖了"整个功能没开"这一更重要的状态。
+      verify: `docker exec -w /app <backend> python -c "import app.api.v1.internal_nudges"` 无报错。
+
+- [x] **Step 3.2** — `backend/app/api/v1/router.py` — 新增
+      `from app.api.v1 import internal_nudges` 和
+      `api_router.include_router(internal_nudges.router, tags=["internal"])`
+      （放在 Admin 分组之后即可，顺序不影响功能）。
+      verify: `docker compose -f docker-compose.yml -f docker-compose.dev.yml restart backend`
+      后 `curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:7222/api/v1/internal/nudges/run`
+      返回 `503`（本地 `.env` 默认没配 `NUDGE_RUN_KEY`）。
+
+- [x] **Step 3.3** — `docker-compose.test.yml` — 在 `backend` 服务的 `environment` 块里新增一行：
+      `NUDGE_RUN_KEY: ${NUDGE_RUN_KEY:-test-nudge-key-do-not-use-in-prod}`
+      （不加 `NUDGE_REDIRECT`，保持默认重定向 ON，这样测试栈里发出的任何催单短信/邮件走的
+      收件人都是 `+15879669668`/`cool@khtain.com`，不会真的发给测试数据里的联系方式——虽然
+      测试栈本来 SMTP/Twilio 也是禁用的，两层保险都在）。同时在 `tests` 服务的 `environment`
+      块加一行 `NUDGE_RUN_KEY: ${NUDGE_RUN_KEY:-test-nudge-key-do-not-use-in-prod}`（供
+      test_nudge_endpoint.py 的 httpx 请求携带同一把 key）。
+      verify: `grep -c "NUDGE_RUN_KEY" docker-compose.test.yml` = 2。
+
+- [x] **Step 3.4** — 新建 `backend/tests/test_nudge_endpoint.py`，仿 `test_admin_notifications.py`
+      的 httpx + `needs_stack` 风格（**这个文件走 `docker-compose.test.yml` 的独立 `tests`
+      容器，是 pytest 可用的那一套，和 Step 2.13 不同**）：
+      ```python
+      import os
+      import httpx
+      import pytest
+
+      def _api_base() -> str:
+          return os.environ.get("API_BASE", "http://backend:8000").rstrip("/")
+
+      def _url(path: str) -> str:
+          return f"{_api_base()}{path}"
+
+      def _stack_up() -> bool:
+          try:
+              return httpx.get(_url("/health"), timeout=5).status_code == 200
+          except Exception:
+              return False
+
+      needs_stack = pytest.mark.skipif(not _stack_up(), reason="live backend stack not reachable")
+
+      @needs_stack
+      def test_wrong_key_returns_401():
+          r = httpx.post(_url("/api/v1/internal/nudges/run"), headers={"X-Nudge-Key": "wrong"}, timeout=20)
+          assert r.status_code == 401
+
+      @needs_stack
+      def test_correct_key_returns_200_with_summary():
+          key = os.environ.get("NUDGE_RUN_KEY", "test-nudge-key-do-not-use-in-prod")
+          r = httpx.post(_url("/api/v1/internal/nudges/run"), headers={"X-Nudge-Key": key}, timeout=30)
+          assert r.status_code == 200, r.text
+          body = r.json()
+          for k in ("date", "scanned", "customer_nudges_sent", "customer_nudges_failed",
+                    "skipped_today", "our_side", "needs_followup", "digest_sent"):
+              assert k in body
+      ```
+      verify: `docker compose -f docker-compose.test.yml --env-file .env up --build --abort-on-container-exit --exit-code-from tests`
+      退出码 0，日志里两条新测试均 PASSED。
+
+- [ ] **Step 3.5**（手工，非自动化，Kuo 上线前执行）— 验证"缺 key → 503"分支：本地 `.env` 里 `NUDGE_RUN_KEY`
+      本就默认留空（Step 1.13 已是空），Step 3.2 的 verify 已经做过这个检查，此步骤只是明确
+      写进 runbook：部署到生产前，先确认 `.env` 里**没有**意外把 `NUDGE_RUN_KEY` 设成空字符串
+      以外的东西就直接上线（应该先设置真实 key 再启用 cron，见下）。
+
+### 部署 runbook（手工，不在自动化 verify 范围内，供 Kuo 执行）
+
+- [ ] 生产 `.env` 追加真实 `NUDGE_RUN_KEY`（随机字符串，不进 git）、保持 `NUDGE_REDIRECT` 留空
+      （= 重定向默认 ON）。
+- [ ] **迁移预检（真跑前）**：`alembic current` 确认生产版本戳确实是 `a5b6c7d8e9f0`
+      （`case_load_calc`，2026-07-24 那次部署的最后一次迁移）。若生产落后得比这更多，说明待打
+      的迁移不止 `b1c2d3e4f5a6` + `655efc445c97` 两个，干跑必须覆盖完整链条，不能只测这两个。
+      同时确认临时库的 PostgreSQL 大版本号（`SELECT version();`）与生产一致——干跑结果只在
+      同版本下才可信。
+- [ ] **`pg_dump` 全量备份，在干跑之前、真跑之前都要有**：本次迁移链条含
+      `ALTER TYPE ... ADD VALUE`（`b1c2d3e4f5a6` 的 `appointment_kind` 枚举扩容）——这个操作
+      **不可回滚**，枚举值一旦加上，`downgrade()` 不会把它删掉，没有其它办法撤销。备份是唯一的
+      安全网。
+- [ ] **先在 VPS 复制一份生产库到临时库跑 `alembic upgrade head` 干跑一次**，确认本次新迁移
+      和从未上过生产的 `b1c2d3e4f5a6`（v3.0，含 `ALTER TYPE ... ADD VALUE` autocommit 块）能连续
+      跑通——MEMORY.md 记录 v3.0 从未部署过生产，这次可能是它们第一次一起上生产。
+      确认无误后才对生产库跑 `alembic upgrade head`。
+- [ ] **失败重试语义（心里有数，不必现在做）**：`ALTER TYPE ... ADD VALUE` 跑在 autocommit
+      块里，如果迁移在这一步之后、之前的某处中途失败，这个 `ADD VALUE` 已经真实持久化到库里了
+      （不会随失败回滚）——但迁移文件对它加了 `IF NOT EXISTS`，所以**同一条迁移重跑是安全的**，
+      不会因为"枚举值已存在"报错。中途失败时按此处理，不要慌着手工改库。
+- [ ] **给 Kuo 报预期条数前的普查（census）口径**：预计会催单多少条，**必须**按
+      `bucket == "customer"` 且 `should_nudge(stalled_days, sent_count)` 为真来数，**不能只数
+      `_scan_*` 命中数**——单纯 `_scan_*` 命中会把 our-side（`bucket=="ours"`，不发短信）和
+      "还没到 14 天整数倍"的 customer-side 目标也算进去，报出来的数字会虚高。`our_side` /
+      `needs_followup` 这两个数字（digest 里"我们方"/"待人工跟进"两节）单独报，不要和
+      customer 端将要发短信的条数混在一起。
+- [ ] 生产 crontab 加两行（`crontab -e`，抄 DESIGN.md §3.6 原文，`.env` 路径按实际部署目录改）：
+      ```cron
+      0 16 * * * curl -fsS -m 120 -X POST -H "X-Nudge-Key: $(grep '^NUDGE_RUN_KEY=' /www/wwwroot/evquote.khtain.com/fft-evquote-helper/.env | cut -d= -f2-)" http://127.0.0.1:7622/api/v1/internal/nudges/run >> /var/log/fft-nudge.log 2>&1
+      0 17 * * * curl -fsS -m 120 -X POST -H "X-Nudge-Key: $(grep '^NUDGE_RUN_KEY=' /www/wwwroot/evquote.khtain.com/fft-evquote-helper/.env | cut -d= -f2-)" http://127.0.0.1:7622/api/v1/internal/nudges/run >> /var/log/fft-nudge.log 2>&1
+      ```
+- [ ] **上线后首次调端点前**，核对生产 `.env` 三项：①`NUDGE_RUN_KEY` 已设置（否则端点返回
+      503，cron 会一直静默失败）；②`NUDGE_REDIRECT` 没被误设成字面值 `off`（除此之外任何
+      值/留空都保持重定向 ON）；③`NUDGE_REDIRECT_SMS`/`NUDGE_REDIRECT_EMAIL` 确实是 Kuo 本人的
+      手机/邮箱——digest 第一封信、第一条催单短信都会直接发到这两个地址。
+- [ ] **首次调用生产链路的验证方式（不要用 mock 数据穿透验证）**：`run_daily_nudges` 现在会在
+      咽喉点过滤掉全部 `MOCK-` 前缀记录（见 `nudge_service.py` 的 ponytail 注释），所以 mock 数据
+      **不会**再出现在催单短信或 digest 里，靠 mock 数据验证不了真实链路。改用一条
+      real-shaped 测试记录：用 Kuo 自己的手机号新建一条真实 booking/case（非 `MOCK-` 编号），
+      SQL 把它的 `status_changed_at`（或 EV 案子对应的 `CaseStatusHistory.created_at`）回拨 15
+      天，保持 `NUDGE_REDIRECT` 为 ON，手动调一次端点，确认短信 + digest 都送达（走的仍是重定向
+      地址，不是这条测试记录本身的手机号——因为重定向对非 mock 数据同样生效），验证完**清理掉
+      这条记录**（删行或状态改回，避免留下测试脏数据）。
+      约 8 月 10 日之后，`FFT-2026-0002`（Raju，非 mock）应会自然命中"球在客户·等付尾款"，
+      是观察真实链路的另一个天然时机——确认那条催单**没有**被真的发给 Raju
+      （`notifications.recipient` 应为 `+15879669668`）。
+- [ ] **关闭重定向是独立的决策门，不随本次部署自动发生**：把 `NUDGE_REDIRECT` 拨到字面值
+      `off`（让真实客户开始收到催单短信）必须由 Kuo 显式批准，不是"部署完就顺手关掉"。
+      建议：先让重定向 ON 跑几天，逐日看 digest 摘要（`我们方`/`待人工跟进`/预计催单数）符合
+      预期后，再单独决定何时拨 `off`。拨 `off` 前，如果要让真实客户"从第 1 次催起"（而不是
+      带着重定向期间已经计过的 `sent_count`），执行（DESIGN §3.3 提到的一次性 SQL，仅作参考，
+      执行前 Kuo 自行核对目标）：
+      `DELETE FROM notifications WHERE template_name = 'nudge_customer' AND recipient IN ('+15879669668', 'cool@khtain.com');`
+- [ ] **未来新增独立表的服务线**（像 cleaning 当年另起一张表那样）不会被任何穷举测试捕获——
+      `test_ev_classify_exhaustive` / `test_service_classify_exhaustive` / `test_cleaning_classify_exhaustive`
+      三条哨兵各自只穷举自己那张表的枚举值，谁都不知道"天上又掉下来一张新表"这件事。
+      新服务线上线时必须手工把它的分类规则接入 `_EV_CLASSIFY`/`_SERVICE_CLASSIFY`/`_CLEANING_CLASSIFY`
+      同款模式（新增一张 `_<NEW>_CLASSIFY` 穷举表 + 对应扫描函数 + 对应穷举测试），并把它接进
+      `run_daily_nudges` 的 `targets = _scan_ev(...) + _scan_services(...) + _scan_cleaning(...)`
+      拼接列表——写进上线 checklist，不要指望测试会替你发现遗漏。
+
+**Ticket 3 Test plan**：
+- Step 3.4 的两个 httpx 用例（401 / 200+summary）覆盖端点主路径。
+- Step 3.2 的 curl 覆盖"缺 key → 503"。
+- **Single-exit 静态核查**（对应 Review 里的红线复核项，跑一次即可）：
+  `grep -n "notify_sms\|_send_service_sms\|_send_service_email" backend/app/services/nudge_service.py`，
+  人工确认全部命中都在 `_deliver_customer_sms`/`_deliver_digest_email` 函数体内。
+- **红线抽查**：Step 2.13 的 `test_redirect_recipient_never_real_contact` 已覆盖"默认配置下
+  recipient 永不等于真实联系方式"；Step 2.13 新增的 `test_mock_prefix_excluded_everywhere` 已覆盖
+  "`MOCK-` 前缀记录既不发短信也不进 digest 任何一节"。本票额外用 `curl` 对本地栈实跑一次
+  `POST /internal/nudges/run`（正确 key），然后
+  `docker exec <db> psql ... -c "select recipient, content, created_at from notifications where template_name='nudge_customer' order by created_at desc limit 5;"`
+  人工确认 `recipient` 全部是 `+15879669668`——**注意**：本地栈的 `mock_data.py` 种子数据全部是
+  `MOCK-` 前缀，会被咽喉点过滤掉，这一步很可能查不到新的一行（本地库没有非-mock 的、真到期的
+  customer-side stalled 目标），这是**预期行为，不是回归**；如果确实想现场看到一条真实产生的
+  `nudge_customer` 行，改用下方部署 runbook 里"real-shaped 测试记录"的做法现造一条。
+- **鸟网 `approved` 落地页人工检查**（无代码改动，纯人工验收，本次新增的 `approved` 分流点是否
+  真的有地方可去）：浏览器打开
+  `http://localhost:7220/service/bird-netting/quote/<MOCK-BN-08 的 access_token>`
+  （`MOCK-BN-08` 是 `approved` 状态那条 mock 数据），确认页面渲染出可操作内容（哪怕只是显示
+  "已批准，等待安排安装"之类状态文案），而不是一个死链接/报错页——如果这个页面对
+  `approved` 状态完全没有可展示内容，催单短信会把客户导向一个空白页，需要回头找 Kuo 确认是否
+  仍要发这条催单（不属于本次代码改动范围，只是验收阶段的一次风险确认）。
+- **DB → 引擎 → API → （重定向）收件人 全链路验证**：round-2 review 加了 `MOCK-` 前缀咽喉点过滤
+  （见 nudge_service.py `run_daily_nudges` 的 ponytail 注释）之后，`mock_data.py` 种下的
+  `MOCK-` 数据**不再**是可用于穿透验证生产链路的手段——这条原计划里"全部标的都是 `Mock-`"的
+  end-to-end 验收**在改动之后已不可达，不要再按这个标准验收**。Step 2.13 的
+  `test_run_daily_nudges_ev_quoted_sends_redirected` /
+  `test_run_daily_nudges_service_booking_customer_side` /
+  `test_run_daily_nudges_cleaning_customer_side` /
+  `test_digest_is_one_row_per_day` 四条已经在测试层面把 EV / 诊断 / 鸟网 / 清洁三类
+  `nudge_customer` 行 + 1 条 `nudge_admin_digest` 行的全链路验证覆盖了（用非-`MOCK-`前缀的
+  `TEST-` 测试记录）。生产上线后的对应验证见"部署 runbook"里的 real-shaped 测试记录做法
+  （新建一条 Kuo 本人手机号的真实记录，回拨 `status_changed_at`，验证完清理）。

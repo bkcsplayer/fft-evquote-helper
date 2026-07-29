@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>设计汇报 — 14 天无动作自动催单 · FFT evquote</title>
+<style>
+:root{
+  --bg:#080b14; --bg2:#0b101d; --panel:rgba(255,255,255,.028);
+  --panel2:rgba(255,255,255,.05); --line:rgba(148,163,184,.14);
+  --line2:rgba(148,163,184,.24); --ink:#e6edf6; --muted:#8b98ad; --dim2:#64748b;
+  --blue:#3b82f6; --cyan:#22d3ee; --green:#34d399; --amber:#fbbf24; --red:#f87171;
+  --blue-soft:rgba(59,130,246,.12); --cyan-soft:rgba(34,211,238,.10);
+  --green-soft:rgba(52,211,153,.10); --amber-soft:rgba(251,191,36,.10);
+  --red-soft:rgba(248,113,113,.10);
+  --radius:14px; --sidebar:248px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:
+    radial-gradient(900px 420px at 78% -80px, rgba(59,130,246,.14), transparent 60%),
+    radial-gradient(700px 380px at 12% 8%, rgba(34,211,238,.07), transparent 55%),
+    var(--bg);
+  color:var(--ink);
+  font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  line-height:1.65; -webkit-font-smoothing:antialiased;
+}
+.topbar{position:fixed;top:0;left:0;right:0;z-index:50;height:52px;display:flex;align-items:center;gap:14px;
+  padding:0 22px;background:rgba(8,11,20,.72);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);font-size:13px}
+.topbar .logo{font-weight:800;letter-spacing:.02em}
+.topbar .logo b{color:var(--cyan)}
+.topbar .crumb{color:var(--muted)}
+.topbar .spacer{flex:1}
+.status-dot{width:8px;height:8px;border-radius:99px;background:var(--amber);box-shadow:0 0 8px var(--amber);display:inline-block;margin-right:6px}
+.topbar .env{color:var(--muted);font-size:12px}
+nav.side{position:fixed;top:52px;bottom:0;left:0;width:var(--sidebar);z-index:40;border-right:1px solid var(--line);
+  padding:26px 14px;overflow-y:auto;background:rgba(8,11,20,.55)}
+nav.side .grp{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2);font-weight:700;margin:18px 10px 8px}
+nav.side a{display:block;padding:7px 12px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:13.5px;border-left:2px solid transparent}
+nav.side a:hover{color:var(--ink);background:var(--panel2)}
+nav.side a.on{color:var(--cyan);background:var(--cyan-soft);border-left-color:var(--cyan)}
+main{margin-left:var(--sidebar);padding:52px 0 0}
+.wrap{max-width:1020px;margin:0 auto;padding:0 40px 90px}
+section{padding-top:56px;scroll-margin-top:52px}
+h2{font-size:22px;font-weight:800;letter-spacing:-.01em;margin-bottom:6px}
+.sec-k{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--cyan);font-weight:700}
+.sec-d{color:var(--muted);font-size:14px;margin-bottom:22px}
+.hero{padding:74px 0 10px}
+.hero .badges{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.badge{font-size:11.5px;font-weight:700;padding:4px 12px;border-radius:99px;border:1px solid var(--line2)}
+.b-blue{color:#93c5fd;background:var(--blue-soft);border-color:rgba(59,130,246,.4)}
+.b-red{color:var(--red);background:var(--red-soft);border-color:rgba(248,113,113,.4)}
+.b-amber{color:var(--amber);background:var(--amber-soft);border-color:rgba(251,191,36,.4)}
+.hero h1{font-size:40px;font-weight:900;letter-spacing:-.03em;line-height:1.18;
+  background:linear-gradient(92deg,#fff 30%,#7dd3fc 70%,#60a5fa);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--muted);font-size:16px;max-width:46em;margin:16px 0 26px}
+.btns{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:700;padding:10px 20px;border-radius:10px;
+  text-decoration:none;cursor:pointer;border:1px solid var(--line2);color:var(--ink);background:var(--panel2)}
+.btn.primary{background:linear-gradient(90deg,var(--blue),#2563eb);border-color:transparent;color:#fff;box-shadow:0 6px 24px rgba(59,130,246,.35)}
+.btn:hover{filter:brightness(1.12)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:34px}
+.kpi{border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);padding:16px 16px 13px}
+.kpi .n{font-size:26px;font-weight:800;letter-spacing:-.02em}
+.kpi .n em{font-style:normal;font-size:14px;color:var(--muted);font-weight:600}
+.kpi .l{font-size:12px;color:var(--muted);margin-top:2px}
+.kpi.hl .n{color:var(--cyan)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
+.card{border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);padding:20px 20px 16px;transition:border-color .15s}
+.card:hover{border-color:var(--line2)}
+.card h3{font-size:15.5px;font-weight:700;display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.card p{font-size:13.5px;color:var(--muted)}
+.tag{font-size:10px;font-weight:800;letter-spacing:.06em;padding:2.5px 9px;border-radius:99px;flex:none}
+.t-new{background:var(--green-soft);color:var(--green);border:1px solid rgba(52,211,153,.4)}
+.t-up{background:var(--blue-soft);color:#93c5fd;border:1px solid rgba(59,130,246,.4)}
+ul.wins{list-style:none;font-size:13px;color:var(--muted);margin-top:10px}
+ul.wins li{padding-left:20px;position:relative;margin-top:4px}
+ul.wins li::before{content:"›";position:absolute;left:4px;color:var(--cyan);font-weight:800}
+.flowwrap{border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:28px 20px 20px;overflow-x:auto}
+.flowlabel{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;font-weight:800;margin:0 0 16px 6px}
+.flowlabel.before{color:var(--dim2)} .flowlabel.after{color:var(--cyan)}
+.flow{display:flex;align-items:stretch;min-width:840px;padding-top:8px}
+.node{flex:1 1 0;min-width:98px;border:1px solid var(--line2);background:var(--bg2);border-radius:12px;padding:13px 10px;text-align:center;position:relative}
+.node b{display:block;font-size:13.5px}
+.node small{display:block;color:var(--muted);font-size:11.5px;line-height:1.5;margin-top:5px}
+.node.new{border-color:rgba(52,211,153,.55);background:rgba(52,211,153,.06)}
+.node.new::after{content:"NEW";position:absolute;top:-9px;right:-4px;background:var(--green);color:#052e22;font-size:9px;font-weight:900;padding:1.5px 7px;border-radius:99px}
+.node.deep{border:2px solid var(--blue);box-shadow:0 0 18px rgba(59,130,246,.25)}
+.node.risk{border-color:rgba(248,113,113,.55)}
+.arrow{flex:none;align-self:center;color:var(--dim2);padding:0 5px;font-size:15px}
+.gatebar{flex:none;align-self:stretch;width:4px;border-radius:3px;background:var(--red);margin:4px 9px;position:relative;box-shadow:0 0 10px rgba(248,113,113,.5)}
+.gatebar i{position:absolute;top:-21px;left:50%;transform:translateX(-50%);font-style:normal;font-size:10px;font-weight:800;color:var(--red);white-space:nowrap}
+.before-row .node{opacity:.42}
+.divider{border:none;border-top:1px dashed var(--line2);margin:28px 0}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin:0 0 14px 6px}
+.legend span i{font-style:normal;font-weight:800}
+.callout{border:1px solid;border-radius:12px;padding:14px 18px;font-size:13.5px;margin-top:12px;display:flex;gap:12px}
+.callout .ic{font-weight:900;flex:none}
+.c-info{border-color:rgba(59,130,246,.4);background:var(--blue-soft)} .c-info .ic{color:#93c5fd}
+.c-ok{border-color:rgba(52,211,153,.4);background:var(--green-soft)} .c-ok .ic{color:var(--green)}
+.c-warn{border-color:rgba(251,191,36,.4);background:var(--amber-soft)} .c-warn .ic{color:var(--amber)}
+.c-risk{border-color:rgba(248,113,113,.4);background:var(--red-soft)} .c-risk .ic{color:var(--red)}
+.code{position:relative;border:1px solid var(--line);background:#0a0e1a;border-radius:10px;padding:13px 90px 13px 16px;
+  font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:#a5d6ff;margin-top:10px;overflow-x:auto;white-space:pre}
+.code .cp{position:absolute;top:8px;right:8px;font-size:11px;font-weight:700;color:var(--muted);border:1px solid var(--line2);
+  background:var(--panel2);border-radius:7px;padding:3px 10px;cursor:pointer;font-family:inherit}
+.code .cp:hover{color:var(--cyan);border-color:var(--cyan)}
+table{width:100%;border-collapse:collapse;font-size:13.5px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 14px;background:var(--panel2);border-bottom:1px solid var(--line)}
+td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td:first-child{font-weight:700;white-space:nowrap}
+.pill{display:inline-block;font-size:11px;font-weight:800;padding:2px 10px;border-radius:99px}
+.p-ok{background:var(--green-soft);color:var(--green)} .p-warn{background:var(--amber-soft);color:var(--amber)}
+.p-risk{background:var(--red-soft);color:var(--red)} .p-info{background:var(--blue-soft);color:#93c5fd}
+.p-mut{background:var(--panel2);color:var(--muted)}
+details{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-top:10px}
+summary{cursor:pointer;padding:14px 18px;font-size:14px;font-weight:700;list-style:none;display:flex;gap:10px}
+summary::before{content:"▸";color:var(--cyan);transition:transform .15s}
+details[open] summary::before{transform:rotate(90deg)}
+details .body{padding:0 18px 16px 38px;font-size:13.5px;color:var(--muted)}
+footer{border-top:1px solid var(--line);margin-top:70px;padding:26px 0 10px;color:var(--dim2);font-size:12.5px;display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+footer .st{color:var(--amber);font-weight:700}
+#top-btn{position:fixed;right:26px;bottom:26px;z-index:60;width:42px;height:42px;border-radius:12px;border:1px solid var(--line2);
+  background:rgba(8,11,20,.8);color:var(--cyan);font-size:18px;cursor:pointer;display:none;backdrop-filter:blur(8px)}
+#top-btn:hover{border-color:var(--cyan)}
+@media (max-width:960px){nav.side{display:none} main{margin-left:0} .wrap{padding:0 20px 70px} .hero h1{font-size:30px}}
+@media print{
+  :root{--ink:#111;--muted:#444;--line:#ccc;--line2:#bbb}
+  body{background:#fff;color:#111}
+  .topbar,nav.side,#top-btn,.btns,.cp{display:none!important}
+  main{margin:0} section{padding-top:28px;break-inside:avoid}
+  .card,.kpi,.flowwrap,table,details{break-inside:avoid;background:#fff;border-color:#ccc}
+  .hero h1{-webkit-text-fill-color:#111;color:#111;background:none}
+  .node{background:#fff} .code{background:#f6f8fa;color:#111}
+  details{display:block} details .body{display:block}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="logo">Khtain <b>／</b> FFT evquote</span>
+  <span class="crumb">设计汇报 · 14 天无动作自动催单</span>
+  <span class="spacer"></span>
+  <span class="env"><span class="status-dot"></span>闸 2 · 等待批准 · CRITICAL</span>
+</div>
+
+<nav class="side" id="toc">
+  <div class="grp">Overview</div>
+  <a href="#hero" class="on">这次要做什么</a>
+  <a href="#flow">现状 vs 做完之后</a>
+  <div class="grp">Design</div>
+  <a href="#plan">方案与四道保险</a>
+  <a href="#route">分流口径</a>
+  <a href="#tickets">分几步、谁来做</a>
+  <div class="grp">Decision</div>
+  <a href="#risk">代价与风险</a>
+  <a href="#ask">需要你拍板的 4 件小事</a>
+  <a href="#approve">批准方式</a>
+</nav>
+
+<main>
+<div class="wrap">
+
+<!-- ================= HERO ================= -->
+<section class="hero" id="hero">
+  <div class="badges">
+    <span class="badge b-blue">DESIGN REPORT · 闸 2</span>
+    <span class="badge b-red">CRITICAL · 会自动对外发消息</span>
+    <span class="badge b-amber">纯后端 + cron · 无界面改动</span>
+  </div>
+  <h1>订单卡住 14 天，<br>系统自己开口催</h1>
+  <p>Raju 的报价停了 28 天才被人工发现——以后不会了。每天早上 10 点（Calgary），系统扫一遍
+     四条业务线的所有未完结订单：<b>球在客户</b>的发短信催客户（第 14/28/42 天各一次，封顶 3 次，
+     之后转<b>待人工跟进</b>）；<b>球在我们</b>的不打扰客户，汇总成一封邮件发给你。
+     上线初期<b>催单重定向</b>默认全开：所有消息先发到你自己的手机和邮箱试运行。</p>
+  <div class="btns">
+    <a class="btn primary" href="#flow">看流程图 ↓</a>
+    <button class="btn" onclick="window.print()">🖨 打印 / 导出 PDF</button>
+  </div>
+  <div class="kpis">
+    <div class="kpi hl"><div class="n">14/28/42<em> 天</em></div><div class="l">三次催单节奏 · 封顶 3 次</div></div>
+    <div class="kpi"><div class="n">4<em> 条线</em></div><div class="l">EV · 诊断 · 鸟网 · 清洁</div></div>
+    <div class="kpi hl"><div class="n">默认开</div><div class="l">催单重定向 → 你本人</div></div>
+    <div class="kpi"><div class="n">0<em> 界面</em></div><div class="l">不动任何前端/后台页面</div></div>
+    <div class="kpi"><div class="n">3<em> 张票</em></div><div class="l">全串行 · 稳妥第一</div></div>
+    <div class="kpi"><div class="n">0<em> 新进程</em></div><div class="l">VPS cron 打现有后端</div></div>
+  </div>
+</section>
+
+<!-- ================= FLOW ================= -->
+<section id="flow">
+  <div class="sec-k">Flow</div>
+  <h2>现状 vs 做完之后</h2>
+  <div class="sec-d">图例：<span class="legend"><span>方框 = 模块</span><span><i style="color:var(--green)">绿</i> = 本次新增</span><span><i style="color:var(--red)">红竖条</i> = 安全闸口</span><span>蓝粗框 = 唯一发送出口</span></span></div>
+  <div class="flowwrap">
+    <div class="flowlabel before">Before — 没人盯着</div>
+    <div class="flow before-row">
+      <div class="node"><b>订单推进</b><small>报价 / 签字 / 付款…</small></div>
+      <div class="arrow">→</div>
+      <div class="node risk"><b>卡住</b><small>没人发现</small></div>
+      <div class="arrow">→</div>
+      <div class="node risk"><b>28 天后</b><small>人工排查才撞见<br>（Raju 真实案例）</small></div>
+    </div>
+    <hr class="divider">
+    <div class="flowlabel after">After — 每天自动巡一遍</div>
+    <div class="flow">
+      <div class="node new"><b>VPS cron</b><small>每天 10:00 Calgary<br>双条目扛夏/冬令时</small></div>
+      <div class="gatebar"><i>闸 · 共享密钥</i></div>
+      <div class="node new"><b>扫描</b><small>四条线全部未完结单<br>距最后状态变更天数</small></div>
+      <div class="arrow">→</div>
+      <div class="node new"><b>分流</b><small>球在客户 / 球在我们<br>/ 不处理（查表）</small></div>
+      <div class="arrow">→</div>
+      <div class="node new"><b>判定</b><small>≥14/28/42 天？<br>今天催过没？满 3 次没？</small></div>
+      <div class="gatebar"><i>闸 · 催单重定向</i></div>
+      <div class="node deep new"><b>唯一发送出口</b><small>短信→客户(试运行→你)<br>摘要邮件→你</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>notifications 表</b><small>每条催单落账<br>计数/幂等都从这查</small></div>
+    </div>
+  </div>
+  <div class="callout c-info"><span class="ic">ⓘ</span>
+    <span><b>「停滞」的时钟从哪来：</b>EV 用现有的状态历史表；服务单和清洁订阅没有历史表——本次给它们各加一列
+    <code>status_changed_at</code>，只在真正推进（改状态 / 定价 / 改支付）时走动，后台随手编辑不会重置。
+    这是比「建整套历史表」便宜一个数量级、又完全满足需求的做法。</span>
+  </div>
+</section>
+
+<!-- ================= PLAN ================= -->
+<section id="plan">
+  <div class="sec-k">Design</div>
+  <h2>方案与四道保险</h2>
+  <div class="sec-d">YAGNI 台阶停在第 5–6 级：发送、模板、落表、鉴权全部复用现有代码，只新写「扫描-分流-判定」一个模块 + 一个端点 + 一列时间戳。</div>
+  <div class="grid">
+    <div class="card"><h3><span class="tag t-new">保险 1</span>重定向默认开，关闭要打暗号</h3>
+      <p>只有把环境变量精确设成 <code>NUDGE_REDIRECT=off</code> 才会真发客户；没设、设错、设成 "false"/"0"——统统仍然发给你。配置缺失永远落在安全侧。</p></div>
+    <div class="card"><h3><span class="tag t-new">保险 2</span>发送只有一个出口</h3>
+      <p>重定向不是发送前的一个 if——扫描和分流代码根本拿不到发送函数；全部消息必须经过唯一的投递函数，它的第一步就是重定向解析，没有任何绕过参数。</p></div>
+    <div class="card"><h3><span class="tag t-new">保险 3</span>没配密钥 = 整个功能关着</h3>
+      <p>cron 端点必须带共享密钥（存 .env，不进代码）；密钥没配置时端点直接拒绝，什么都不会发。</p></div>
+    <div class="card"><h3><span class="tag t-new">保险 4</span>幂等 + 计数全靠现有账本</h3>
+      <p>每条催单写进 notifications 表；同一天重复触发自动跳过；「催过几次」直接从表里数，订单一推进计数自动归零。不新建任何计数字段。</p></div>
+  </div>
+  <div class="callout c-ok"><span class="ic">✓</span>
+    <span><b>更便宜的路都试过并否掉了：</b>建状态历史表（成本高、没人消费）；用 updated_at 当时钟（SPEC 已否，随手编辑会重置）；
+    引入 Celery/APScheduler（SPEC 已否，一个每日任务不值一个常驻进程）；手动触发按钮/逐单开关（Out of Scope）。详见 DESIGN.md §4。</span>
+  </div>
+  <div class="callout c-info"><span class="ic">ⓘ</span>
+    <span><b>UI 契约：</b>本次无界面改动，无冻结 mockup，无可行性折中需报。</span>
+  </div>
+</section>
+
+<!-- ================= ROUTE ================= -->
+<section id="route">
+  <div class="sec-k">Routing</div>
+  <h2>分流口径（SPEC 决策 4 原样代码化）</h2>
+  <div class="sec-d">每个状态都在表里有且只有一格；测试会穷举全部状态断言无遗漏。短信文案纯英文、不含金额，只说下一步动作 + 链接。</div>
+  <table>
+    <tr><th>业务线</th><th>球在客户 → 短信催客户</th><th>球在我们 → 摘要邮件给你</th><th>不处理</th></tr>
+    <tr><td>EV</td><td>等约勘察 · 等签字 · 等约安装 · 等付尾款</td><td>勘察完没出报价 · 报价做一半 · 签了没申 permit · permit 卡着</td><td>已有预约等日子 · 三个终态</td></tr>
+    <tr><td>诊断</td><td>等客户确认时间</td><td>—</td><td>已排期 · 进行中 · 终态</td></tr>
+    <tr><td>鸟网</td><td>等客户签字</td><td>勘察完没录报价</td><td>已签待排期(见拍板项1) · 已排期 · 终态</td></tr>
+    <tr><td>清洁</td><td>已报价未付款</td><td>等我们定价</td><td>已付款 · 已退款</td></tr>
+  </table>
+  <div class="callout c-warn"><span class="ic">⚠</span>
+    <span><b>每日摘要邮件（发 cool@khtain.com）三节：</b>① 今日已催了谁（标注本该发给谁）② 球在我们的停滞单
+    ③ 催满 3 次仍不动的「待人工跟进」单。三节全空就不发——不制造噪音。</span>
+  </div>
+</section>
+
+<!-- ================= TICKETS ================= -->
+<section id="tickets">
+  <div class="sec-k">Execution</div>
+  <h2>分几步、谁来做</h2>
+  <div class="sec-d">3 张票全串行（文件互不相交但接口环环相扣，不值得冒并行风险）。reviewer=Sonnet 出步骤单 → implementer=Sonnet 逐票实现 → tester=Haiku 验收；CRITICAL 级含 2 次 Fable 顾问检查（T2 后中期审查 + 完工核签）。</div>
+  <table>
+    <tr><th>票</th><th>交付什么</th><th>规模</th><th>依赖</th></tr>
+    <tr><td>T1 地基</td><td>停滞时钟：数据库加两列 + 9 个状态变更点维护它 + 配置项 + 演示数据回填。单独上线零行为变化。</td><td><span class="pill p-info">小</span></td><td>—</td></tr>
+    <tr><td>T2 催单引擎</td><td>扫描/分流/判定/唯一发送出口/摘要邮件 + 两个消息模板入库 + 全部测试（含红线测试：默认配置下收件人永远是你）。</td><td><span class="pill p-warn">中</span></td><td>T1</td></tr>
+    <tr><td>T3 端点+调度</td><td>带密钥的触发端点 + VPS 装两条 cron（16:00/17:00 UTC 双保险扛夏冬令时，幂等自动空转一条）。</td><td><span class="pill p-info">小</span></td><td>T2</td></tr>
+  </table>
+  <div class="callout c-ok"><span class="ic">✓</span>
+    <span><b>验收方法（tester + 你）：</b>本地种 Mock 数据 → 触发端点 → 库里可见催单行、收件人全是 +1587…、正文带
+    <code>[→ Mock-xxx]</code>；同日再触发全部跳过。上线后手动打一次，你的手机/邮箱实收试运行消息；
+    约 8 月 10 日起 Raju 的真实单（installed·等尾款）会出现在重定向消息里——最好的真实校验样本，且绝不会真发给他。</span>
+  </div>
+</section>
+
+<!-- ================= RISK ================= -->
+<section id="risk">
+  <div class="sec-k">Risk & Red Lines</div>
+  <h2>代价与风险</h2>
+  <table>
+    <tr><th>事项</th><th>说明</th><th>等级</th></tr>
+    <tr><td>误发真实客户</td><td>四道保险叠加（重定向默认开 + 唯一出口 + 缺密钥即停 + 红线测试）；且演示数据的联系方式本身不可送达。</td><td><span class="pill p-ok">已封死</span></td></tr>
+    <tr><td>隐私进日志</td><td>催单文案不含金额；日志只写单号/模板/状态；真实联系方式只出现在发给你的邮件正文里。</td><td><span class="pill p-ok">已封死</span></td></tr>
+    <tr><td>发送失败</td><td>沿用现有机制记 failed 行 + 错误信息，端点返回失败计数；当天不重试防打爆，次日自动补。</td><td><span class="pill p-ok">可观测</span></td></tr>
+    <tr><td>时钟回填偏差</td><td>存量服务单的时钟用 updated_at 一次性回填——只会把首次催单推迟几天，绝不会提前误催。</td><td><span class="pill p-info">方向安全</span></td></tr>
+    <tr><td>试运行消耗催单次数</td><td>重定向期间发给你的催单也计入 3 次封顶（照 SPEC 字面执行）；关重定向时想让真实客户从第 1 次催起，runbook 里有一条清理 SQL，由你决定跑不跑。</td><td><span class="pill p-warn">注意</span></td></tr>
+    <tr><td>Raju 的单</td><td>本功能只读它；唯一可能的写入是催满 3 次时按 SPEC 加一条内部备注（规定行为，非手改业务数据）。</td><td><span class="pill p-info">合规</span></td></tr>
+  </table>
+</section>
+
+<!-- ================= ASK ================= -->
+<section id="ask">
+  <div class="sec-k">Your Call</div>
+  <h2>需要你拍板的 4 件小事</h2>
+  <div class="sec-d">都是 SPEC 没盖到的边角，不是复议已定决策；每件已给默认值，不批复就按默认执行。</div>
+  <details open>
+    <summary>1 · 鸟网「已签待付 30% 定金」要不要也催？</summary>
+    <div class="body">SPEC 分流表漏了这个状态。默认：<b>本次不催</b>（未列出=不处理）。若要催（等定金=球在客户，跟 EV 等尾款同理），只是分流表加一行，说一声即可。</div>
+  </details>
+  <details>
+    <summary>2 · 「球在我们」的单要不要也限 3 次？</summary>
+    <div class="body">默认：<b>不限</b>——3 次封顶只保护客户不被骚扰；发给你的摘要邮件里，球在我们的停滞单每天列出直到推进，比只出现 3 次更不容易漏。</div>
+  </details>
+  <details>
+    <summary>3 · 服务单/清洁订阅的「待人工跟进」写不写备注？</summary>
+    <div class="body">默认：<b>EV 写</b>（案件已有备注功能，后台能看到）；<b>服务线不写</b>——它们没有备注设施，建表又没有界面能看等于写给没人看的数据，只靠摘要邮件专节呈现。</div>
+  </details>
+  <details>
+    <summary>4 · 关闭重定向时的「从头催」清理 SQL 收进 runbook？</summary>
+    <div class="body">默认：<b>收录</b>。关闭重定向那天由你决定要不要执行（执行=真实客户从第 1 次催起；不执行=接着试运行的次数往下数）。</div>
+  </details>
+</section>
+
+<!-- ================= APPROVE ================= -->
+<section id="approve">
+  <div class="sec-k">Approval</div>
+  <h2>批准方式</h2>
+  <div class="callout c-info"><span class="ic">ⓘ</span>
+    <span>回复「<b>批准</b>」进入实现（4 件拍板项按默认值执行）；要改哪里直接说，改完重出本页。机器可读全文在项目根 <code>DESIGN.md</code>，关键决策已落 ADR-009 ~ 012。</span>
+  </div>
+</section>
+
+<footer>
+  <span>Khtain Internal · FFT evquote</span>
+  <span>14 天无动作自动催单 · 设计汇报</span>
+  <span>创建 2026-07-28 · architect = Fable 5</span>
+  <span>状态：<span class="st">等待闸 2 批准</span></span>
+</footer>
+
+</div>
+</main>
+
+<button id="top-btn" title="返回顶部" onclick="scrollTo({top:0,behavior:'smooth'})">↑</button>
+
+<script>
+(function(){
+  var links=[].slice.call(document.querySelectorAll('#toc a'));
+  var secs=links.map(function(a){return document.querySelector(a.getAttribute('href'))});
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if(e.isIntersecting){
+        links.forEach(function(a){a.classList.remove('on')});
+        var i=secs.indexOf(e.target);
+        if(i>-1)links[i].classList.add('on');
+      }
+    });
+  },{rootMargin:'-30% 0px -60% 0px'});
+  secs.forEach(function(s){if(s)io.observe(s)});
+})();
+var tb=document.getElementById('top-btn');
+addEventListener('scroll',function(){tb.style.display=scrollY>600?'block':'none'});
+</script>
+</body>
+</html>
