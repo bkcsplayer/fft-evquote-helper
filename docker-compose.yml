@@ -49,6 +49,15 @@ services:
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
       SMTP_STARTTLS: ${SMTP_STARTTLS:-}
       SMTP_USE_SSL: ${SMTP_USE_SSL:-}
+      # Stalled-order nudges. This block is required: environment here is an explicit
+      # allow-list, so a NUDGE_RUN_KEY sitting in .env without a line below never reaches the
+      # container and the endpoint answers 503 ("not configured") no matter what .env says.
+      # The two redirect targets keep their real defaults inline — injecting a blank would
+      # override config.py's default and redirect nudges to an empty address.
+      NUDGE_RUN_KEY: ${NUDGE_RUN_KEY:-}
+      NUDGE_REDIRECT: ${NUDGE_REDIRECT:-}
+      NUDGE_REDIRECT_SMS: ${NUDGE_REDIRECT_SMS:-+15879669668}
+      NUDGE_REDIRECT_EMAIL: ${NUDGE_REDIRECT_EMAIL:-cool@khtain.com}
     volumes:
       - ./uploads:/app/uploads
     ports:

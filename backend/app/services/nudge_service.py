@@ -39,6 +39,8 @@ NUDGE_INTERVAL_DAYS = 14
 # keeps a single run bounded. Module constant, not config: the value has no reason to differ
 # per-environment.
 NUDGE_MAX_PER_RUN = 10
+# Demo-data reference-number marker, kept in sync with scripts/mock_data.py.
+MOCK_REF_PREFIX = "MOCK-"
 Bucket = Literal["customer", "ours", "none"]
 
 
@@ -364,7 +366,13 @@ def run_daily_nudges(db: Session, *, now: datetime | None = None) -> dict:
     # idempotency gate at all (only customer-side does, via _already_attempted_today/_sent_count),
     # so without this filter every MOCK- "ours" row would resurface in the digest forever, drowning
     # out real stalled orders.
-    targets = [t for t in targets if not t.reference_number.startswith("MOCK-")]
+    # Filter on the reference number only, NOT on the Mock- customer-name marker: that marker is
+    # used decoratively throughout the test suite (every _mk_* helper names its customer
+    # "Mock-NudgeTest" so rows are eyeball-identifiable in the dev DB), so promoting it to a
+    # functional filter would silently exclude every test's own target and turn the orchestrator
+    # tests into no-ops that still pass. Demo rows must therefore carry a MOCK- reference number —
+    # the 7 hand-made production test records were renumbered to match (2026-07-29).
+    targets = [t for t in targets if not t.reference_number.startswith(MOCK_REF_PREFIX)]
 
     customer_targets = [t for t in targets if t.bucket == "customer"]
     ours_targets = [t for t in targets if t.bucket == "ours"]
