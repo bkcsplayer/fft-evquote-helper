@@ -36,6 +36,8 @@
 - **e-Transfer 收款邮箱(系统级)**:公司收款邮箱固定为 **`bruce@khtain.com`**。此前代码两处硬编码占位假地址 `payments@example.com`——`bootstrap_service` 的默认值(空库首次启动就写假地址)+ `public/payments.py` 的 fallback(设置缺失时客户付款页显示假地址)。现已统一为常量 `DEFAULT_ETRANSFER_RECIPIENT_EMAIL`,生产/本地库的 `etransfer_settings` 也都改了。详见记忆 `fft-etransfer-payee`。
 - **mock 数据**:新增 `backend/scripts/mock_data.py`(seed/purge)。生产唯一真实单是 FFT-2026-0002(Raju),其余全部打上 `MOCK-` 编号 / `Mock-` 名字双标记,一条命令可全清。Kuo 早先手工造的 5 条测试记录只加名字前缀、不改编号(改编号会释放 FFT-2026-0003 让新单复用)。详见记忆 `fft-mock-data-scheme`。
 
+**2026-07-29:14 天无动作自动催单上线（走完整 /build 流水线,CRITICAL 级)**。所有订单（EV cases + service_bookings + cleaning_subscriptions）距**最后一次状态变更**超 14 天即"停滞"；球在客户的发短信催客户（第 14/28/42 天各一次,最多 3 次),球在我们的每天汇总成一封邮件发 Kuo。核心文件 `backend/app/services/nudge_service.py` + 端点 `backend/app/api/v1/internal_nudges.py` + 迁移 `655efc445c97`(给 service_bookings / cleaning_subscriptions 各加 `status_changed_at`)。VPS cron 双 UTC 条目(16:00/17:00)经 `chmod 700` 的 `/usr/local/bin/fft-run-nudges.sh` 调端点,日志 `/var/log/fft-nudges.log`。**重定向默认 ON**:所有催单发到 `+15879669668` / `cool@khtain.com`,正文标出本该发给谁——放开给真实客户是**独立决策门**(把生产 `.env` 的 `NUDGE_REDIRECT` 设成精确的 `off`),不随部署发生。详见记忆 `fft-nudge-feature` 与 ADR-013/014。
+
 ## 下一步 / 待办
 
 1. **v3.0 尚未部署**:确认没问题后走标准部署(`./deploy.sh` push GitHub → VPS 拉取重建),注意 VPS 库要吃到 v3 迁移(`b1c2d3e4f5a6`,含 `appointment_kind` 枚举扩容,PG 对 `ALTER TYPE...ADD VALUE` 有事务限制,迁移文件已处理但上生产前建议先在 VPS 做一次干跑确认)。
