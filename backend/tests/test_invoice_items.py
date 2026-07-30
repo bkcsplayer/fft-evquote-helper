@@ -61,3 +61,21 @@ def test_zero_permit_fee_still_listed_and_credit_omitted_when_zero():
     items = final_invoice_items(_quote())
     assert _sum(items) == 899.00
     assert [i["description"] for i in items] == ["EV charger installation", "Permit fee"]
+
+
+def test_bundled_permit_prints_included_without_changing_the_sum():
+    # A permit folded into the base package must read "Included", not "$0.00" — the latter looks
+    # like the line was forgotten. The printed word must not disturb the arithmetic.
+    permit = next(i for i in final_invoice_items(_quote()) if i["description"] == "Permit fee")
+    assert permit["unit_price"] == "Included"
+    assert permit["amount_text"] == "Included"
+    assert permit["amount"] == 0.00
+
+
+def test_charged_permit_still_prints_a_figure():
+    permit = next(
+        i for i in final_invoice_items(_quote(permit_fee=349.00)) if i["description"] == "Permit fee"
+    )
+    assert permit["unit_price"] == "$349.00"
+    assert "amount_text" not in permit  # a real charge must never be worded away
+    assert permit["amount"] == 349.00

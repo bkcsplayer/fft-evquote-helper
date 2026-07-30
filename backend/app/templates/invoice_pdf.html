@@ -4,7 +4,17 @@
 <meta charset="utf-8">
 <title>Invoice {{ invoice_number }}</title>
 <style>
-  @page { size: A4; margin: 0; }
+  @page {
+    size: A4;
+    /* Bottom margin reserves the strip the running footer lives in. */
+    margin: 0 0 20mm 0;
+    /* The footer is a running element (WeasyPrint >= 53) so it sits in the page margin box
+       instead of the content flow. In the flow it used to add ~105px after the last block, so
+       an invoice whose content came within that distance of the page height pushed the footer —
+       and nothing else — onto a second, apparently blank page. Raju's 5-line invoice did exactly
+       that: page 1 measured a full 1122.5px, page 2 held a 75px footer and nothing more. */
+    @bottom-center { content: element(pagefooter); }
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -66,7 +76,11 @@
   .payment-line { font-size: 14px; color: #333; line-height: 1.7; }
 
   /* Footer */
-  .footer { margin-top: 30px; padding: 20px 40px 34px 40px; border-top: 1px solid #e5e5ea; text-align: center; }
+  .footer {
+    position: running(pagefooter);
+    width: 100%; padding: 10px 40px 0 40px;
+    border-top: 1px solid #e5e5ea; text-align: center;
+  }
   .footer div { font-size: 12px; color: #86868b; line-height: 1.7; }
 </style>
 </head>
@@ -125,7 +139,10 @@
             <td>{{ item.description }}</td>
             <td style="text-align:right">{{ item.quantity }}</td>
             <td style="text-align:right">{{ item.unit_price }}</td>
-            <td style="text-align:right;font-weight:600">${{ '%.2f' % item.amount }}</td>
+            {# amount_text lets a line print a word instead of a figure — e.g. a permit fee that
+               is bundled into the base package reads "Included", not a "$0.00" that looks like
+               someone forgot to bill it. It never affects the totals, which come from the quote. #}
+            <td style="text-align:right;font-weight:600">{{ item.amount_text or '$%.2f' % item.amount }}</td>
           </tr>
           {% endfor %}
         </tbody>

@@ -27,6 +27,7 @@ from app.models.models import (
 )
 from app.schemas.schemas import InstallationOut, InstallationPhotoOut, InstallationScheduleIn
 from app.services.notification_service import (
+    _get_system_setting,
     build_invoice_pdf,
     notify_email,
     notify_sms,
@@ -87,12 +88,19 @@ def final_invoice_items(quote: Quote) -> list[dict]:
             "unit_price": f"${float(addon.price):.2f}",
             "amount": float(addon.price),
         })
-    items.append({
+    permit_fee = float(quote.permit_fee)
+    permit_line = {
         "description": "Permit fee",
         "quantity": "1",
-        "unit_price": f"${float(quote.permit_fee):.2f}",
-        "amount": float(quote.permit_fee),
-    })
+        "unit_price": "Included" if permit_fee == 0 else f"${permit_fee:.2f}",
+        "amount": permit_fee,
+    }
+    if permit_fee == 0:
+        # The permit is bundled into the base package here, so a bare "$0.00" reads like the line
+        # was forgotten rather than covered. amount_text only changes what prints — the totals
+        # still come from the quote, and `amount` stays 0.00 so the lines still sum to subtotal.
+        permit_line["amount_text"] = "Included"
+    items.append(permit_line)
     if float(quote.survey_credit) > 0:
         items.append({
             "description": "Survey fee credit",
@@ -658,12 +666,37 @@ def send_completion_email(
         except Exception:
             completed_text = str(inst.completed_at)
 
+    # Resolve the money before rendering: the completion email states the outstanding balance in
+    # its body, so the customer knows what is owed without opening the PDF attachment (which many
+    # mail clients hide behind a tap, and which nobody opens on a phone).
+    quote = db.execute(
+        select(Quote).where(Quote.case_id == case.id, Quote.is_active.is_(True)).limit(1)
+    ).scalar_one_or_none()
+    amount_paid = 0.0
+    if quote:
+        amount_paid = float(
+            db.execute(
+                select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                    Payment.case_id == case.id, Payment.status == PaymentStatus.received
+                )
+            ).scalar_one()
+        )
+    balance_due = (float(quote.total) - amount_paid) if quote else 0.0
+    etransfer = _get_system_setting(db, "etransfer_settings") or {}
+
     ctx = {
         "title": "FFT - Project completed",
         "nickname": customer.nickname,
         "reference_number": case.reference_number,
         "status_url": status_url,
         "completed_text": completed_text,
+        # Pre-formatted so the template never does float arithmetic. has_balance gates the whole
+        # block: a fully paid job should not be shown a payment request.
+        "has_balance": bool(quote) and balance_due > 0.005,
+        "total_text": f"{float(quote.total):.2f}" if quote else None,
+        "paid_text": f"{amount_paid:.2f}",
+        "balance_due_text": f"{balance_due:.2f}",
+        "etransfer_email": (etransfer.get("recipient_email") or "").strip() or None,
     }
     subject, html = render_email_from_db_or_files(
         db,
@@ -673,17 +706,7 @@ def send_completion_email(
         fallback_subject="Your EV charger installation is completed",
     )
     pdf_attachment = None
-    quote = db.execute(
-        select(Quote).where(Quote.case_id == case.id, Quote.is_active.is_(True)).limit(1)
-    ).scalar_one_or_none()
     if quote:
-        amount_paid = float(
-            db.execute(
-                select(func.coalesce(func.sum(Payment.amount), 0)).where(
-                    Payment.case_id == case.id, Payment.status == PaymentStatus.received
-                )
-            ).scalar_one()
-        )
         items = final_invoice_items(quote)
         pdf_attachment = build_invoice_pdf(
             db,
