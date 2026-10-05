@@ -20,8 +20,11 @@ const secondary = 'cursor-pointer rounded-xl border border-slate-300 bg-white px
 function timeline(b) {
   const q = b.quote
   const s = b.survey
+  const appts = b.survey_appointments || []
+  const firstSurvey = appts[0]?.start_at || (b.status === 'survey_scheduled' ? b.scheduled_at : null)
   const rows = [
-    [b.created_at, `Booked online${b.status === 'survey_scheduled' && b.scheduled_at ? ` · survey ${fmtCalgary(b.scheduled_at)}` : ''}`],
+    [b.created_at, `Booked online${firstSurvey ? ` · survey ${fmtCalgary(firstSurvey)}` : ''}`],
+    ...appts.slice(1).map((a) => [a.booked_at, `Survey rescheduled · ${fmtCalgary(a.start_at)}`]),
     [b.surveyed_at, s ? `Survey result recorded · ${s.perimeter_ft} ft, ${s.nest_count} nest${s.nest_count === 1 ? '' : 's'}` : 'Survey result recorded'],
     [q?.sent_at, q ? `Quote sent · ${money(q.total)}` : ''],
     [q?.approved_at, 'Signed by customer · deposit invoice sent'],

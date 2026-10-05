@@ -136,6 +136,17 @@ def _booking_admin_view(db: Session, b: ServiceBooking, detail: bool = False) ->
             .limit(1)
         ).scalar_one_or_none()
         view["install_booked_at"] = _iso(installed.created_at) if installed else None
+        # Every survey booking/reschedule is an Appointment row (reschedule cancels + rebooks),
+        # so the timeline can show reschedules without a history table.
+        surveys = db.execute(
+            select(Appointment)
+            .where(Appointment.service_booking_id == b.id, Appointment.kind == AppointmentKind.bird_survey)
+            .order_by(Appointment.created_at)
+        ).scalars().all()
+        view["survey_appointments"] = [
+            {"booked_at": _iso(a.created_at), "start_at": _iso(a.start_at), "created_by": a.created_by}
+            for a in surveys
+        ]
     return view
 
 

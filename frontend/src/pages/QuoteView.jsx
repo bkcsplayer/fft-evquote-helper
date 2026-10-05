@@ -7,7 +7,7 @@ import { useI18n } from '../i18n/index.js'
 function money(v, locale) {
   const n = Number(v)
   if (Number.isNaN(n)) return '—'
-  return n.toLocaleString(locale || 'en-CA', { style: 'currency', currency: 'CAD' })
+  return n.toLocaleString(locale || 'en-CA', { style: 'currency', currency: 'CAD', currencyDisplay: 'narrowSymbol' })
 }
 
 export default function QuoteView() {
