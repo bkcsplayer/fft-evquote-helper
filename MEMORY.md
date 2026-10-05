@@ -49,8 +49,8 @@
 ## 下一步 / 待办
 
 0. **Nick(SVC-2026-0001)**:Kuo 亲自电话确认周五 10/9 上午 8:00 勘测(系统不发更正)。勘测后在后台录入结果 → 存草稿 → 预览 → 发送报价。**一旦有单进入 `surveyed`,代码回滚到 `ec86318` 之前就不安全**(旧代码不认该枚举)。
-0.1 EV 线中文页面 `QuoteApprove.jsx`/`QuoteView.jsx` 仍显示 "CA$"(本次范围外,用 `currencyDisplay:'narrowSymbol'` 同法修)。
-0.2 后台时间线不记录"勘测改期"(可由已取消的 bird_survey appointments 推出,无需 schema)。
+0.1 ~~EV 线中文页面 CA$~~ 已修(`0addc17`,narrowSymbol)。
+0.2 ~~时间线缺勘测改期~~ 已修(`0addc17`):详情接口新增 `survey_appointments`,时间线在 Booked online 后逐条列出 "Survey rescheduled"。
 0.3 cmm 图谱未重建(codebase-memory-mcp 本次断连)——下次会话跑 `/cmm`;`.cmm/REPORT.md` 仍是 07-29 版,不含 money/timefmt/calgaryTime/bird 组件。
 1. ~~v3.0 尚未部署~~(已于 v3 期间部署上线)。
 2. **4 张服务卡片的插画是占位 SVG**(`frontend/src/assets/services/*.svg`),没用真实素材,交付前建议换真图/更精致插画。
