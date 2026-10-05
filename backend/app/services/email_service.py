@@ -50,6 +50,12 @@ def send_email(
     existing multipart/alternative body, which every mail client renders as body + attachment.
     """
     settings = get_settings()
+    # Fail-closed (ADR-020): with NOTIFY_REDIRECT=on only the redirect target may receive mail, so a
+    # call site that bypasses notification_service._apply_redirect fails loudly instead of delivering.
+    if (settings.notify_redirect or "").strip().casefold() == "on" and (
+        to_email.strip().casefold() != settings.nudge_redirect_email.strip().casefold()
+    ):
+        raise RuntimeError("NOTIFY_REDIRECT=on: refusing to email a non-redirect recipient")
     if not (settings.smtp_host and settings.smtp_port):
         raise RuntimeError("SMTP not configured")
 

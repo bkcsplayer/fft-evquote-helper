@@ -9,7 +9,7 @@ import uuid
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,11 +21,14 @@ from app.models.models import (
     CleaningVisit,
     ServiceBooking,
     ServiceType,
+    SystemSetting,
 )
 from app.services import service_booking_flow as flow
 from app.services.availability import list_available_slots
 from app.services.booking_config import get_booking_config
+from app.services.bootstrap_service import DEFAULT_ETRANSFER_RECIPIENT_EMAIL
 from app.services.service_pricing import get_service_pricing
+from app.utils.money import to_money
 
 router = APIRouter()
 
@@ -85,10 +88,47 @@ def _parse_service_type(v: str) -> ServiceType:
         raise HTTPException(status_code=400, detail="service_type must be 'diagnostic' or 'bird_netting'")
 
 
+def _etransfer_email(db: Session) -> str:
+    """Same logic as public/payments.py: configured payee, else the fixed company default."""
+    row = db.execute(select(SystemSetting).where(SystemSetting.key == "etransfer_settings")).scalar_one_or_none()
+    et = (row.value if row else {}) or {}
+    return et.get("recipient_email") or DEFAULT_ETRANSFER_RECIPIENT_EMAIL
+
+
+def _iso(dt: datetime | None) -> str | None:
+    return dt.isoformat() if dt else None
+
+
+def _quote_money(quote: BirdNettingQuote) -> dict:
+    deposit = quote.deposit_amount
+    return {
+        "subtotal": float(quote.subtotal),
+        "gst_rate": float(quote.gst_rate),
+        "gst_amount": float(quote.gst_amount),
+        "total": float(quote.total),
+        "deposit_amount": float(deposit) if deposit is not None else None,
+        "balance_amount": float(to_money(quote.total) - to_money(deposit)) if deposit is not None else None,
+    }
+
+
+def _public_survey(b: ServiceBooking) -> dict | None:
+    if b.surveyed_at is None:
+        return None
+    return {
+        "perimeter_ft": b.survey_perimeter_ft,
+        "nest_count": b.survey_nest_count,
+        "photo_urls": b.survey_photo_urls or [],
+        "surveyed_at": _iso(b.surveyed_at),
+    }
+
+
 def _booking_public_view(db: Session, b: ServiceBooking) -> dict:
     quote = db.execute(
         select(BirdNettingQuote).where(BirdNettingQuote.booking_id == b.id)
     ).scalar_one_or_none()
+    # Red line: an unsent quote draft (sent_at NULL) — and the survey numbers/photos with it —
+    # is never visible to the customer (ADR-015).
+    is_sent = quote is not None and quote.sent_at is not None
     return {
         "reference_number": b.reference_number,
         "service_type": b.service_type.value,
@@ -99,16 +139,20 @@ def _booking_public_view(db: Session, b: ServiceBooking) -> dict:
         "scheduled_at": b.scheduled_at.isoformat() if b.scheduled_at else None,
         "technician": b.technician,
         "completed_at": b.completed_at.isoformat() if b.completed_at else None,
+        "surveyed_at": _iso(b.surveyed_at),
+        "etransfer_email": _etransfer_email(db),
         "quote": (
             {
                 "roll_count": quote.roll_count,
                 "nest_count": quote.nest_count,
-                "total": float(quote.total),
+                **_quote_money(quote),
                 "status": quote.status.value,
+                "sent_at": _iso(quote.sent_at),
             }
-            if quote
+            if is_sent
             else None
         ),
+        "survey": _public_survey(b) if is_sent else None,
     }
 
 
@@ -162,7 +206,7 @@ def cancel_booking(token: str, db: Session = Depends(get_db)):
 
 # ── bird-netting quote view + approve ──
 @router.get("/public/services/bird-netting/quote/{token}")
-def get_bird_quote(token: str, db: Session = Depends(get_db)):
+def get_bird_quote(token: str, preview: str | None = Query(default=None), db: Session = Depends(get_db)):
     b = _get_booking(db, token)
     if b.service_type != ServiceType.bird_netting:
         raise HTTPException(status_code=404, detail="No bird-netting quote for this booking")
@@ -170,6 +214,9 @@ def get_bird_quote(token: str, db: Session = Depends(get_db)):
         select(BirdNettingQuote).where(BirdNettingQuote.booking_id == b.id)
     ).scalar_one_or_none()
     if not quote:
+        raise HTTPException(status_code=404, detail="No quote yet")
+    # An unsent draft is visible only with a valid 30-minute admin preview token for this booking.
+    if quote.sent_at is None and not flow.verify_preview_token(preview or "", b.id):
         raise HTTPException(status_code=404, detail="No quote yet")
     return {
         "reference_number": b.reference_number,
@@ -179,9 +226,12 @@ def get_bird_quote(token: str, db: Session = Depends(get_db)):
         "nest_count": quote.nest_count,
         "roll_price": float(quote.roll_price_snapshot),
         "nest_fee": float(quote.nest_fee_snapshot),
-        "total": float(quote.total),
+        **_quote_money(quote),
         "status": quote.status.value,
         "approved_at": quote.approved_at.isoformat() if quote.approved_at else None,
+        "sent_at": _iso(quote.sent_at),
+        "survey": _public_survey(b),
+        "preview": quote.sent_at is None,
     }
 
 

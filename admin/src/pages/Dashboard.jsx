@@ -59,6 +59,7 @@ const DIAGNOSTIC_TERMINALS = [{ label: 'Cancelled', key: 'cancelled' }]
 const BIRD_STAGES = [
   { label: 'Submitted', key: 'submitted' },
   { label: 'Survey', key: 'survey_scheduled' },
+  { label: 'Surveyed', key: 'surveyed' },
   { label: 'Quoted', key: 'quoted' },
   { label: 'Approved', key: 'approved' },
   { label: 'Install', key: 'install_scheduled' },

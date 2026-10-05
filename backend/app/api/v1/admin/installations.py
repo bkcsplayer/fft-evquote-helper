@@ -36,6 +36,7 @@ from app.services.notification_service import (
     render_sms_from_db_or_fallback,
 )
 from app.services.status_machine import assert_transition_allowed
+from app.utils.timefmt import fmt_calgary
 from app.utils.url_utils import public_base_url
 
 
@@ -459,7 +460,7 @@ def schedule_installation(
         settings = get_settings()
         public_base = public_base_url(request=request, configured_url=settings.frontend_url)
         status_url = f"{public_base}/quote/status/{case.access_token}"
-        scheduled_text = payload.scheduled_date.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        scheduled_text = fmt_calgary(payload.scheduled_date)
         ctx = {
             "title": "FFT - Installation scheduled",
             "nickname": customer.nickname,
@@ -662,7 +663,7 @@ def send_completion_email(
     completed_text = None
     if inst.completed_at:
         try:
-            completed_text = inst.completed_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+            completed_text = fmt_calgary(inst.completed_at)
         except Exception:
             completed_text = str(inst.completed_at)
 

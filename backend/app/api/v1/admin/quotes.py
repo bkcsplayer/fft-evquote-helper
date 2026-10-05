@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
@@ -18,6 +18,7 @@ from app.services.notification_service import (
     render_sms_from_db_or_fallback,
 )
 from app.services.quote_service import create_quote, mark_quote_sent
+from app.utils.timefmt import fmt_calgary
 from app.utils.url_utils import public_base_url
 
 
@@ -147,7 +148,7 @@ def preview_quote(
             "quote": quote,
             "case": case,
             "customer": customer,
-            "generated_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+            "generated_at": fmt_calgary(datetime.now(timezone.utc)),
             "support_phone": (_profile.get("support_phone") or "").strip() or _s.brand_support_phone,
             "support_email": (_profile.get("support_email") or "").strip() or _s.brand_support_email,
         },

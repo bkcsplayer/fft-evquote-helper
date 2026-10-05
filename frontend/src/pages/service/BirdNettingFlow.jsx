@@ -7,6 +7,7 @@ import { PhotoUpload } from '../../components/PhotoUpload.jsx'
 import { DisclaimerBlock } from '../../components/DisclaimerBlock.jsx'
 import { api } from '../../services/api.js'
 import { useI18n } from '../../i18n/index.js'
+import { fmtCalgary } from '../../utils/calgaryTime.js'
 
 export default function BirdNettingFlow() {
   const { t } = useI18n()
@@ -102,6 +103,7 @@ export default function BirdNettingFlow() {
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4">
             <div className="text-sm font-semibold text-slate-900">{t('svc.bird.intro_price_title')}</div>
             <p className="mt-1 text-sm text-slate-700">{t('svc.bird.intro_price_body', { roll: rollPrice, nest: nestFee })}</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">{t('svc.bird.intro_gst')}</p>
           </div>
 
           <div className="mt-4">
@@ -160,6 +162,7 @@ export default function BirdNettingFlow() {
             <div className="block">
               <div className="text-sm font-medium text-slate-800">{t('svc.bird.survey_time')}</div>
               <div className="mt-2"><ServiceSlotPicker value={slot} onChange={setSlot} /></div>
+              <p className="mt-1 text-xs text-slate-500">{t('svc.bird.calgary_hint')}</p>
             </div>
 
             {error ? <div className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
@@ -185,7 +188,7 @@ export default function BirdNettingFlow() {
             <div className="flex justify-between px-3 py-2"><span className="text-slate-600">{t('svc.common.name')}</span><span className="font-semibold text-slate-900">{name}</span></div>
             <div className="flex justify-between px-3 py-2"><span className="text-slate-600">{t('svc.common.address')}</span><span className="text-right font-semibold text-slate-900">{address}</span></div>
             <div className="flex justify-between px-3 py-2"><span className="text-slate-600">{t('svc.common.panel_count')}</span><span className="font-semibold text-slate-900">{panelCount}</span></div>
-            <div className="flex justify-between px-3 py-2"><span className="text-slate-600">{t('svc.bird.survey_time')}</span><span className="font-semibold text-slate-900">{slot ? new Date(slot).toLocaleString() : '—'}</span></div>
+            <div className="flex justify-between px-3 py-2"><span className="text-slate-600">{t('svc.bird.survey_time')}</span><span className="font-semibold text-slate-900">{slot ? fmtCalgary(slot) : '—'}</span></div>
           </div>
           <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">{t('svc.bird.pricing_formula', { rollPrice, nestFee })}</div>
 

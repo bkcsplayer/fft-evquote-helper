@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { QuoteShell } from '../components/layout/QuoteShell.jsx'
 import { api } from '../services/api.js'
 import { useI18n } from '../i18n/index.js'
+import { fmtCalgary } from '../utils/calgaryTime.js'
 
 export default function SurveyConfirm() {
   const { token } = useParams()
@@ -56,7 +57,7 @@ export default function SurveyConfirm() {
         {status?.survey_scheduled_date ? (
           <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm">
             <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-zinc-400">{t('surveyConfirm.scheduled')}</div>
-            <div className="mt-1 text-slate-800">{new Date(status.survey_scheduled_date).toLocaleString()}</div>
+            <div className="mt-1 text-slate-800">{fmtCalgary(status.survey_scheduled_date)}</div>
             <div className="mt-1 text-xs text-slate-500">
               {t('surveyConfirm.deposit_status', {
                 state: status.survey_deposit_paid ? t('surveyConfirm.deposit_paid') : t('surveyConfirm.deposit_unpaid'),

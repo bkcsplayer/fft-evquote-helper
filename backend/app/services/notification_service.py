@@ -4,6 +4,7 @@ import base64
 import logging
 from datetime import datetime, timezone
 from functools import lru_cache
+from html import escape
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -16,6 +17,7 @@ from app.models.models import Notification, NotificationChannel, NotificationSta
 from app.services.email_service import send_email
 from app.services.pdf_service import render_invoice_pdf
 from app.services.sms_service import send_sms
+from app.utils.timefmt import calgary_date_iso
 from app.utils.url_utils import is_local_url
 
 logger = logging.getLogger(__name__)
@@ -160,7 +162,7 @@ def build_invoice_pdf(
             "logo_data_uri": logo_data_uri,
             "kind_label": kind_label,
             "invoice_number": invoice_number,
-            "invoice_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "invoice_date": calgary_date_iso(datetime.now(timezone.utc)),
             "reference_number": reference_number,
             "bill_to_name": bill_to_name,
             "bill_to_address": bill_to_address,
@@ -264,6 +266,33 @@ def render_sms_from_db_or_fallback(db: Session, *, template_key: str, ctx: dict[
     return _templates_env().from_string(fallback).render(**ctx)
 
 
+def notify_redirect_enabled() -> bool:
+    return (get_settings().notify_redirect or "").strip().casefold() == "on"
+
+
+def _apply_redirect(*, is_sms: bool, to: str, subject: str | None, body: str) -> tuple[str, str | None, str]:
+    """Global NOTIFY_REDIRECT: swap a customer recipient for Kuo's phone/email (ADR-017).
+
+    Applied at the record layer (first statement of the 4 record functions + the resend endpoint),
+    not the transport layer, so Notification.recipient records the address that was actually used
+    and the intended recipient is marked in the body — the audit trail stays truthful.
+    A recipient that already is the target (the nudge path) is returned unchanged.
+    """
+    if not notify_redirect_enabled():
+        return to, subject, body
+    s = get_settings()
+    target = s.nudge_redirect_sms if is_sms else s.nudge_redirect_email
+    if to.strip().casefold() == target.strip().casefold():
+        return to, subject, body
+    if is_sms:
+        return target, subject, f"[REDIRECTED — intended for {to}]\n{body}"
+    banner = (
+        '<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;padding:8px 12px;'
+        f'margin:0 0 12px 0;font:13px/1.4 Arial,sans-serif;">[REDIRECTED] Intended recipient: {escape(to)}</div>'
+    )
+    return target, f"[REDIRECTED → {to}] {subject}", banner + body
+
+
 def notify_email(
     db: Session,
     *,
@@ -274,6 +303,7 @@ def notify_email(
     html: str,
     pdf_attachment: tuple[str, bytes] | None = None,
 ) -> Notification:
+    to_email, subject, html = _apply_redirect(is_sms=False, to=to_email, subject=subject, body=html)
     n = Notification(
         case_id=case_id,
         channel=NotificationChannel.email,
@@ -317,6 +347,7 @@ def notify_sms(
     template_name: str,
     body: str,
 ) -> Notification:
+    to_phone, _, body = _apply_redirect(is_sms=True, to=to_phone, subject=None, body=body)
     n = Notification(
         case_id=case_id,
         channel=NotificationChannel.sms,
@@ -517,6 +548,7 @@ def _send_service_email(
     cleaning_subscription_id: str | None,
     pdf_attachment: tuple[str, bytes] | None = None,
 ) -> Notification | None:
+    to_email, subject, html = _apply_redirect(is_sms=False, to=to_email, subject=subject, body=html)
     n = Notification(
         service_booking_id=service_booking_id,
         cleaning_subscription_id=cleaning_subscription_id,
@@ -557,6 +589,7 @@ def _send_service_sms(
     service_booking_id: str | None,
     cleaning_subscription_id: str | None,
 ) -> Notification | None:
+    to_phone, _, body = _apply_redirect(is_sms=True, to=to_phone, subject=None, body=body)
     n = Notification(
         service_booking_id=service_booking_id,
         cleaning_subscription_id=cleaning_subscription_id,

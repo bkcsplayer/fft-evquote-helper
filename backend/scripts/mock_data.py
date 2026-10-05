@@ -20,9 +20,12 @@ Run (the image does not contain this directory, so feed it over stdin):
 
 from __future__ import annotations
 
+import struct
 import sys
 import uuid
+import zlib
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -65,6 +68,7 @@ from app.models.models import (
     ServiceType,
     Survey,
 )
+from app.utils.money import GST_RATE_PERCENT, deposit_split, with_gst
 
 MOCK_REF_PREFIX = "MOCK-"
 MOCK_NAME_PREFIX = "Mock-"
@@ -399,7 +403,32 @@ SERVICE_BOOKINGS = [
     ("09", "Vera",   ServiceType.bird_netting, ServiceBookingStatus.install_scheduled, 34, "78 Coventry Hills Way NE"),
     ("10", "Wes",    ServiceType.bird_netting, ServiceBookingStatus.completed,        28, "12 Douglasdale Blvd SE"),
     ("11", "Xenia",  ServiceType.diagnostic,   ServiceBookingStatus.cancelled,        14, "5 Hidden Valley Dr NW"),
+    ("12", "Yuri",   ServiceType.bird_netting, ServiceBookingStatus.surveyed,         26, "27 Mahogany Rd SE"),
 ]
+
+MOCK_SURVEY_PHOTOS = [f"/uploads/services/mock-survey-{i}.png" for i in (1, 2, 3)]
+_MOCK_PHOTO_COLOURS = [(148, 163, 184), (100, 116, 139), (71, 85, 105)]
+
+
+def _solid_png(rgb: tuple[int, int, int], size: int = 24) -> bytes:
+    """Stdlib-only solid-colour PNG (no Pillow in the image)."""
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    ihdr = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)  # 8-bit RGB
+    raw = (b"\x00" + bytes(rgb) * size) * size
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
+def ensure_mock_photos() -> None:
+    """Write the three mock survey photos under uploads/services/ (served at /uploads/services/)."""
+    folder = Path("uploads") / "services"
+    folder.mkdir(parents=True, exist_ok=True)
+    for i, rgb in zip((1, 2, 3), _MOCK_PHOTO_COLOURS):
+        path = folder / f"mock-survey-{i}.png"
+        if not path.exists():
+            path.write_bytes(_solid_png(rgb))
+
 
 QUOTED_STATES = {
     ServiceBookingStatus.quoted,
@@ -412,9 +441,17 @@ APPROVED_STATES = {
     ServiceBookingStatus.install_scheduled,
     ServiceBookingStatus.completed,
 }
+SURVEYED_STATES = {
+    ServiceBookingStatus.surveyed,
+    ServiceBookingStatus.quoted,
+    ServiceBookingStatus.approved,
+    ServiceBookingStatus.install_scheduled,
+    ServiceBookingStatus.completed,
+}
 
 
 def seed_services(db: Session) -> None:
+    ensure_mock_photos()
     for idx, (sfx, name, kind, status, panels, address) in enumerate(SERVICE_BOOKINGS):
         offset = -25 + idx * 2
         is_diag = kind is ServiceType.diagnostic
@@ -449,6 +486,12 @@ def seed_services(db: Session) -> None:
             updated_at=days(offset + 1),
             status_changed_at=days(-20) if sfx in ("01", "06", "07") else days(offset + 1),
         )
+        if not is_diag and status in SURVEYED_STATES:
+            booking.survey_perimeter_ft = 230
+            booking.survey_nest_count = 2
+            booking.survey_notes = "Mock-survey notes: two arrays, south + west faces."
+            booking.survey_photo_urls = MOCK_SURVEY_PHOTOS
+            booking.surveyed_at = days(offset + 4, 2)
         db.add(booking)
         db.flush()
 
@@ -467,12 +510,16 @@ def seed_services(db: Session) -> None:
                 created_by="customer",
             ))
 
-        if not is_diag and status in QUOTED_STATES:
+        if not is_diag and status in QUOTED_STATES | {ServiceBookingStatus.surveyed}:
             rolls, nests = 3, 2
-            total = rolls * 599.00 + nests * 99.00
+            sub, gst, total = with_gst(rolls * 599 + nests * 99)
+            deposit, _ = deposit_split(total)
             db.add(BirdNettingQuote(
                 booking_id=booking.id, roll_count=rolls, nest_count=nests,
-                roll_price_snapshot=599.00, nest_fee_snapshot=99.00, total=total,
+                roll_price_snapshot=599.00, nest_fee_snapshot=99.00,
+                subtotal=sub, gst_rate=GST_RATE_PERCENT, gst_amount=gst, total=total, deposit_amount=deposit,
+                # MOCK-BN-12 (surveyed) holds an unsent quote draft
+                sent_at=None if status is ServiceBookingStatus.surveyed else days(offset + 5),
                 status=QuoteStatus.approved if status in APPROVED_STATES else QuoteStatus.pending,
                 signature_data=SIG_PNG if status in APPROVED_STATES else None,
                 signed_name=f"{MOCK_NAME_PREFIX}{name}" if status in APPROVED_STATES else None,

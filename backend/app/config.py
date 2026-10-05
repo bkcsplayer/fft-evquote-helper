@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     nudge_redirect: str | None = Field(default=None, validation_alias="NUDGE_REDIRECT")
     nudge_redirect_sms: str = Field(default="+15879669668", validation_alias="NUDGE_REDIRECT_SMS")
     nudge_redirect_email: str = Field(default="cool@khtain.com", validation_alias="NUDGE_REDIRECT_EMAIL")
+    # only the literal "on" redirects all customer messages to Kuo; see notification_service
+    notify_redirect: str | None = Field(default=None, validation_alias="NOTIFY_REDIRECT")
 
     @field_validator("smtp_port", mode="before")
     @classmethod
@@ -88,6 +90,7 @@ class Settings(BaseSettings):
         "smtp_from_name",
         "nudge_run_key",
         "nudge_redirect",
+        "notify_redirect",
         mode="before",
     )
     @classmethod

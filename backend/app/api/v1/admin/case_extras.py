@@ -9,6 +9,7 @@ from app.database import get_db
 from app.middleware.auth import get_current_admin
 from app.models.models import AdminUser, Case, CaseNote, CaseStatusHistory, Notification, NotificationChannel
 from app.services.email_service import send_email
+from app.services.notification_service import _apply_redirect
 
 
 router = APIRouter(prefix="/admin")
@@ -94,7 +95,8 @@ def resend_notification_email(
 
     # Best-effort resend (does not replace history record; this is a manual action)
     try:
-        send_email(to_email=to_email, subject=n.subject, html=n.content)
+        to_email, subject, html = _apply_redirect(is_sms=False, to=to_email, subject=n.subject, body=n.content)
+        send_email(to_email=to_email, subject=subject, html=html)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Resend failed: {e}") from e
 

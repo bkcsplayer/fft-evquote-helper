@@ -58,6 +58,8 @@ services:
       NUDGE_REDIRECT: ${NUDGE_REDIRECT:-}
       NUDGE_REDIRECT_SMS: ${NUDGE_REDIRECT_SMS:-+15879669668}
       NUDGE_REDIRECT_EMAIL: ${NUDGE_REDIRECT_EMAIL:-cool@khtain.com}
+      # forced ON for every local run; .env cannot override; environment is an explicit allow-list
+      NOTIFY_REDIRECT: "on"
     volumes:
       - ./uploads:/app/uploads
     ports:

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>设计汇报 — 14 天无动作自动催单 · FFT evquote</title>
+<title>设计汇报 — 鸟网流程重整 + Calgary 时区 + GST + 全局通知重定向 — fft-evquote-helper</title>
 <style>
 :root{
   --bg:#080b14; --bg2:#0b101d; --panel:rgba(255,255,255,.028);
@@ -11,140 +11,103 @@
   --line2:rgba(148,163,184,.24); --ink:#e6edf6; --muted:#8b98ad; --dim2:#64748b;
   --blue:#3b82f6; --cyan:#22d3ee; --green:#34d399; --amber:#fbbf24; --red:#f87171;
   --blue-soft:rgba(59,130,246,.12); --cyan-soft:rgba(34,211,238,.10);
-  --green-soft:rgba(52,211,153,.10); --amber-soft:rgba(251,191,36,.10);
-  --red-soft:rgba(248,113,113,.10);
+  --green-soft:rgba(52,211,153,.10); --amber-soft:rgba(251,191,36,.10); --red-soft:rgba(248,113,113,.10);
   --radius:14px; --sidebar:248px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
-body{
-  background:
-    radial-gradient(900px 420px at 78% -80px, rgba(59,130,246,.14), transparent 60%),
-    radial-gradient(700px 380px at 12% 8%, rgba(34,211,238,.07), transparent 55%),
-    var(--bg);
-  color:var(--ink);
-  font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
-  line-height:1.65; -webkit-font-smoothing:antialiased;
-}
-.topbar{position:fixed;top:0;left:0;right:0;z-index:50;height:52px;display:flex;align-items:center;gap:14px;
-  padding:0 22px;background:rgba(8,11,20,.72);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);font-size:13px}
-.topbar .logo{font-weight:800;letter-spacing:.02em}
-.topbar .logo b{color:var(--cyan)}
-.topbar .crumb{color:var(--muted)}
-.topbar .spacer{flex:1}
-.status-dot{width:8px;height:8px;border-radius:99px;background:var(--amber);box-shadow:0 0 8px var(--amber);display:inline-block;margin-right:6px}
-.topbar .env{color:var(--muted);font-size:12px}
-nav.side{position:fixed;top:52px;bottom:0;left:0;width:var(--sidebar);z-index:40;border-right:1px solid var(--line);
-  padding:26px 14px;overflow-y:auto;background:rgba(8,11,20,.55)}
+body{background:radial-gradient(900px 420px at 78% -80px, rgba(59,130,246,.14), transparent 60%),radial-gradient(700px 380px at 12% 8%, rgba(34,211,238,.07), transparent 55%),var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif;line-height:1.65;-webkit-font-smoothing:antialiased}
+.topbar{position:fixed;top:0;left:0;right:0;z-index:50;height:52px;display:flex;align-items:center;gap:14px;padding:0 22px;background:rgba(8,11,20,.72);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);font-size:13px}
+.topbar .logo{font-weight:800;letter-spacing:.02em}.topbar .logo b{color:var(--cyan)}.topbar .crumb{color:var(--muted)}.topbar .spacer{flex:1}
+.status-dot{width:8px;height:8px;border-radius:99px;background:var(--amber);box-shadow:0 0 8px var(--amber);display:inline-block;margin-right:6px}.topbar .env{color:var(--muted);font-size:12px}
+nav.side{position:fixed;top:52px;bottom:0;left:0;width:var(--sidebar);z-index:40;border-right:1px solid var(--line);padding:26px 14px;overflow-y:auto;background:rgba(8,11,20,.55)}
 nav.side .grp{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2);font-weight:700;margin:18px 10px 8px}
 nav.side a{display:block;padding:7px 12px;border-radius:8px;color:var(--muted);text-decoration:none;font-size:13.5px;border-left:2px solid transparent}
-nav.side a:hover{color:var(--ink);background:var(--panel2)}
-nav.side a.on{color:var(--cyan);background:var(--cyan-soft);border-left-color:var(--cyan)}
-main{margin-left:var(--sidebar);padding:52px 0 0}
-.wrap{max-width:1020px;margin:0 auto;padding:0 40px 90px}
+nav.side a:hover{color:var(--ink);background:var(--panel2)}nav.side a.on{color:var(--cyan);background:var(--cyan-soft);border-left-color:var(--cyan)}
+main{margin-left:var(--sidebar);padding:52px 0 0}.wrap{max-width:1020px;margin:0 auto;padding:0 40px 90px}
 section{padding-top:56px;scroll-margin-top:52px}
 h2{font-size:22px;font-weight:800;letter-spacing:-.01em;margin-bottom:6px}
-.sec-k{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--cyan);font-weight:700}
-.sec-d{color:var(--muted);font-size:14px;margin-bottom:22px}
-.hero{padding:74px 0 10px}
-.hero .badges{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
+.sec-k{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--cyan);font-weight:700}.sec-d{color:var(--muted);font-size:14px;margin-bottom:18px}
+.hero{padding:74px 0 10px}.hero .badges{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
 .badge{font-size:11.5px;font-weight:700;padding:4px 12px;border-radius:99px;border:1px solid var(--line2)}
-.b-blue{color:#93c5fd;background:var(--blue-soft);border-color:rgba(59,130,246,.4)}
-.b-red{color:var(--red);background:var(--red-soft);border-color:rgba(248,113,113,.4)}
-.b-amber{color:var(--amber);background:var(--amber-soft);border-color:rgba(251,191,36,.4)}
-.hero h1{font-size:40px;font-weight:900;letter-spacing:-.03em;line-height:1.18;
-  background:linear-gradient(92deg,#fff 30%,#7dd3fc 70%,#60a5fa);-webkit-background-clip:text;background-clip:text;color:transparent}
-.hero p{color:var(--muted);font-size:16px;max-width:46em;margin:16px 0 26px}
+.b-blue{color:#93c5fd;background:var(--blue-soft);border-color:rgba(59,130,246,.4)}.b-green{color:var(--green);background:var(--green-soft);border-color:rgba(52,211,153,.4)}.b-amber{color:var(--amber);background:var(--amber-soft);border-color:rgba(251,191,36,.4)}.b-red{color:var(--red);background:var(--red-soft);border-color:rgba(248,113,113,.4)}
+.hero h1{font-size:38px;font-weight:900;letter-spacing:-.03em;line-height:1.15;background:linear-gradient(92deg,#fff 30%,#7dd3fc 70%,#60a5fa);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--muted);font-size:16px;max-width:46em;margin:16px 0 22px}
 .btns{display:flex;gap:12px;flex-wrap:wrap}
-.btn{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:700;padding:10px 20px;border-radius:10px;
-  text-decoration:none;cursor:pointer;border:1px solid var(--line2);color:var(--ink);background:var(--panel2)}
-.btn.primary{background:linear-gradient(90deg,var(--blue),#2563eb);border-color:transparent;color:#fff;box-shadow:0 6px 24px rgba(59,130,246,.35)}
-.btn:hover{filter:brightness(1.12)}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:34px}
+.btn{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:700;padding:10px 20px;border-radius:10px;text-decoration:none;cursor:pointer;border:1px solid var(--line2);color:var(--ink);background:var(--panel2)}
+.btn.primary{background:linear-gradient(90deg,var(--blue),#2563eb);border-color:transparent;color:#fff;box-shadow:0 6px 24px rgba(59,130,246,.35)}.btn:hover{filter:brightness(1.12)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:30px}
 .kpi{border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);padding:16px 16px 13px}
-.kpi .n{font-size:26px;font-weight:800;letter-spacing:-.02em}
-.kpi .n em{font-style:normal;font-size:14px;color:var(--muted);font-weight:600}
-.kpi .l{font-size:12px;color:var(--muted);margin-top:2px}
-.kpi.hl .n{color:var(--cyan)}
+.kpi .n{font-size:26px;font-weight:800;letter-spacing:-.02em}.kpi .n em{font-style:normal;font-size:14px;color:var(--muted);font-weight:600}.kpi .l{font-size:12px;color:var(--muted);margin-top:2px}.kpi.hl .n{color:var(--cyan)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
-.card{border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);padding:20px 20px 16px;transition:border-color .15s}
-.card:hover{border-color:var(--line2)}
-.card h3{font-size:15.5px;font-weight:700;display:flex;align-items:center;gap:9px;margin-bottom:8px}
-.card p{font-size:13.5px;color:var(--muted)}
+.card{border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);padding:20px 20px 16px;transition:border-color .15s}.card:hover{border-color:var(--line2)}
+.card h3{font-size:15.5px;font-weight:700;display:flex;align-items:center;gap:9px;margin-bottom:8px}.card p{font-size:13.5px;color:var(--muted)}
 .tag{font-size:10px;font-weight:800;letter-spacing:.06em;padding:2.5px 9px;border-radius:99px;flex:none}
-.t-new{background:var(--green-soft);color:var(--green);border:1px solid rgba(52,211,153,.4)}
-.t-up{background:var(--blue-soft);color:#93c5fd;border:1px solid rgba(59,130,246,.4)}
-ul.wins{list-style:none;font-size:13px;color:var(--muted);margin-top:10px}
-ul.wins li{padding-left:20px;position:relative;margin-top:4px}
-ul.wins li::before{content:"›";position:absolute;left:4px;color:var(--cyan);font-weight:800}
-.flowwrap{border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:28px 20px 20px;overflow-x:auto}
-.flowlabel{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;font-weight:800;margin:0 0 16px 6px}
-.flowlabel.before{color:var(--dim2)} .flowlabel.after{color:var(--cyan)}
-.flow{display:flex;align-items:stretch;min-width:840px;padding-top:8px}
-.node{flex:1 1 0;min-width:98px;border:1px solid var(--line2);background:var(--bg2);border-radius:12px;padding:13px 10px;text-align:center;position:relative}
-.node b{display:block;font-size:13.5px}
-.node small{display:block;color:var(--muted);font-size:11.5px;line-height:1.5;margin-top:5px}
+.t-new{background:var(--green-soft);color:var(--green);border:1px solid rgba(52,211,153,.4)}.t-up{background:var(--blue-soft);color:#93c5fd;border:1px solid rgba(59,130,246,.4)}.t-fix{background:var(--amber-soft);color:var(--amber);border:1px solid rgba(251,191,36,.4)}
+ul.wins{list-style:none;font-size:13px;color:var(--muted);margin-top:10px}ul.wins li{padding-left:20px;position:relative;margin-top:4px}ul.wins li::before{content:"›";position:absolute;left:4px;color:var(--cyan);font-weight:800}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:6px 0 14px}
+.legend i{display:inline-block;width:14px;height:10px;border-radius:3px;vertical-align:middle;margin-right:5px;border:1px solid var(--line2)}
+.legend .l-new{background:rgba(52,211,153,.25);border-color:var(--green)}.legend .l-thick{border:2px solid var(--blue)}.legend .l-dash{border:1px dashed var(--cyan)}.legend .l-risk{background:rgba(248,113,113,.25);border-color:var(--red)}
+.flowwrap{border:1px solid var(--line);border-radius:16px;background:var(--panel);padding:24px 18px 18px;overflow-x:auto}
+.flowlabel{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;font-weight:800;margin:0 0 14px 6px}.flowlabel.before{color:var(--dim2)}.flowlabel.after{color:var(--cyan)}
+.flow{display:flex;align-items:stretch;min-width:860px;padding-top:10px}
+.node{flex:1 1 0;min-width:96px;border:1px solid var(--line2);background:var(--bg2);border-radius:12px;padding:11px 8px;text-align:center;position:relative}
+.node b{display:block;font-size:13px}.node small{display:block;color:var(--muted);font-size:11px;line-height:1.45;margin-top:4px}
 .node.new{border-color:rgba(52,211,153,.55);background:rgba(52,211,153,.06)}
 .node.new::after{content:"NEW";position:absolute;top:-9px;right:-4px;background:var(--green);color:#052e22;font-size:9px;font-weight:900;padding:1.5px 7px;border-radius:99px}
-.node.deep{border:2px solid var(--blue);box-shadow:0 0 18px rgba(59,130,246,.25)}
-.node.risk{border-color:rgba(248,113,113,.55)}
-.arrow{flex:none;align-self:center;color:var(--dim2);padding:0 5px;font-size:15px}
-.gatebar{flex:none;align-self:stretch;width:4px;border-radius:3px;background:var(--red);margin:4px 9px;position:relative;box-shadow:0 0 10px rgba(248,113,113,.5)}
-.gatebar i{position:absolute;top:-21px;left:50%;transform:translateX(-50%);font-style:normal;font-size:10px;font-weight:800;color:var(--red);white-space:nowrap}
-.before-row .node{opacity:.42}
-.divider{border:none;border-top:1px dashed var(--line2);margin:28px 0}
-.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin:0 0 14px 6px}
-.legend span i{font-style:normal;font-weight:800}
-.callout{border:1px solid;border-radius:12px;padding:14px 18px;font-size:13.5px;margin-top:12px;display:flex;gap:12px}
-.callout .ic{font-weight:900;flex:none}
-.c-info{border-color:rgba(59,130,246,.4);background:var(--blue-soft)} .c-info .ic{color:#93c5fd}
-.c-ok{border-color:rgba(52,211,153,.4);background:var(--green-soft)} .c-ok .ic{color:var(--green)}
-.c-warn{border-color:rgba(251,191,36,.4);background:var(--amber-soft)} .c-warn .ic{color:var(--amber)}
-.c-risk{border-color:rgba(248,113,113,.4);background:var(--red-soft)} .c-risk .ic{color:var(--red)}
-.code{position:relative;border:1px solid var(--line);background:#0a0e1a;border-radius:10px;padding:13px 90px 13px 16px;
-  font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:#a5d6ff;margin-top:10px;overflow-x:auto;white-space:pre}
-.code .cp{position:absolute;top:8px;right:8px;font-size:11px;font-weight:700;color:var(--muted);border:1px solid var(--line2);
-  background:var(--panel2);border-radius:7px;padding:3px 10px;cursor:pointer;font-family:inherit}
-.code .cp:hover{color:var(--cyan);border-color:var(--cyan)}
-table{width:100%;border-collapse:collapse;font-size:13.5px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
-th{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 14px;background:var(--panel2);border-bottom:1px solid var(--line)}
-td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
-tr:last-child td{border-bottom:none}
-td:first-child{font-weight:700;white-space:nowrap}
-.pill{display:inline-block;font-size:11px;font-weight:800;padding:2px 10px;border-radius:99px}
-.p-ok{background:var(--green-soft);color:var(--green)} .p-warn{background:var(--amber-soft);color:var(--amber)}
-.p-risk{background:var(--red-soft);color:var(--red)} .p-info{background:var(--blue-soft);color:#93c5fd}
-.p-mut{background:var(--panel2);color:var(--muted)}
+.node.thick{border:2px solid var(--blue);box-shadow:0 0 18px rgba(59,130,246,.25)}
+.node.risk{border-color:var(--red);background:var(--red-soft)}
+.node.risk::after{content:"BUG";position:absolute;top:-9px;right:-4px;background:var(--red);color:#fff;font-size:9px;font-weight:900;padding:1.5px 7px;border-radius:99px}
+.node.dash{border-style:dashed;border-color:var(--cyan)}
+.arrow{flex:none;align-self:center;color:var(--dim2);padding:0 4px;font-size:15px}
+.gatebar{flex:none;align-self:stretch;width:4px;border-radius:3px;background:var(--amber);margin:4px 8px;position:relative;box-shadow:0 0 10px rgba(251,191,36,.5)}
+.gatebar i{position:absolute;top:-21px;left:50%;transform:translateX(-50%);font-style:normal;font-size:10px;font-weight:800;color:var(--amber);white-space:nowrap}
+.before-row .node{opacity:.5}
+.divider{border:none;border-top:1px dashed var(--line2);margin:24px 0}
+.callout{border:1px solid;border-radius:12px;padding:14px 18px;font-size:13.5px;margin-top:12px;display:flex;gap:12px}.callout .ic{font-weight:900;flex:none}
+.c-info{border-color:rgba(59,130,246,.4);background:var(--blue-soft)}.c-info .ic{color:#93c5fd}
+.c-ok{border-color:rgba(52,211,153,.4);background:var(--green-soft)}.c-ok .ic{color:var(--green)}
+.c-warn{border-color:rgba(251,191,36,.4);background:var(--amber-soft)}.c-warn .ic{color:var(--amber)}
+.c-risk{border-color:rgba(248,113,113,.4);background:var(--red-soft)}.c-risk .ic{color:var(--red)}
+.code{position:relative;border:1px solid var(--line);background:#0a0e1a;border-radius:10px;padding:13px 16px;font-family:Consolas,"Cascadia Mono",monospace;font-size:12.5px;color:#a5d6ff;margin-top:10px;overflow-x:auto;white-space:pre}
+table{width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 12px;background:var(--panel2);border-bottom:1px solid var(--line)}
+td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}tr:last-child td{border-bottom:none}td:first-child{font-weight:700;white-space:nowrap}
+.pill{display:inline-block;font-size:11px;font-weight:800;padding:2px 10px;border-radius:99px;white-space:nowrap}
+.p-ok{background:var(--green-soft);color:var(--green)}.p-warn{background:var(--amber-soft);color:var(--amber)}.p-risk{background:var(--red-soft);color:var(--red)}.p-info{background:var(--blue-soft);color:#93c5fd}
+.money{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:12px}
+.money div{border:1px solid var(--line);background:var(--bg2);border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--muted)}
+.money div b{display:block;font-size:17px;color:var(--ink);letter-spacing:-.01em}
+.tickets{display:flex;flex-direction:column;gap:10px}
+.ticket{display:grid;grid-template-columns:64px 1fr 150px;gap:14px;align-items:start;border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:12px 14px;font-size:13px}
+.ticket .id{font-weight:900;color:var(--cyan);font-size:15px}.ticket .who{color:var(--muted);font-size:12px;text-align:right}
+.ticket .d{color:var(--muted)}.ticket b.t{color:var(--ink)}
+.par{font-size:10px;font-weight:800;letter-spacing:.06em;padding:2px 8px;border-radius:99px;background:var(--green-soft);color:var(--green);border:1px solid rgba(52,211,153,.4);margin-left:6px}
+.ser{font-size:10px;font-weight:800;letter-spacing:.06em;padding:2px 8px;border-radius:99px;background:var(--panel2);color:var(--muted);border:1px solid var(--line2);margin-left:6px}
+.roster{display:flex;gap:10px;flex-wrap:wrap}.chip{border:1px solid var(--line2);background:var(--panel);border-radius:99px;padding:8px 18px;font-size:13.5px}.chip b{color:var(--cyan)}.chip em{font-style:normal;color:var(--muted);font-size:12px}
 details{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-top:10px}
-summary{cursor:pointer;padding:14px 18px;font-size:14px;font-weight:700;list-style:none;display:flex;gap:10px}
-summary::before{content:"▸";color:var(--cyan);transition:transform .15s}
-details[open] summary::before{transform:rotate(90deg)}
+summary{cursor:pointer;padding:14px 18px;font-size:14px;font-weight:700;list-style:none;display:flex;gap:10px}summary::before{content:"▸";color:var(--cyan);transition:transform .15s}details[open] summary::before{transform:rotate(90deg)}
 details .body{padding:0 18px 16px 38px;font-size:13.5px;color:var(--muted)}
-footer{border-top:1px solid var(--line);margin-top:70px;padding:26px 0 10px;color:var(--dim2);font-size:12.5px;display:flex;gap:18px;flex-wrap:wrap;align-items:center}
-footer .st{color:var(--amber);font-weight:700}
-#top-btn{position:fixed;right:26px;bottom:26px;z-index:60;width:42px;height:42px;border-radius:12px;border:1px solid var(--line2);
-  background:rgba(8,11,20,.8);color:var(--cyan);font-size:18px;cursor:pointer;display:none;backdrop-filter:blur(8px)}
-#top-btn:hover{border-color:var(--cyan)}
-@media (max-width:960px){nav.side{display:none} main{margin-left:0} .wrap{padding:0 20px 70px} .hero h1{font-size:30px}}
+footer{border-top:1px solid var(--line);margin-top:60px;padding:26px 0 10px;color:var(--dim2);font-size:12.5px;display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+#top-btn{position:fixed;right:26px;bottom:26px;z-index:60;width:42px;height:42px;border-radius:12px;border:1px solid var(--line2);background:rgba(8,11,20,.8);color:var(--cyan);font-size:18px;cursor:pointer;display:none;backdrop-filter:blur(8px)}
+@media (max-width:960px){nav.side{display:none}main{margin-left:0}.wrap{padding:0 20px 70px}.hero h1{font-size:28px}.ticket{grid-template-columns:52px 1fr}.ticket .who{text-align:left}}
 @media print{
   :root{--ink:#111;--muted:#444;--line:#ccc;--line2:#bbb}
-  body{background:#fff;color:#111}
-  .topbar,nav.side,#top-btn,.btns,.cp{display:none!important}
-  main{margin:0} section{padding-top:28px;break-inside:avoid}
-  .card,.kpi,.flowwrap,table,details{break-inside:avoid;background:#fff;border-color:#ccc}
-  .hero h1{-webkit-text-fill-color:#111;color:#111;background:none}
-  .node{background:#fff} .code{background:#f6f8fa;color:#111}
-  details{display:block} details .body{display:block}
+  body{background:#fff;color:#111}.topbar,nav.side,#top-btn,.btns{display:none!important}
+  main{margin:0}section{padding-top:24px;break-inside:avoid}
+  .card,.kpi,.flowwrap,table,details,.ticket{break-inside:avoid;background:#fff;border-color:#ccc}
+  .hero h1{-webkit-text-fill-color:#111;color:#111;background:none}.node{background:#fff}.code{background:#f6f8fa;color:#111}
+  details{display:block}details .body{display:block}
 }
 </style>
 </head>
 <body>
 
 <div class="topbar">
-  <span class="logo">Khtain <b>／</b> FFT evquote</span>
-  <span class="crumb">设计汇报 · 14 天无动作自动催单</span>
+  <span class="logo">Khtain <b>／</b> FutureFrontier Technology</span>
+  <span class="crumb">fft-evquote-helper · 设计汇报（闸 2）</span>
   <span class="spacer"></span>
-  <span class="env"><span class="status-dot"></span>闸 2 · 等待批准 · CRITICAL</span>
+  <span class="env"><span class="status-dot"></span>等待 Kuo 批准 · 2026-10-05</span>
 </div>
 
 <nav class="side" id="toc">
@@ -152,217 +115,231 @@ footer .st{color:var(--amber);font-weight:700}
   <a href="#hero" class="on">这次要做什么</a>
   <a href="#flow">现状 vs 做完之后</a>
   <div class="grp">Design</div>
-  <a href="#plan">方案与四道保险</a>
-  <a href="#route">分流口径</a>
+  <a href="#plan">方案与取舍</a>
+  <a href="#money">钱怎么算</a>
+  <a href="#ui">UI 契约</a>
+  <div class="grp">Execution</div>
   <a href="#tickets">分几步、谁来做</a>
-  <div class="grp">Decision</div>
   <a href="#risk">代价与风险</a>
-  <a href="#ask">需要你拍板的 4 件小事</a>
+  <a href="#ask">需要你拍板</a>
   <a href="#approve">批准方式</a>
 </nav>
 
-<main>
-<div class="wrap">
+<main><div class="wrap">
 
-<!-- ================= HERO ================= -->
+<!-- HERO -->
 <section class="hero" id="hero">
   <div class="badges">
-    <span class="badge b-blue">DESIGN REPORT · 闸 2</span>
-    <span class="badge b-red">CRITICAL · 会自动对外发消息</span>
-    <span class="badge b-amber">纯后端 + cron · 无界面改动</span>
+    <span class="badge b-blue">DESIGN REPORT</span>
+    <span class="badge b-red">CRITICAL 级</span>
+    <span class="badge b-amber">尚未实现 · 建议后续执行</span>
+    <span class="badge b-green">UI 契约 v1 已冻结</span>
   </div>
-  <h1>订单卡住 14 天，<br>系统自己开口催</h1>
-  <p>Raju 的报价停了 28 天才被人工发现——以后不会了。每天早上 10 点（Calgary），系统扫一遍
-     四条业务线的所有未完结订单：<b>球在客户</b>的发短信催客户（第 14/28/42 天各一次，封顶 3 次，
-     之后转<b>待人工跟进</b>）；<b>球在我们</b>的不打扰客户，汇总成一封邮件发给你。
-     上线初期<b>催单重定向</b>默认全开：所有消息先发到你自己的手机和邮箱试运行。</p>
+  <h1>鸟网服务线流程重整<br>+ Calgary 时区 · GST · 全局通知重定向</h1>
+  <p>起因是真实客户 Nick（SVC-2026-0001）收到一条写着 "14:00 UTC" 的勘测确认短信。顺着这条线查下去，鸟网线还有四个结构问题：报价没有 GST、没有"已勘测"这一步、后台一存报价就直接通知客户、后台状态下拉能跳过报价直接到"已报价"。本设计把鸟网订单改成清晰的阶段流（约勘测 → 勘测结果 → 已勘测 → 报价草稿 → <b>发送报价</b> → 签字 → 定金 → 排安装 → 完工），四条线对客时间全部显示 Calgary 本地时间，三条新线统一"不含税 + 5% GST"，并加一个本地强制开启的全局通知重定向，让我们可以把生产库镜像到本地放心测试。</p>
   <div class="btns">
     <a class="btn primary" href="#flow">看流程图 ↓</a>
-    <button class="btn" onclick="window.print()">🖨 打印 / 导出 PDF</button>
+    <a class="btn" href="#ask">需要你拍板的 5 件事 →</a>
+    <button class="btn" onclick="window.print()">打印 / 导出 PDF</button>
   </div>
   <div class="kpis">
-    <div class="kpi hl"><div class="n">14/28/42<em> 天</em></div><div class="l">三次催单节奏 · 封顶 3 次</div></div>
-    <div class="kpi"><div class="n">4<em> 条线</em></div><div class="l">EV · 诊断 · 鸟网 · 清洁</div></div>
-    <div class="kpi hl"><div class="n">默认开</div><div class="l">催单重定向 → 你本人</div></div>
-    <div class="kpi"><div class="n">0<em> 界面</em></div><div class="l">不动任何前端/后台页面</div></div>
-    <div class="kpi"><div class="n">3<em> 张票</em></div><div class="l">全串行 · 稳妥第一</div></div>
-    <div class="kpi"><div class="n">0<em> 新进程</em></div><div class="l">VPS cron 打现有后端</div></div>
+    <div class="kpi hl"><div class="n">7<em> 张票</em></div><div class="l">T0 地基 → T6 部署</div></div>
+    <div class="kpi"><div class="n">2<em> 组并行</em></div><div class="l">T1∥T2 · T3∥T4（文件集已证不相交）</div></div>
+    <div class="kpi"><div class="n">1<em> 个新状态</em></div><div class="l">surveyed（已勘测）</div></div>
+    <div class="kpi"><div class="n">11<em> 列</em></div><div class="l">纯追加迁移，Nick 的行不受影响</div></div>
+    <div class="kpi hl"><div class="n">10<em> 处</em></div><div class="l">UTC 时间文本全部改 Calgary</div></div>
+    <div class="kpi"><div class="n">2<em> 次</em></div><div class="l">Fable 顾问核签（中期 + 完工）</div></div>
   </div>
 </section>
 
-<!-- ================= FLOW ================= -->
+<!-- FLOW -->
 <section id="flow">
   <div class="sec-k">Flow</div>
   <h2>现状 vs 做完之后</h2>
-  <div class="sec-d">图例：<span class="legend"><span>方框 = 模块</span><span><i style="color:var(--green)">绿</i> = 本次新增</span><span><i style="color:var(--red)">红竖条</i> = 安全闸口</span><span>蓝粗框 = 唯一发送出口</span></span></div>
+  <div class="sec-d">后台视角的鸟网订单一生。黄色竖条 = 唯一会通知客户的动作；红框 = 现在的 bug；绿框 = 本次新增；蓝粗框 = 本次重写的核心。</div>
+  <div class="legend">
+    <span><i class="l-new"></i>NEW 新增</span><span><i class="l-thick"></i>本次重写</span><span><i class="l-dash"></i>接缝 / 边界</span><span><i class="l-risk"></i>现有 bug</span><span style="color:var(--amber)">▌ 通知客户</span>
+  </div>
   <div class="flowwrap">
-    <div class="flowlabel before">Before — 没人盯着</div>
+    <div class="flowlabel before">Before — 现状（Nick 正在经历的）</div>
     <div class="flow before-row">
-      <div class="node"><b>订单推进</b><small>报价 / 签字 / 付款…</small></div>
+      <div class="node"><b>客户预约勘测</b><small>短信时间印 "14:00 UTC"</small></div>
       <div class="arrow">→</div>
-      <div class="node risk"><b>卡住</b><small>没人发现</small></div>
+      <div class="node risk"><b>约勘测</b><small>改时间 → 报 400</small></div>
       <div class="arrow">→</div>
-      <div class="node risk"><b>28 天后</b><small>人工排查才撞见<br>（Raju 真实案例）</small></div>
+      <div class="node risk"><b>录卷数/窝数</b><small>没有实测记录<br>一存即通知客户</small></div>
+      <div class="gatebar"><i>立即通知</i></div>
+      <div class="node risk"><b>已报价</b><small>无 GST · 状态下拉可直接跳到这里</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>签字</b><small>定金 30% × 税前</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>排安装 → 完工</b><small>尾款 70% 税前</small></div>
     </div>
     <hr class="divider">
-    <div class="flowlabel after">After — 每天自动巡一遍</div>
+    <div class="flowlabel after">After — 阶段引导式（后台页只显示当前一步的操作卡）</div>
     <div class="flow">
-      <div class="node new"><b>VPS cron</b><small>每天 10:00 Calgary<br>双条目扛夏/冬令时</small></div>
-      <div class="gatebar"><i>闸 · 共享密钥</i></div>
-      <div class="node new"><b>扫描</b><small>四条线全部未完结单<br>距最后状态变更天数</small></div>
+      <div class="node"><b>① 约勘测</b><small>可改期（修 400）<br>时间 Fri, Oct 9, 8:00 AM MDT</small></div>
       <div class="arrow">→</div>
-      <div class="node new"><b>分流</b><small>球在客户 / 球在我们<br>/ 不处理（查表）</small></div>
+      <div class="node new"><b>录勘测结果</b><small>周长/鸟窝/备注/无人机照片<br>建议卷数 = ⌈周长÷100⌉</small></div>
       <div class="arrow">→</div>
-      <div class="node new"><b>判定</b><small>≥14/28/42 天？<br>今天催过没？满 3 次没？</small></div>
-      <div class="gatebar"><i>闸 · 催单重定向</i></div>
-      <div class="node deep new"><b>唯一发送出口</b><small>短信→客户(试运行→你)<br>摘要邮件→你</small></div>
+      <div class="node new"><b>② 已勘测</b><small>客户只看到"正在准备报价"<br>金额完全不可见</small></div>
       <div class="arrow">→</div>
-      <div class="node"><b>notifications 表</b><small>每条催单落账<br>计数/幂等都从这查</small></div>
+      <div class="node new thick"><b>报价草稿</b><small>反复改 · 改卷数必填原因<br>小计 + GST 5% + 总计<br>预览客户页（带横幅）</small></div>
+      <div class="gatebar"><i>发送报价 · 二次确认</i></div>
+      <div class="node thick"><b>③ 已报价</b><small>写明收件邮箱+电话<br>可撤回成草稿</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>④ 签字</b><small>定金 = 含税 × 30%</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>⑤ 排安装 → ⑥ 完工</b><small>尾款 = 含税 − 定金<br>两张发票相加 = 签字总价</small></div>
     </div>
   </div>
-  <div class="callout c-info"><span class="ic">ⓘ</span>
-    <span><b>「停滞」的时钟从哪来：</b>EV 用现有的状态历史表；服务单和清洁订阅没有历史表——本次给它们各加一列
-    <code>status_changed_at</code>，只在真正推进（改状态 / 定价 / 改支付）时走动，后台随手编辑不会重置。
-    这是比「建整套历史表」便宜一个数量级、又完全满足需求的做法。</span>
+  <div class="callout c-info"><span class="ic">ⓘ</span><span><b>只有"发送报价"会通知客户。</b>录勘测结果、保存草稿、预览、撤回草稿——一条消息都不发。后台页面上这句话会直接印在按钮下面。</span></div>
+
+  <div class="flowwrap" style="margin-top:18px">
+    <div class="flowlabel after">通知的出口 — 全局重定向放在"记录层"（一个咽喉点，四条线 + 催单全走它）</div>
+    <div class="flow">
+      <div class="node"><b>业务代码</b><small>EV / 诊断 / 鸟网 / 清洁 / 催单</small></div>
+      <div class="arrow">→</div>
+      <div class="node dash"><b>fmt_calgary()</b><small>所有对客时间<br>America/Edmonton</small></div>
+      <div class="arrow">→</div>
+      <div class="node new thick"><b>_apply_redirect()</b><small>NOTIFY_REDIRECT=on 时<br>收件人 → Kuo，正文标原收件人</small></div>
+      <div class="arrow">→</div>
+      <div class="node dash"><b>Notification 行</b><small>记录<b>实际</b>收件人（审计真实）</small></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>SMTP / Twilio</b><small>本地：全到 Kuo<br>生产：默认直达客户</small></div>
+    </div>
   </div>
 </section>
 
-<!-- ================= PLAN ================= -->
+<!-- PLAN -->
 <section id="plan">
-  <div class="sec-k">Design</div>
-  <h2>方案与四道保险</h2>
-  <div class="sec-d">YAGNI 台阶停在第 5–6 级：发送、模板、落表、鉴权全部复用现有代码，只新写「扫描-分流-判定」一个模块 + 一个端点 + 一列时间戳。</div>
+  <div class="sec-k">Solution</div>
+  <h2>方案与取舍（YAGNI 台阶：每件事都停在最便宜的那一级）</h2>
+  <div class="sec-d">一句话问题 → 一句话方案 → 被否掉的更便宜做法及原因。</div>
   <div class="grid">
-    <div class="card"><h3><span class="tag t-new">保险 1</span>重定向默认开，关闭要打暗号</h3>
-      <p>只有把环境变量精确设成 <code>NUDGE_REDIRECT=off</code> 才会真发客户；没设、设错、设成 "false"/"0"——统统仍然发给你。配置缺失永远落在安全侧。</p></div>
-    <div class="card"><h3><span class="tag t-new">保险 2</span>发送只有一个出口</h3>
-      <p>重定向不是发送前的一个 if——扫描和分流代码根本拿不到发送函数；全部消息必须经过唯一的投递函数，它的第一步就是重定向解析，没有任何绕过参数。</p></div>
-    <div class="card"><h3><span class="tag t-new">保险 3</span>没配密钥 = 整个功能关着</h3>
-      <p>cron 端点必须带共享密钥（存 .env，不进代码）；密钥没配置时端点直接拒绝，什么都不会发。</p></div>
-    <div class="card"><h3><span class="tag t-new">保险 4</span>幂等 + 计数全靠现有账本</h3>
-      <p>每条催单写进 notifications 表；同一天重复触发自动跳过；「催过几次」直接从表里数，订单一推进计数自动归零。不新建任何计数字段。</p></div>
-  </div>
-  <div class="callout c-ok"><span class="ic">✓</span>
-    <span><b>更便宜的路都试过并否掉了：</b>建状态历史表（成本高、没人消费）；用 updated_at 当时钟（SPEC 已否，随手编辑会重置）；
-    引入 Celery/APScheduler（SPEC 已否，一个每日任务不值一个常驻进程）；手动触发按钮/逐单开关（Out of Scope）。详见 DESIGN.md §4。</span>
-  </div>
-  <div class="callout c-info"><span class="ic">ⓘ</span>
-    <span><b>UI 契约：</b>本次无界面改动，无冻结 mockup，无可行性折中需报。</span>
+    <div class="card"><h3><span class="tag t-fix">FIX</span>时区</h3><p>方案：一个 15 行纯函数 <code>fmt_calgary</code>，替换全部 10 处 UTC 文本；两端网页用浏览器 Intl 指定 Calgary 时区。</p><ul class="wins"><li>否掉"给容器设 TZ"：一行就能修，但隐式、本机测不到、谁删了都没人发现</li></ul></div>
+    <div class="card"><h3><span class="tag t-new">NEW</span>GST 与定金</h3><p>方案：<code>money.py</code> 纯函数（Decimal、四舍五入到分、定金 30% 快照、尾款 = 总额 − 定金 精确互补）。历史报价不补税，诚实记为 0 税。</p><ul class="wins"><li>否掉复用 EV 的算总价函数：它绑死 EV 字段，动它就碰了 EV 线（禁区）</li><li>否掉"只算不存定金"：以后改 30% 会让旧单尾款变——钱是红线</li></ul></div>
+    <div class="card"><h3><span class="tag t-new">NEW</span>勘测结果</h3><p>方案：在 <code>service_bookings</code> 加 5 列（沿用"诊断专用列块"先例）；照片沿用现有上传接口，URL 存 JSON。</p><ul class="wins"><li>否掉新建一张表：1 对 1、4 个字段，删掉它复杂度只是搬回调用方——穿透模块</li></ul></div>
+    <div class="card"><h3><span class="tag t-new">NEW</span>报价草稿 / 发送</h3><p>方案：报价表加 <code>sent_at</code>（空 = 草稿）；订单状态仍是唯一的"阶段真相"。公开接口只在 sent_at 非空时暴露任何金额。</p><ul class="wins"><li>否掉给报价状态枚举加 draft/sent：第二次不可回滚枚举扩容，还多出一处真相会打架</li></ul></div>
+    <div class="card"><h3><span class="tag t-new">NEW</span>预览客户页</h3><p>方案：后台生成 30 分钟有效的签名令牌，拼在客户页 URL 后 <code>?preview=</code>；客户页看到令牌显示"Preview — not sent"横幅并禁用签字。签字接口永远不认这个令牌。</p><ul class="wins"><li>否掉在后台复制一份客户页：两个前端工程不共享组件，复制必漂移；契约要求"就是那一页"</li></ul></div>
+    <div class="card"><h3><span class="tag t-up">升级</span>后台详情页</h3><p>方案：鸟网专用 <code>BirdBookingDetail</code>（顶部 6 步进度条 + 当前步操作卡 + 已完成阶段只读）；去掉自由状态下拉，只留"取消订单"；后端同步把通用状态接口对鸟网锁死为只能"完工/取消"。</p><ul class="wins"><li>否掉只改前端：API 仍能无报价跳到"已报价"——信任边界红线</li></ul></div>
+    <div class="card"><h3><span class="tag t-new">NEW</span>全局通知重定向</h3><p>方案：<code>NOTIFY_REDIRECT</code>，在 4 个通知记录函数首行各调一次同一个 helper；本地 compose 写死 on（.env 改不掉），生产默认 off。复用催单重定向的两个目标（都是你）。</p><ul class="wins"><li>否掉放在最底层发送函数（只改 2 处）：通知记录会写成"发给了客户"而实际发给了你——审计撒谎</li></ul></div>
+    <div class="card"><h3><span class="tag t-up">升级</span>生产镜像 + 部署</h3><p>方案：复用现有 <code>db-backup.ps1 / db-restore.ps1</code> + 经 ssh alias 的 pg_dump 覆盖本地库；本地先备份；镜像后第一件事验证重定向为 on。部署走三端同步铁律，迁移前先全量备份生产库。</p><ul class="wins"><li>枚举扩容不可回滚——备份是唯一安全网，写进了 runbook</li></ul></div>
   </div>
 </section>
 
-<!-- ================= ROUTE ================= -->
-<section id="route">
-  <div class="sec-k">Routing</div>
-  <h2>分流口径（SPEC 决策 4 原样代码化）</h2>
-  <div class="sec-d">每个状态都在表里有且只有一格；测试会穷举全部状态断言无遗漏。短信文案纯英文、不含金额，只说下一步动作 + 链接。</div>
+<!-- MONEY -->
+<section id="money">
+  <div class="sec-k">Money</div>
+  <h2>钱怎么算（契约里的那张单，逐项核对）</h2>
+  <div class="sec-d">3 卷 × $599 + 1 窝 × $99。全部两位小数、显式四舍五入（0.5 进位）；两张发票相加必须等于客户签字的总价。</div>
+  <div class="money">
+    <div>小计<b>$1,896.00</b></div>
+    <div>GST 5%<b>$94.80</b></div>
+    <div>总计（含税）<b>$1,990.80</b></div>
+    <div>定金 30%（签字时）<b>$597.24</b></div>
+    <div>尾款（完工时）<b>$1,393.56</b></div>
+    <div>定金 + 尾款<b>$1,990.80 ✓</b></div>
+  </div>
+  <div class="callout c-ok"><span class="ic">✓</span><span>诊断（$179/h × 实际小时）和清洁（套餐年费）同样加 5% GST，发票显示 小计 / GST / 总计；客户端介绍页价格旁标 "Prices before GST (5%)"。EV 线金额逻辑一行不动。这些数字会写成断言级测试（<code>backend/tests/test_money.py</code>），改错一分钱就红。</span></div>
+</section>
+
+<!-- UI -->
+<section id="ui">
+  <div class="sec-k">UI Contract</div>
+  <h2>UI 契约</h2>
+  <div class="sec-d">冻结稿：<code>design/mockups/v1.html</code>（2026-10-05）。实现 1:1，不改结构、不改样式。</div>
   <table>
-    <tr><th>业务线</th><th>球在客户 → 短信催客户</th><th>球在我们 → 摘要邮件给你</th><th>不处理</th></tr>
-    <tr><td>EV</td><td>等约勘察 · 等签字 · 等约安装 · 等付尾款</td><td>勘察完没出报价 · 报价做一半 · 签了没申 permit · permit 卡着</td><td>已有预约等日子 · 三个终态</td></tr>
-    <tr><td>诊断</td><td>等客户确认时间</td><td>—</td><td>已排期 · 进行中 · 终态</td></tr>
-    <tr><td>鸟网</td><td>等客户签字</td><td>勘察完没录报价</td><td>已签待排期(见拍板项1) · 已排期 · 终态</td></tr>
-    <tr><td>清洁</td><td>已报价未付款</td><td>等我们定价</td><td>已付款 · 已退款</td></tr>
+    <tr><th>页面</th><th>契约承诺</th><th>可行性</th></tr>
+    <tr><td>后台详情页</td><td>6 步进度条 + 只显示当前步的操作卡 + 发送确认对话框（写明邮箱/电话/总价）</td><td><span class="pill p-ok">原样可做</span></td></tr>
+    <tr><td>预览客户页</td><td>"Preview customer page" 打开<b>就是</b>客户报价页，带横幅、签字禁用</td><td><span class="pill p-ok">签名令牌方案，原样可做</span></td></tr>
+    <tr><td>客户进度页</td><td>6 态文案，草稿阶段看不到任何金额；④ 显示收款邮箱 bruce@khtain.com</td><td><span class="pill p-ok">原样可做</span></td></tr>
+    <tr><td>客户报价页</td><td>"What we measured" + 照片横条 + 含 GST 明细 + 定金/尾款框</td><td><span class="pill p-ok">原样可做</span></td></tr>
+    <tr><td>通知样例</td><td>时间写法 <code>Fri, Oct 9 · 8:00 AM MDT</code>（中间是"·"）</td><td><span class="pill p-warn">短信双倍计费 — 见拍板 #1</span></td></tr>
   </table>
-  <div class="callout c-warn"><span class="ic">⚠</span>
-    <span><b>每日摘要邮件（发 cool@khtain.com）三节：</b>① 今日已催了谁（标注本该发给谁）② 球在我们的停滞单
-    ③ 催满 3 次仍不动的「待人工跟进」单。三节全空就不发——不制造噪音。</span>
-  </div>
+  <div class="callout c-info"><span class="ic">ⓘ</span><span>可访问性按 ui-ux-pro-max 清单落实：对话框焦点进出、Esc 关闭、进度条 <code>aria-current</code>、每个输入有 label、按钮 ≥ 44px、照片有 alt、尊重减少动效设置。契约样式本身已满足，不额外改样。</span></div>
 </section>
 
-<!-- ================= TICKETS ================= -->
+<!-- TICKETS -->
 <section id="tickets">
   <div class="sec-k">Execution</div>
   <h2>分几步、谁来做</h2>
-  <div class="sec-d">3 张票全串行（文件互不相交但接口环环相扣，不值得冒并行风险）。reviewer=Sonnet 出步骤单 → implementer=Sonnet 逐票实现 → tester=Haiku 验收；CRITICAL 级含 2 次 Fable 顾问检查（T2 后中期审查 + 完工核签）。</div>
-  <table>
-    <tr><th>票</th><th>交付什么</th><th>规模</th><th>依赖</th></tr>
-    <tr><td>T1 地基</td><td>停滞时钟：数据库加两列 + 9 个状态变更点维护它 + 配置项 + 演示数据回填。单独上线零行为变化。</td><td><span class="pill p-info">小</span></td><td>—</td></tr>
-    <tr><td>T2 催单引擎</td><td>扫描/分流/判定/唯一发送出口/摘要邮件 + 两个消息模板入库 + 全部测试（含红线测试：默认配置下收件人永远是你）。</td><td><span class="pill p-warn">中</span></td><td>T1</td></tr>
-    <tr><td>T3 端点+调度</td><td>带密钥的触发端点 + VPS 装两条 cron（16:00/17:00 UTC 双保险扛夏冬令时，幂等自动空转一条）。</td><td><span class="pill p-info">小</span></td><td>T2</td></tr>
-  </table>
-  <div class="callout c-ok"><span class="ic">✓</span>
-    <span><b>验收方法（tester + 你）：</b>本地种 Mock 数据 → 触发端点 → 库里可见催单行、收件人全是 +1587…、正文带
-    <code>[→ Mock-xxx]</code>；同日再触发全部跳过。上线后手动打一次，你的手机/邮箱实收试运行消息；
-    约 8 月 10 日起 Raju 的真实单（installed·等尾款）会出现在重定向消息里——最好的真实校验样本，且绝不会真发给他。</span>
+  <div class="sec-d">稳妥第一：只有文件集证明不相交、接口已在 DESIGN.md 钉死的两张票才并行。</div>
+  <div class="tickets">
+    <div class="ticket"><div class="id">T0</div><div><b class="t">地基</b><span class="ser">串行 · 最先</span><div class="d">迁移（新状态 + 11 列 + 回填）、金额/时间纯函数及其测试、配置项、4 份 compose 注入 NOTIFY_REDIRECT</div></div><div class="who">implementer (Opus)</div></div>
+    <div class="ticket"><div class="id">T1</div><div><b class="t">鸟网后端 + 三线 GST</b><span class="par">并行 ∥ T2</span><div class="d">勘测结果 / 草稿 / 发送 / 撤回 4 个新动作，通用状态接口锁死，草稿不外泄，删旧"一存即通知"接口，催单识别 surveyed，mock 种子更新，端到端 API 测试</div></div><div class="who">implementer (Opus)</div></div>
+    <div class="ticket"><div class="id">T2</div><div><b class="t">全局重定向 + 全线 Calgary 时间</b><span class="par">并行 ∥ T1</span><div class="d">通知记录层 helper + EV 线 6 处时间文本 + 发票日期；重定向测试</div></div><div class="who">implementer (Opus)</div></div>
+    <div class="ticket"><div class="id">T3</div><div><b class="t">后台阶段页</b><span class="par">并行 ∥ T4</span><div class="d">BirdBookingDetail + 8 个卡片组件；用 6 条 Mock- 订单逐阶段真实点一遍</div></div><div class="who">implementer (Opus) + ui-ux-pro-max</div></div>
+    <div class="ticket"><div class="id">T4</div><div><b class="t">客户端 3 页 + i18n</b><span class="par">并行 ∥ T3</span><div class="d">预约页文案、6 态进度页、报价页（含预览横幅）；en/zh 成对</div></div><div class="who">implementer (Opus) + ui-ux-pro-max</div></div>
+    <div class="ticket"><div class="id">T5</div><div><b class="t">生产库镜像到本地 + 真实验证</b><span class="ser">串行</span><div class="d">本地先备份 → pg_dump 生产 → 覆盖 → 验证重定向 = on 才继续 → 在 SVC-2026-0001 镜像上走完 6 阶段，所有消息到你</div></div><div class="who">tester (Haiku) + Kuo 看一眼</div></div>
+    <div class="ticket"><div class="id">T6</div><div><b class="t">部署生产</b><span class="ser">串行 · 核签后</span><div class="d">push GitHub（需你自己终端）→ VPS 备份库 → reset → 重建 → 核对迁移版本 → 只读核对 Nick 的单</div></div><div class="who">Kuo + implementer</div></div>
+  </div>
+  <div class="roster" style="margin-top:14px">
+    <div class="chip"><b>Fable 5</b> 设计 <em>· 本页</em></div>
+    <div class="chip"><b>Sonnet</b> 设计审核 + 出票</div>
+    <div class="chip"><b>Opus</b> 实现 <em>· 并行 ×2</em></div>
+    <div class="chip"><b>Haiku</b> 测试 <em>· 真实浏览器逐阶段</em></div>
+    <div class="chip"><b>Fable</b> 顾问 <em>· T1+T2 后中期审查 · T6 前完工核签</em></div>
   </div>
 </section>
 
-<!-- ================= RISK ================= -->
+<!-- RISK -->
 <section id="risk">
-  <div class="sec-k">Risk & Red Lines</div>
+  <div class="sec-k">Risk &amp; Red Lines</div>
   <h2>代价与风险</h2>
   <table>
-    <tr><th>事项</th><th>说明</th><th>等级</th></tr>
-    <tr><td>误发真实客户</td><td>四道保险叠加（重定向默认开 + 唯一出口 + 缺密钥即停 + 红线测试）；且演示数据的联系方式本身不可送达。</td><td><span class="pill p-ok">已封死</span></td></tr>
-    <tr><td>隐私进日志</td><td>催单文案不含金额；日志只写单号/模板/状态；真实联系方式只出现在发给你的邮件正文里。</td><td><span class="pill p-ok">已封死</span></td></tr>
-    <tr><td>发送失败</td><td>沿用现有机制记 failed 行 + 错误信息，端点返回失败计数；当天不重试防打爆，次日自动补。</td><td><span class="pill p-ok">可观测</span></td></tr>
-    <tr><td>时钟回填偏差</td><td>存量服务单的时钟用 updated_at 一次性回填——只会把首次催单推迟几天，绝不会提前误催。</td><td><span class="pill p-info">方向安全</span></td></tr>
-    <tr><td>试运行消耗催单次数</td><td>重定向期间发给你的催单也计入 3 次封顶（照 SPEC 字面执行）；关重定向时想让真实客户从第 1 次催起，runbook 里有一条清理 SQL，由你决定跑不跑。</td><td><span class="pill p-warn">注意</span></td></tr>
-    <tr><td>Raju 的单</td><td>本功能只读它；唯一可能的写入是催满 3 次时按 SPEC 加一条内部备注（规定行为，非手改业务数据）。</td><td><span class="pill p-info">合规</span></td></tr>
+    <tr><th>事项</th><th>说明 / 如何守住</th><th>等级</th></tr>
+    <tr><td>真实客户 Nick</td><td>全程不发任何消息：本地重定向写死 on 并在镜像后第一步验证；生产部署后只做只读核对；实际时间由你亲自告知（SPEC 决策 9）。旧的"一存即通知"接口直接删除。</td><td><span class="pill p-risk">红线</span></td></tr>
+    <tr><td>草稿价格外泄</td><td>公开接口唯一规则：报价未发送 = 不存在。勘测数字和照片也只随已发送报价一起出现。有端到端测试。</td><td><span class="pill p-risk">红线</span></td></tr>
+    <tr><td>金额</td><td>纯函数 + 断言级测试；舍入显式；定金快照；两张发票相加 = 签字总价由 HTTP 用例核。</td><td><span class="pill p-risk">红线</span></td></tr>
+    <tr><td>枚举扩容不可回滚</td><td>Postgres 加枚举值无法撤销——本地、生产迁移前都先 pg_dump。迁移可重跑（IF NOT EXISTS）。</td><td><span class="pill p-warn">注意</span></td></tr>
+    <tr><td>生产默认不重定向</td><td>偏离项目红线 1 的"新发信功能默认重定向"，这是你在 SPEC 决策 7 明确拍的板：真实客户必须收到自己的报价，靠发送确认对话框防误发。</td><td><span class="pill p-warn">已拍板</span></td></tr>
+    <tr><td>通知模板文案不自动更新</td><td>系统启动只"补缺不覆盖"：生产已有的 bird_quote_ready 模板数字正确但缺 "(incl. GST)" 字样。部署后在 Settings 重置这三条模板即可（写进 T6 清单）。</td><td><span class="pill p-info">小</span></td></tr>
+    <tr><td>compose 白名单坑</td><td>新变量必须写进全部 4 份 compose，否则进不了容器（上次催单就踩过）。T0 验收含 <code>docker compose config</code> 核对。</td><td><span class="pill p-info">已知</span></td></tr>
+    <tr><td>push GitHub</td><td>AI 执行环境够不到 GitHub，T6 的 push 要在你自己的终端跑；绝不绕过 GitHub 直传 VPS（会领先 origin 被下次部署冲掉）。</td><td><span class="pill p-info">流程</span></td></tr>
   </table>
 </section>
 
-<!-- ================= ASK ================= -->
+<!-- ASK -->
 <section id="ask">
-  <div class="sec-k">Your Call</div>
-  <h2>需要你拍板的 4 件小事</h2>
-  <div class="sec-d">都是 SPEC 没盖到的边角，不是复议已定决策；每件已给默认值，不批复就按默认执行。</div>
-  <details open>
-    <summary>1 · 鸟网「已签待付 30% 定金」要不要也催？</summary>
-    <div class="body">SPEC 分流表漏了这个状态。默认：<b>本次不催</b>（未列出=不处理）。若要催（等定金=球在客户，跟 EV 等尾款同理），只是分流表加一行，说一声即可。</div>
-  </details>
-  <details>
-    <summary>2 · 「球在我们」的单要不要也限 3 次？</summary>
-    <div class="body">默认：<b>不限</b>——3 次封顶只保护客户不被骚扰；发给你的摘要邮件里，球在我们的停滞单每天列出直到推进，比只出现 3 次更不容易漏。</div>
-  </details>
-  <details>
-    <summary>3 · 服务单/清洁订阅的「待人工跟进」写不写备注？</summary>
-    <div class="body">默认：<b>EV 写</b>（案件已有备注功能，后台能看到）；<b>服务线不写</b>——它们没有备注设施，建表又没有界面能看等于写给没人看的数据，只靠摘要邮件专节呈现。</div>
-  </details>
-  <details>
-    <summary>4 · 关闭重定向时的「从头催」清理 SQL 收进 runbook？</summary>
-    <div class="body">默认：<b>收录</b>。关闭重定向那天由你决定要不要执行（执行=真实客户从第 1 次催起；不执行=接着试运行的次数往下数）。</div>
-  </details>
+  <div class="sec-k">Decisions Needed</div>
+  <h2>需要你拍板</h2>
+  <div class="callout c-warn"><span class="ic">1</span><span><b>短信时间的分隔符（价格/性能折中）。</b>契约样例写 <code>Fri, Oct 9 · 8:00 AM MDT</code>，中间的"·"不在短信基础字符集里，Twilio 会把整条短信按 70 字符/段计费（而不是 160），现有短信会从 1 段变 2 段——<b>每条短信费用翻倍</b>。<br><b>原样实现要：</b>接受短信双倍计费。<b>简化只要：</b>短信/邮件用逗号 <code>Fri, Oct 9, 8:00 AM MDT</code>（本设计默认），网页仍用"·"。请选一个。</span></div>
+  <div class="callout c-info"><span class="ic">2</span><span>预览链接有效期 <b>30 分钟</b>够吗？（后台页每次刷新都会重新生成，过期只需再点一次 Preview。）</span></div>
+  <div class="callout c-info"><span class="ic">3</span><span>鸟网"改勘测时间"复用现有"Appointment confirmed for …"那封信，不另造第二封"勘测已改期"——可接受？</span></div>
+  <div class="callout c-info"><span class="ic">4</span><span>镜像生产库时要不要顺便同步 <code>uploads/</code>（客户自传照片、品牌 logo）？不同步不影响本次验证，只是镜像单的旧照片本地会 404。</span></div>
+  <div class="callout c-info"><span class="ic">5</span><span>历史报价（现有 Mock 单）的"发送时间"回填为创建时间（旧代码保存即发送，语义等价）——确认。</span></div>
 </section>
 
-<!-- ================= APPROVE ================= -->
+<!-- APPROVE -->
 <section id="approve">
   <div class="sec-k">Approval</div>
   <h2>批准方式</h2>
-  <div class="callout c-info"><span class="ic">ⓘ</span>
-    <span>回复「<b>批准</b>」进入实现（4 件拍板项按默认值执行）；要改哪里直接说，改完重出本页。机器可读全文在项目根 <code>DESIGN.md</code>，关键决策已落 ADR-009 ~ 012。</span>
-  </div>
+  <div class="callout c-ok"><span class="ic">✓</span><span>回复"<b>批准</b>"进入 reviewer → implementer；要改哪里直接说（比如"#1 用逗号"）。机器可读的完整设计在 <code>DESIGN.md</code>，本页只是它的渲染，没有多一个决定。</span></div>
+  <details>
+    <summary>状态三态说明（本页所有内容的准确性）</summary>
+    <div class="body">本页全部内容属于「建议后续执行」——没有任何一行代码已写。"现状"一节的每个 bug 都在源码里逐行核对过（文件与行号在 DESIGN.md §2），金额示例是手算并将由测试固定，不是估计值。</div>
+  </details>
 </section>
 
 <footer>
-  <span>Khtain Internal · FFT evquote</span>
-  <span>14 天无动作自动催单 · 设计汇报</span>
-  <span>创建 2026-07-28 · architect = Fable 5</span>
-  <span>状态：<span class="st">等待闸 2 批准</span></span>
+  <span>Khtain Internal · fft-evquote-helper</span>
+  <span>设计汇报 · 鸟网流程重整</span>
+  <span>创建 2026-10-05 · Architect: Fable 5</span>
+  <span>状态：<span style="color:var(--amber);font-weight:700">Awaiting approval</span></span>
 </footer>
 
-</div>
-</main>
+</div></main>
 
 <button id="top-btn" title="返回顶部" onclick="scrollTo({top:0,behavior:'smooth'})">↑</button>
-
 <script>
 (function(){
   var links=[].slice.call(document.querySelectorAll('#toc a'));
   var secs=links.map(function(a){return document.querySelector(a.getAttribute('href'))});
-  var io=new IntersectionObserver(function(es){
-    es.forEach(function(e){
-      if(e.isIntersecting){
-        links.forEach(function(a){a.classList.remove('on')});
-        var i=secs.indexOf(e.target);
-        if(i>-1)links[i].classList.add('on');
-      }
-    });
-  },{rootMargin:'-30% 0px -60% 0px'});
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){links.forEach(function(a){a.classList.remove('on')});var i=secs.indexOf(e.target);if(i>-1)links[i].classList.add('on');}})},{rootMargin:'-30% 0px -60% 0px'});
   secs.forEach(function(s){if(s)io.observe(s)});
 })();
-var tb=document.getElementById('top-btn');
-addEventListener('scroll',function(){tb.style.display=scrollY>600?'block':'none'});
+var tb=document.getElementById('top-btn');addEventListener('scroll',function(){tb.style.display=scrollY>600?'block':'none'});
 </script>
 </body>
 </html>

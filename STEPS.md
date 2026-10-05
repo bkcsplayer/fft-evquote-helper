@@ -1,857 +1,505 @@
-# STEPS: 14 天无动作自动催单（stalled-order nudges）
+# STEPS: 鸟网服务线流程与 UX 重整（+ 全线 Calgary 时区 / GST 统一 / 全局通知重定向）
 
-> Task tier: **CRITICAL** · Skill Manifest (copied verbatim from DESIGN.md §0 — implementer/tester
-> may invoke ONLY these skills):
-> - MANDATORY-INFRA: `cmm`, `codebase-memory`, `ponytail-review`
-> - DEV-CONDITIONAL: `ecc:python-patterns`, `ecc:python-testing`, `ecc:postgres-patterns`,
->   `ecc:database-migrations`, `ecc:docker-patterns`, `ecc:deployment-patterns`
-> - 无 UI 工作，不含 `ui-ux-pro-max`。
->
-> UI contract: none（纯后端 + cron，无前端改动）。
-> NO-ADVISOR ZONE: executing these approved steps never triggers an advisor consult (economy
-> policy F), except the stuck-escalation condition (policy D). DESIGN.md §0 planned 2 consults:
-> one after T2 (redirect single-exit + counting judgement), one at completion sign-off.
->
-> 术语见 `CONTEXT.md`：停滞 / 催单 / 球在客户 / 球在我们 / 催单重定向 / 待人工跟进。
-> 全部三张票**串行**（DESIGN §5 已声明，复审确认不降级为并行）。
-> 所有命令假设本地开发栈已起：`docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`，
-> backend 容器名记作 `<backend>`（`docker ps` 查真实名，通常 `fft-evquote-helper-backend-1`）。
+> Task tier: **CRITICAL** · Skill Manifest (copied verbatim from DESIGN.md §0 — implementer/tester may invoke ONLY these skills):
+> `cmm`, `codebase-memory`, `ponytail-review`, `ui-ux-pro-max`（唯一 UI 权威）, Python/FastAPI, TypeScript/React（本项目是 JSX+Vite，按 React 规则）, Postgres, Docker, deployment
+> UI contract: `design/mockups/v1.html` (frozen 2026-10-05; reproduce 1:1 — only copy / spacing / colour tweaks are whitelisted, structural changes need a re-freeze)
+> NO-ADVISOR ZONE: executing these approved steps never triggers an advisor consult (economy policy F), except the stuck-escalation condition (policy D). The 2 planned consults (DESIGN §0) are run by the **orchestrator** at the ⟦GATE⟧ lines, not by the implementer.
+> Vocabulary: CONTEXT.md (勘测结果 / 已勘测 surveyed / 建议卷数 / 报价草稿 / 发送报价).
+> **Where this file and DESIGN.md differ, THIS FILE WINS** — the differences are DESIGN.md `## Review` R1–R14.
+> **Order (all serial): T0 → T2 → T1 → ⟦GATE 1⟧ → T3 → T4 → T5 → ⟦GATE 2⟧ → T6.** The implementer never commits; T6 commits.
 
----
+## Conventions
+- Repo root `F:\claude-vs-projects\fft-evquote-helper`, PowerShell, one command at a time. Notation used below:
+  `DC` = `docker compose -f docker-compose.yml -f docker-compose.dev.yml` · `PY` = `DC exec -T backend python` · `ALEMBIC` = `DC exec -T backend alembic` · `TC` = `docker compose -f docker-compose.test.yml --env-file .env` (builds images — takes minutes)
+- Dev stack must be up (`DC up -d --build`); `./backend` is bind-mounted at `/app` (edits are live, uvicorn `--reload`).
+- Pure-Python tests have **no pytest import** (the backend image has no pytest): plain `assert`, `test_*` functions, runner at the bottom exactly like `backend/tests/test_nudge_service.py` (`if __name__ == "__main__":` loop printing `All {n} <name> tests passed.`). Run as `PY -m tests.<module>`. Expected values are literals from the spec, never recomputed with the code under test.
+- Quoting: `python -c` → PowerShell double quotes outside, **only single quotes inside**. Anything longer → here-string piped in: `@'...'@ | DC exec -T backend python -` (use `@"..."@` only when a PowerShell variable must be interpolated, and then keep `$` out of the Python text). **Here-strings are shown indented inside Markdown code blocks; type them dedented** — the Python/JS at column 0 and the `'@` / `"@` terminator at the very start of its line (an indented terminator or indented top-level Python both fail).
+- NEVER print raw `docker compose config` (it expands real `.env` secrets) — always `| Select-String <pattern>`.
+- The dev container holds REAL Twilio/SMTP credentials. Do not trigger any send-capable flow on the dev stack before T2 Step 2.12 passes.
+- Failure policy: a step whose verify fails → fix and retry once; the same error a second time → follow `~/.claude/pipeline/debugging.md` (hypotheses, no blind edits); never edit a test assertion to make it green.
+- Tags: **[PROD]** touches production · **[KUO]** needs Kuo's own terminal or explicit go-ahead · **[DESTRUCTIVE]** overwrites/deletes data. Never type passwords/keys into commands (ssh uses alias `vultr-vps`).
 
-## Ticket 1 — 停滞时钟落地（地基）  [Blocked by: none] [serial]
-**Files**: `backend/migrations/versions/<new_revision>.py`（新建）、`backend/app/models/models.py`、
-`backend/app/services/service_booking_flow.py`、`backend/app/config.py`、`.env.example`、
-`backend/scripts/mock_data.py`
-
-- [x] **Step 1.1** — 生成迁移骨架 — 运行
-      `docker exec -w /app <backend> alembic revision -m "nudge_status_changed_at"`
-      verify: 命令打印新文件路径，`backend/migrations/versions/` 下出现一个新 `*.py` 文件。
-
-- [x] **Step 1.2** — `backend/migrations/versions/<new_revision>.py` — 把生成的骨架改成：
-      `down_revision = "b1c2d3e4f5a6"`；`upgrade()` 依次执行：
-      1) `op.add_column("service_bookings", sa.Column("status_changed_at", sa.DateTime(timezone=True), nullable=True, server_default=sa.func.now()))`
-      2) 同上对 `cleaning_subscriptions`
-      3) `op.execute("UPDATE service_bookings SET status_changed_at = COALESCE(updated_at, created_at, now())")`
-      4) 同上对 `cleaning_subscriptions`
-      5) `op.alter_column("service_bookings", "status_changed_at", nullable=False)`
-      6) 同上对 `cleaning_subscriptions`
-      **必须用 `COALESCE(updated_at, created_at, now())`，不能只写 `= updated_at`**——这两张表在
-      `b1c2d3e4f5a6` 建表时 `created_at`/`updated_at` 都没标 `nullable=False`，直接赋值遇到 NULL
-      行会导致第 5/6 步 `SET NOT NULL` 失败。`downgrade()` 依次
-      `op.drop_column("service_bookings", "status_changed_at")` 和对 `cleaning_subscriptions` 同样操作。
-      verify: `docker exec -w /app <backend> alembic upgrade head` 退出码 0；
-      `docker exec -w /app <backend> alembic downgrade -1 && alembic upgrade head` 往返无报错。
-
-- [x] **Step 1.3** — `backend/app/models/models.py` — 在 `ServiceBooking` 类的 `updated_at`
-      （继承自 `TimestampMixin`）之后新增一行：
-      `status_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())`；
-      在 `CleaningSubscription` 类同样位置加同一行。
-      verify: `docker exec -w /app <backend> python -c "from app.models.models import ServiceBooking, CleaningSubscription; print(ServiceBooking.status_changed_at, CleaningSubscription.status_changed_at)"` 无报错打印出列对象。
-
-- [x] **Step 1.4** — `backend/app/services/service_booking_flow.py` — 顶部 `from datetime import date, datetime`
-      改成 `from datetime import date, datetime, timezone`；在 `_next_reference` 函数之前新增：
-      ```python
-      def _mark_status_changed(obj) -> None:
-          obj.status_changed_at = datetime.now(timezone.utc)
-      ```
-      verify: `docker exec -w /app <backend> python -c "import app.services.service_booking_flow"` 无报错。
-
-- [x] **Step 1.5** — `admin_schedule_booking` 函数 — `booking.status = new_status` 这一行改为：
-      ```python
-      if booking.status != new_status:
-          _mark_status_changed(booking)
-      booking.status = new_status
-      ```
-      verify: `grep -c "_mark_status_changed(booking)" backend/app/services/service_booking_flow.py` = 1。
-
-- [x] **Step 1.6** — `admin_create_bird_quote` 函数 — `booking.status = ServiceBookingStatus.quoted`
-      改为同 1.5 的 `if/then` 模式（比较值为 `ServiceBookingStatus.quoted`）。
-      verify: 累计命中数为 2。
-
-- [x] **Step 1.7** — `approve_bird_quote` 函数 — `booking.status = ServiceBookingStatus.approved`
-      改为同模式（比较值 `ServiceBookingStatus.approved`）。
-      verify: 累计命中数为 3。
-
-- [x] **Step 1.8** — `admin_update_status` 函数 — `booking.status = new_status` 改为同模式。
-      verify: 累计命中数为 4。
-
-- [x] **Step 1.9** — `cancel_booking` 函数 — `booking.status = ServiceBookingStatus.cancelled`
-      改为同模式。
-      verify: 累计命中数为 5（`grep -c "_mark_status_changed(booking)"` = 5）。
-
-- [x] **Step 1.10** — `admin_set_cleaning_price` 函数 — `sub.pricing_status = CleaningPricingStatus.quoted`
-      改为：
-      ```python
-      if sub.pricing_status != CleaningPricingStatus.quoted:
-          _mark_status_changed(sub)
-      sub.pricing_status = CleaningPricingStatus.quoted
-      ```
-      verify: `grep -c "_mark_status_changed(sub)" backend/app/services/service_booking_flow.py` = 1。
-
-- [x] **Step 1.11** — `admin_set_cleaning_payment` 函数 — `sub.payment_status = payment_status`
-      改为：
-      ```python
-      if sub.payment_status != payment_status:
-          _mark_status_changed(sub)
-      sub.payment_status = payment_status
-      ```
-      verify: `grep -c "_mark_status_changed(sub)" backend/app/services/service_booking_flow.py` = 2。
-      **不要**改 `create_service_booking` / `create_cleaning_subscription`——新建行的
-      `status_changed_at` 由 Step 1.3 的 `server_default=now()` 自动对齐，不需要调用 helper。
-
-- [x] **Step 1.12** — `backend/app/config.py` — 在 `admin_login_block_seconds` 字段之后新增 4 个字段：
-      ```python
-      nudge_run_key: str | None = Field(default=None, validation_alias="NUDGE_RUN_KEY")
-      nudge_redirect: str | None = Field(default=None, validation_alias="NUDGE_REDIRECT")
-      nudge_redirect_sms: str = Field(default="+15879669668", validation_alias="NUDGE_REDIRECT_SMS")
-      nudge_redirect_email: str = Field(default="cool@khtain.com", validation_alias="NUDGE_REDIRECT_EMAIL")
-      ```
-      把 `nudge_run_key` 和 `nudge_redirect` 加进已有的 `_blank_str_to_none`
-      `@field_validator(...)` 装饰器的字段列表里（与 `admin_notify_email` 等同一个校验器，
-      让空字符串环境变量视为未设置）。
-      verify: `docker exec -w /app <backend> python -c "from app.config import get_settings; s=get_settings(); print(s.nudge_run_key, s.nudge_redirect, s.nudge_redirect_sms, s.nudge_redirect_email)"` 打印
-      `None None +15879669668 cool@khtain.com`（未设置任何 env 时）。
-
-- [x] **Step 1.13** — `.env.example` — 新增一段：
-      ```
-      # Stalled-order nudges (see SPEC.md / CONTEXT.md). Missing NUDGE_RUN_KEY disables the endpoint
-      # (returns 503). Missing/blank/anything-other-than-"off" NUDGE_REDIRECT keeps redirect ON —
-      # only the literal value "off" sends nudges to real customers.
-      NUDGE_RUN_KEY=
-      NUDGE_REDIRECT=
-      NUDGE_REDIRECT_SMS=+15879669668
-      NUDGE_REDIRECT_EMAIL=cool@khtain.com
-      ```
-      verify: `grep -c "^NUDGE_" .env.example` = 4。
-
-- [x] **Step 1.14** — `backend/scripts/mock_data.py` — `ServiceBooking(...)` 构造调用（`seed_services`
-      函数内）新增一个关键字参数：
-      ```python
-      status_changed_at=days(-20) if sfx in ("01", "06", "07") else days(offset + 1),
-      ```
-      放在 `updated_at=days(offset + 1),` 之后一行。
-      verify: `grep -n "status_changed_at" backend/scripts/mock_data.py` 命中数 ≥1（本步之后）。
-
-- [x] **Step 1.15** — `backend/scripts/mock_data.py` — `CleaningSubscription(...)` 构造调用（`seed_cleaning`
-      函数内）新增：`status_changed_at=days(-70),`（放在 `updated_at=days(-70),` 之后一行——
-      三个订阅本来就统一用 `-70`，不需要按 idx 区分）。
-      verify: `grep -c "status_changed_at" backend/scripts/mock_data.py` = 2。
-
-- [x] **Step 1.16** — 重新种子并核对 —
-      `docker exec -w /app <backend> python - seed < backend/scripts/mock_data.py`（Windows PowerShell：
-      `Get-Content backend/scripts/mock_data.py | docker exec -i -w /app <backend> python - seed`）。
-      verify:
-      `docker exec <db容器> psql -U ev_charger -d ev_charger_quote -c "select reference_number, status_changed_at from service_bookings where reference_number in ('MOCK-DG-01','MOCK-BN-06','MOCK-BN-07');"`
-      三行 `status_changed_at` 都是 `2026-07-08 00:00:00+00`（TODAY 2026-07-28 减 20 天；该列是
-      `timestamptz`，psql 会打印完整时间戳而不是裸日期，看到这个格式属于验证通过，不是异常）；
-      `select reference_number, status_changed_at from cleaning_subscriptions;` 三行都是
-      `2026-05-19 00:00:00+00`（减 70 天）。
-
-**Ticket 1 Test plan**: 上面 16 步各自的 verify 已覆盖；额外跑一次现有回归防手滑——
-`docker compose -f docker-compose.test.yml --env-file .env up --build --abort-on-container-exit --exit-code-from tests`
-（本票没碰任何被这套测试覆盖的行为，应保持全绿，证明没有误改到 `service_booking_flow.py`
-其它逻辑）。
+| Ticket | Blocked by | Exclusive file set | Mode |
+|---|---|---|---|
+| T0 | — | migration `c7d8e9f0a1b2` (new), `models.py` (columns only), `utils/money.py`, `utils/timefmt.py`, `config.py`, `nudge_service.py` (import only), 4× `docker-compose*.yml`, `.env.example`, `tests/test_money.py`, `tests/test_timefmt.py` | serial, first |
+| T2 | 0 | `notification_service.py`, `admin/case_extras.py`, `booking_flow.py`, `admin/installations.py`, `admin/surveys.py`, `admin/quotes.py`, `tests/test_notify_redirect.py` | serial |
+| T1 | 0, 2 | `models.py` (enum member only), `service_booking_flow.py`, `admin/services.py`, `public/services.py`, `nudge_service.py` (1 row), `bootstrap_service.py` (3 templates), `scripts/mock_data.py`, `tests/test_services_v3.py`, `tests/test_bird_helpers.py`, `docker-compose.test.yml` (1 line) | serial |
+| T3 | 1 | `admin/src/**` (listed in ticket) | serial |
+| T4 | 3 | `frontend/src/**` (listed in ticket) | serial |
+| T5 | 4 | `scripts/mirror-prod-db.ps1` (new) | serial · reads PROD · overwrites LOCAL db |
+| T6 | 5 + GATE 2 | none (git + ssh only) | serial · PRODUCTION |
 
 ---
 
-## Ticket 2 — 催单引擎  [Blocked by: 1] [serial]
-**Files**: `backend/app/services/nudge_service.py`（新建）、`backend/app/services/bootstrap_service.py`、
-`backend/tests/test_nudge_service.py`（新建）
+## Ticket 0 — Foundation (schema, pure helpers, config, compose allow-list)  [Blocked by: none] [serial, first]
+**Files**: see table. Delivers a migrated schema + two pure helper modules + the compose env line, verifiable without touching any flow.
 
-### 模板种子
-
-- [x] **Step 2.1** — `backend/app/services/bootstrap_service.py` — 在 `SERVICE_SMS_TEMPLATES`
-      定义之后新增两个模块级常量：
+- [x] **Step 0.1** — data-loss guard before an irreversible `ALTER TYPE`: run `.\scripts\db-backup.ps1`.
+      verify: `(Get-ChildItem backups\fft-evquote-*.sql | Sort-Object LastWriteTime | Select-Object -Last 1).Length -gt 10000` → `True`. (Local mock DB only — this script re-encodes text through PowerShell; never use it for T5/T6.)
+- [x] **Step 0.2** — precondition. verify: `ALEMBIC current` → output contains `655efc445c97 (head)`. Anything else → STOP and report.
+- [x] **Step 0.3** — `backend/tests/test_money.py` (new; RED first). Nine tests, literal expectations (`from decimal import Decimal as D`; `from app.utils.money import with_gst, deposit_split, suggested_rolls, to_money`):
+      1 `with_gst(D("1896.00")) == (D("1896.00"), D("94.80"), D("1990.80"))` · 2 `deposit_split(D("1990.80")) == (D("597.24"), D("1393.56"))` ·
+      3 HALF_UP not banker's: `with_gst(D("100.10"))[1] == D("5.01")` and `deposit_split(D("628.95")) == (D("188.69"), D("440.26"))` ·
+      4 `with_gst(D("599")) == (D("599.00"), D("29.95"), D("628.95"))` · 5 `with_gst(D("447.50")) == (D("447.50"), D("22.38"), D("469.88"))` ·
+      6 scale is exactly 2: `[str(x) for x in with_gst(D("1896"))] == ["1896.00","94.80","1990.80"]` and `[str(x) for x in deposit_split(D("1990.80"))] == ["597.24","1393.56"]` ·
+      7 floats accepted: `with_gst(1896.0) == with_gst(D("1896.00"))` and `to_money(0.1 + 0.2) == D("0.30")` · 8 zero: `with_gst(0) == (D("0.00"),D("0.00"),D("0.00"))`, `deposit_split(0) == (D("0.00"),D("0.00"))` ·
+      9 `[suggested_rolls(x) for x in (0,1,99,100,101,230,300)] == [0,1,1,1,2,3,3]`, `suggested_rolls(-5) == 0`, `suggested_rolls(None) == 0`.
+      verify: `PY -m tests.test_money` → fails with `ModuleNotFoundError: No module named 'app.utils.money'` (RED).
+- [x] **Step 0.4** — `backend/app/utils/money.py` (new; stdlib only, `from __future__ import annotations`, no app imports). Exactly: constants `CENTS = Decimal("0.01")`, `GST_RATE_PERCENT = Decimal("5.00")`, `DEPOSIT_RATE = Decimal("0.30")`;
+      `to_money(x) -> Decimal` = `Decimal(str(x)).quantize(CENTS, rounding=ROUND_HALF_UP)`; `with_gst(subtotal) -> tuple[Decimal, Decimal, Decimal]` = `(s, gst, s + gst)` with `s = to_money(subtotal)`, `gst = (s * GST_RATE_PERCENT / Decimal(100)).quantize(CENTS, ROUND_HALF_UP)`;
+      `deposit_split(total) -> tuple[Decimal, Decimal]` = `(dep, t - dep)` with `t = to_money(total)`, `dep = (t * DEPOSIT_RATE).quantize(CENTS, ROUND_HALF_UP)`; `suggested_rolls(perimeter_ft) -> int` = `0` if `None` or `<= 0` else `(perimeter_ft + 99) // 100` (integer ceil). No dataclass, no `bird_quote_money` (Review D1).
+      verify: `PY -m tests.test_money` → `All 9 money tests passed.`
+- [x] **Step 0.5** — `backend/tests/test_timefmt.py` (new; RED first; `from app.utils.timefmt import fmt_calgary, calgary_date_iso, CALGARY_TZ`). Seven tests: 1 `fmt_calgary(datetime(2026,10,9,14,0,tzinfo=timezone.utc)) == "Fri, Oct 9, 8:00 AM MDT"` · 2 `datetime(2026,1,15,16,0,tz utc)` → `"Thu, Jan 15, 9:00 AM MST"` · 3 naive `datetime(2026,10,9,14,0)` → same as 1 · 4 `(2026,10,9,18,5 utc)` → `"Fri, Oct 9, 12:05 PM MDT"` and `(2026,10,9,6,5 utc)` → `"Fri, Oct 9, 12:05 AM MDT"` · 5 `calgary_date_iso(datetime(2026,10,10,3,30,tz utc)) == "2026-10-09"` · 6 DST fall-back: `(2026,11,1,7,30 utc)` → `"Sun, Nov 1, 1:30 AM MDT"` and `(2026,11,1,8,30 utc)` → `"Sun, Nov 1, 1:30 AM MST"` · 7 `CALGARY_TZ.key == "America/Edmonton"`.
+      verify: `PY -m tests.test_timefmt` → fails `ModuleNotFoundError: ... app.utils.timefmt`.
+- [x] **Step 0.6** — `backend/app/utils/timefmt.py` (new): `CALGARY_TZ = ZoneInfo("America/Edmonton")`; `to_calgary(dt)` (naive → `replace(tzinfo=timezone.utc)`, then `.astimezone(CALGARY_TZ)`); `fmt_calgary(dt)` = `f"{d:%a}, {d:%b} {d.day}, {d.hour % 12 or 12}:{d:%M} {d:%p} {d:%Z}"` with `d = to_calgary(dt)` (never `%-d`/`%-I`: unsupported on Windows); `calgary_date_iso(dt)` = `to_calgary(dt).date().isoformat()`.
+      verify: `PY -m tests.test_timefmt` → `All 7 timefmt tests passed.`
+- [x] **Step 0.7** — `backend/app/config.py`: in `Settings` after the `nudge_redirect_email` field add `notify_redirect: str | None = Field(default=None, validation_alias="NOTIFY_REDIRECT")` with a one-line comment (`only the literal "on" redirects all customer messages to Kuo; see notification_service`); add `"notify_redirect"` to the `_blank_str_to_none` field list.
+      verify: `PY -c "from app.config import Settings; print(Settings(NOTIFY_REDIRECT='on').notify_redirect, Settings(NOTIFY_REDIRECT='  ').notify_redirect)"` → `on None`.
+- [x] **Step 0.8** — `docker-compose.yml`, backend `environment:` after `NUDGE_REDIRECT_EMAIL`: add a comment (`forced ON for every local run; .env cannot override; environment is an explicit allow-list`) and the line `NOTIFY_REDIRECT: "on"` — **quotes mandatory** (bare `on` is parsed as boolean `true`). (`docker-compose.mailpit.yml` is only an override merged onto this file, so it inherits the forced `on` — checked, no edit needed there.)
+      verify: `docker compose -f docker-compose.yml config | Select-String NOTIFY_REDIRECT` → one line `NOTIFY_REDIRECT: "on"` (must not be `true`).
+- [x] **Step 0.9** — `docker-compose.dev.yml`, backend env after `NUDGE_REDIRECT_EMAIL`: same two lines (`NOTIFY_REDIRECT: "on"`).
+      verify: `DC config | Select-String NOTIFY_REDIRECT` → `NOTIFY_REDIRECT: "on"`.
+- [x] **Step 0.10** — `docker-compose.vps.yml`, backend env after `NUDGE_REDIRECT_EMAIL`: comment (`production default OFF (SPEC decision 7); only the exact value on enables it`) + `NOTIFY_REDIRECT: ${NOTIFY_REDIRECT:-off}`.
+      verify: `docker compose -f docker-compose.vps.yml config | Select-String NOTIFY_REDIRECT` → `NOTIFY_REDIRECT: off`.
+- [x] **Step 0.11** — `docker-compose.test.yml`, backend env after `ADMIN_NOTIFY_EMAIL`: `NOTIFY_REDIRECT: "on"` (second safety layer; SMTP/Twilio are already blanked there). The existing HTTP suites assert only `template_name`, never `recipient` (checked), so this cannot turn them red.
+      verify: `TC config | Select-String NOTIFY_REDIRECT` → `NOTIFY_REDIRECT: "on"`.
+- [x] **Step 0.12** — `docker-compose.test.yml`, `tests` service `command:` list: after `--ignore=tests/test_nudge_service.py` append four lines `- --ignore=tests/test_money.py`, `- --ignore=tests/test_timefmt.py`, `- --ignore=tests/test_notify_redirect.py`, `- --ignore=tests/test_bird_helpers.py` (every test that imports `app.*` aborts pytest collection in the `tests` image; `--ignore` of a not-yet-existing path is harmless).
+      verify: `(Select-String -Path docker-compose.test.yml -Pattern '--ignore=tests/test_(money|timefmt|notify_redirect|bird_helpers)\.py').Count` → `4`.
+- [x] **Step 0.13** — `.env.example`: after `NUDGE_REDIRECT_EMAIL=cool@khtain.com` add a comment block (local compose forces `on`; production reads this; blank/absent = off; only the literal `on` case-insensitively redirects every customer email/SMS to the two NUDGE_REDIRECT_* targets with the intended recipient marked in the body) and `NOTIFY_REDIRECT=`.
+      verify: `Select-String -Path .env.example -Pattern '^NOTIFY_REDIRECT=$'` → 1 match.
+- [x] **Step 0.14** — `backend/migrations/versions/c7d8e9f0a1b2_bird_survey_quote_gst.py` (new, hand-written, docstring explains: additive, enum value not removable on downgrade). `revision = "c7d8e9f0a1b2"`, `down_revision = "655efc445c97"`. `upgrade()` in this order:
       ```python
-      NUDGE_EMAIL_TEMPLATES = {
-          "nudge_admin_digest": {
-              "subject": "Stalled-order digest",
-              "html": (
-                  '{% extends "base.html" %}{% block content %}'
-                  '<h2 style="margin:0 0 8px 0;">Daily stalled-order digest — {{ date }}</h2>'
-                  '{% if nudged %}<h3 style="margin:14px 0 6px 0;">Nudged today</h3><ul class="muted small">'
-                  '{% for n in nudged %}<li>{{ n.ref }} — {{ n.state }} — {{ n.days }}d — #{{ n.count }} — '
-                  'intended: {{ n.intended }}{% if n.redirected %} (redirected){% endif %}'
-                  '{% if n.admin_url %} — <a href="{{ n.admin_url }}">view</a>{% endif %}</li>{% endfor %}</ul>{% endif %}'
-                  '{% if our_side %}<h3 style="margin:14px 0 6px 0;">Waiting on us</h3><ul class="muted small">'
-                  '{% for o in our_side %}<li>{{ o.ref }} — {{ o.state }} — {{ o.days }}d'
-                  '{% if o.admin_url %} — <a href="{{ o.admin_url }}">view</a>{% endif %}</li>{% endfor %}</ul>{% endif %}'
-                  '{% if needs_followup %}<h3 style="margin:14px 0 6px 0;">Needs manual follow-up</h3><ul class="muted small">'
-                  '{% for f in needs_followup %}<li>{{ f.ref }} — {{ f.state }} — {{ f.days }}d'
-                  '{% if f.admin_url %} — <a href="{{ f.admin_url }}">view</a>{% endif %}</li>{% endfor %}</ul>{% endif %}'
-                  "{% endblock %}"
-              ),
-          },
-      }
-      NUDGE_SMS_TEMPLATES = {
-          "nudge_customer": {
-              "body": "{{ brand_name }}\nFriendly reminder — {{ reference_number }}\n"
-                      "We're waiting on you to {{ action_text }}.\n{{ link }}",
-          },
-      }
+      with op.get_context().autocommit_block():   # same precedent as b1c2d3e4f5a6; IF NOT EXISTS makes a re-run safe
+          op.execute("ALTER TYPE service_booking_status ADD VALUE IF NOT EXISTS 'surveyed' AFTER 'survey_scheduled'")
+      # service_bookings
+      op.add_column("service_bookings", sa.Column("survey_perimeter_ft", sa.Integer(), nullable=True))
+      op.add_column("service_bookings", sa.Column("survey_nest_count", sa.Integer(), nullable=True))
+      op.add_column("service_bookings", sa.Column("survey_notes", sa.Text(), nullable=True))
+      op.add_column("service_bookings", sa.Column("survey_photo_urls", postgresql.JSONB(), nullable=False, server_default=sa.text("'[]'::jsonb")))
+      op.add_column("service_bookings", sa.Column("surveyed_at", sa.DateTime(timezone=True), nullable=True))
+      # bird_netting_quotes
+      op.add_column("bird_netting_quotes", sa.Column("subtotal", sa.Numeric(10, 2), nullable=False, server_default="0"))
+      op.add_column("bird_netting_quotes", sa.Column("gst_rate", sa.Numeric(4, 2), nullable=False, server_default="0"))
+      op.add_column("bird_netting_quotes", sa.Column("gst_amount", sa.Numeric(10, 2), nullable=False, server_default="0"))
+      op.add_column("bird_netting_quotes", sa.Column("deposit_amount", sa.Numeric(10, 2), nullable=True))
+      op.add_column("bird_netting_quotes", sa.Column("roll_override_reason", sa.Text(), nullable=True))
+      op.add_column("bird_netting_quotes", sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True))
+      op.execute("UPDATE bird_netting_quotes SET subtotal = total, sent_at = created_at, deposit_amount = round(total * 0.30, 2)")
       ```
-      然后新增一个函数，逐字照抄 `_ensure_service_templates` 的结构（merge-without-overwrite，
-      靠 `flag_modified`），一段合并 `DEFAULT_EMAIL_TEMPLATES_KEY` 里的 `NUDGE_EMAIL_TEMPLATES`，
-      一段合并 `DEFAULT_SMS_TEMPLATES_KEY` 里的 `NUDGE_SMS_TEMPLATES`：
-      ```python
-      def _ensure_nudge_templates(db: Session) -> None:
-          """Seed nudge email/sms templates; merge-without-overwrite (preserves admin edits)."""
-          email_row = db.execute(select(SystemSetting).where(SystemSetting.key == DEFAULT_EMAIL_TEMPLATES_KEY)).scalar_one_or_none()
-          if email_row:
-              changed = False
-              for k, v in NUDGE_EMAIL_TEMPLATES.items():
-                  if k not in (email_row.value or {}):
-                      email_row.value[k] = v
-                      changed = True
-              if changed:
-                  flag_modified(email_row, "value")
-                  db.add(email_row)
-                  db.commit()
-          sms_row = db.execute(select(SystemSetting).where(SystemSetting.key == DEFAULT_SMS_TEMPLATES_KEY)).scalar_one_or_none()
-          if sms_row:
-              changed = False
-              for k, v in NUDGE_SMS_TEMPLATES.items():
-                  if k not in (sms_row.value or {}):
-                      sms_row.value[k] = v
-                      changed = True
-              if changed:
-                  flag_modified(sms_row, "value")
-                  db.add(sms_row)
-                  db.commit()
-      ```
-      **不要忘 `flag_modified`**——这是本项目已经踩过一次的坑（v3.0 的 7 个模板曾因为漏这行
-      静默丢失）。最后在 `ensure_defaults()` 里 `_ensure_service_templates(db)` 那一行之后加一行
-      `_ensure_nudge_templates(db)`。
-      verify: `docker compose -f docker-compose.yml -f docker-compose.dev.yml restart backend`
-      （触发 `@app.on_event("startup")` 重跑 `ensure_defaults`），然后
-      `docker exec <db> psql -U ev_charger -d ev_charger_quote -c "select value ? 'nudge_customer' from system_settings where key='sms_templates';"`
-      返回 `t`；同样查 `email_templates` 的 `nudge_admin_digest` 也返回 `t`。**这两行 SystemSetting
-      在本地库里早就存在**（v3.0 就种过），所以这个 verify 恰好复现了当年漏 `flag_modified` 的
-      那个 bug 场景——如果验证失败先检查有没有漏 `flag_modified`。
+      `downgrade()`: `op.drop_column` for the 6 quote columns then the 5 booking columns; comment: the enum value stays (Postgres cannot drop enum values). Imports: `sqlalchemy as sa`, `from alembic import op`, `from sqlalchemy.dialects import postgresql`.
+      verify: `PY -c "import importlib.util as u; s = u.spec_from_file_location('m', 'migrations/versions/c7d8e9f0a1b2_bird_survey_quote_gst.py'); m = u.module_from_spec(s); s.loader.exec_module(m); print(m.revision, m.down_revision)"` → `c7d8e9f0a1b2 655efc445c97`.
+- [x] **Step 0.15** — apply to the local dev DB and prove the round trip. Run, in order:
+      `ALEMBIC upgrade head` → log contains `Running upgrade 655efc445c97 -> c7d8e9f0a1b2`;
+      columns: `PY -c "from sqlalchemy import inspect; from app.database import engine; i = inspect(engine); print(sorted(c['name'] for c in i.get_columns('bird_netting_quotes') if c['name'] in ('subtotal','gst_rate','gst_amount','deposit_amount','roll_override_reason','sent_at')), sorted(c['name'] for c in i.get_columns('service_bookings') if c['name'].startswith('survey')))"` → `['deposit_amount', 'gst_amount', 'gst_rate', 'roll_override_reason', 'sent_at', 'subtotal'] ['survey_nest_count', 'survey_notes', 'survey_perimeter_ft', 'survey_photo_urls', 'surveyed_at']`;
+      enum: `PY -c "from sqlalchemy import text; from app.database import SessionLocal; print(SessionLocal().execute(text('select unnest(enum_range(null::service_booking_status))')).scalars().all())"` → list contains `'surveyed'` right after `'survey_scheduled'`;
+      `ALEMBIC downgrade -1` → `Running downgrade c7d8e9f0a1b2 -> 655efc445c97`, then the columns command → `[] []`, the enum command still lists `'surveyed'` (expected: irreversible);
+      `ALEMBIC upgrade head` again → succeeds (the `IF NOT EXISTS` re-run) and `ALEMBIC current` → `c7d8e9f0a1b2 (head)`.
+- [x] **Step 0.16** — `backend/app/models/models.py`, class `ServiceBooking`, after the `status_changed_at` line and before the `quote` relationship: a comment line `# bird-netting-only survey result (CONTEXT.md: 勘测结果)` then `survey_perimeter_ft: Mapped[int | None] = mapped_column(Integer, nullable=True)`, `survey_nest_count: Mapped[int | None] = mapped_column(Integer, nullable=True)`, `survey_notes: Mapped[str | None] = mapped_column(Text, nullable=True)`, `survey_photo_urls: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)`, `surveyed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)`. **Do NOT add `ServiceBookingStatus.surveyed` yet** (Review R4 — T1 does, together with the transitions).
+      verify: `PY -c "from app.models.models import ServiceBooking as B; print(B.survey_perimeter_ft.key, B.surveyed_at.key)"` → `survey_perimeter_ft surveyed_at`.
+- [x] **Step 0.17** — same file, class `BirdNettingQuote`, after `approved_at`, six new columns, written out one per line:
+      `subtotal: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)`
+      `gst_rate: Mapped[float] = mapped_column(Numeric(4, 2), nullable=False, default=0)`
+      `gst_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)`
+      `deposit_amount: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)`
+      `roll_override_reason: Mapped[str | None] = mapped_column(Text, nullable=True)`
+      `sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # NULL = quote draft (ADR-015)`
+      Change the `total` comment/docstring to say it is GST-inclusive since `c7d8e9f0a1b2`.
+      verify: `PY -c "from app.models.models import BirdNettingQuote as Q; print(Q.sent_at.key, Q.gst_rate.type.scale)"` → `sent_at 2`.
+- [x] **Step 0.18** — `backend/app/services/nudge_service.py` (**import only**): delete `from zoneinfo import ZoneInfo` and replace the line `CALGARY_TZ = ZoneInfo("America/Edmonton")` by `from app.utils.timefmt import CALGARY_TZ` placed with the other `app.*` imports. No other line changes.
+      verify: `PY -c "import app.services.nudge_service as n; print(n.CALGARY_TZ)"` → `America/Edmonton`.
+- [x] **Step 0.19** — regression. `PY -c "import app.main"` → no output/error. `PY -c "import tests.test_nudge_service as t; t.test_service_classify_exhaustive(); print('sentinel ok')"` → `sentinel ok` (green because the Python enum has no `surveyed` yet). `PY -m tests.test_nudge_service` → `All 13 nudge-service tests passed.` (transport is stubbed in that file — no real sends).
 
-### 引擎模块
-
-- [x] **Step 2.2** — 新建 `backend/app/services/nudge_service.py`，写入模块 docstring + imports：
-      ```python
-      from __future__ import annotations
-
-      from datetime import datetime, timedelta, timezone
-      from typing import Literal, NamedTuple
-      from zoneinfo import ZoneInfo
-
-      from sqlalchemy import select, func
-      from sqlalchemy.orm import Session
-
-      from app.config import get_settings
-      from app.models.models import (
-          BirdNettingQuote, Case, CaseNote, CaseStatus, CaseStatusHistory,
-          CleaningPaymentStatus, CleaningPricingStatus, CleaningSubscription,
-          Notification, NotificationStatus, ServiceBooking, ServiceBookingStatus, ServiceType,
-          SystemSetting,
-      )
-      from app.services.notification_service import (
-          _get_system_setting, _templates_env, _with_brand_profile,
-          admin_case_url, notify_sms, render_sms_from_db_or_fallback,
-          _send_service_email, _send_service_sms,
-      )
-      from app.services.service_booking_flow import bird_quote_url, cleaning_status_url, service_status_url
-
-      CALGARY_TZ = ZoneInfo("America/Edmonton")
-      NUDGE_CUSTOMER_TEMPLATE = "nudge_customer"
-      NUDGE_DIGEST_TEMPLATE = "nudge_admin_digest"
-      NUDGE_CAP = 3
-      NUDGE_INTERVAL_DAYS = 14
-      Bucket = Literal["customer", "ours", "none"]
-
-
-      class StalledTarget(NamedTuple):
-          kind: Literal["ev", "diagnostic", "bird_netting", "cleaning"]
-          id: str
-          reference_number: str
-          status_label: str
-          stalled_days: int
-          clock: datetime
-          bucket: Bucket
-          customer_name: str
-          phone: str | None
-          email: str | None
-          action_text: str | None
-          link: str | None
-          admin_url: str | None
-      ```
-      verify: `docker exec -w /app <backend> python -c "import app.services.nudge_service"` 无报错。
-
-- [x] **Step 2.3** — 追加 EV 分类表（穷举全部 13 个 `CaseStatus`）：
-      ```python
-      _EV_CLASSIFY: dict[CaseStatus, Bucket] = {
-          CaseStatus.pending: "customer",
-          CaseStatus.survey_scheduled: "none",
-          CaseStatus.survey_completed: "ours",
-          CaseStatus.quoting: "ours",
-          CaseStatus.quoted: "customer",
-          CaseStatus.customer_approved: "ours",
-          CaseStatus.permit_applied: "ours",
-          CaseStatus.permit_approved: "customer",
-          CaseStatus.installation_scheduled: "none",
-          CaseStatus.installed: "customer",
-          CaseStatus.completed: "none",
-          CaseStatus.cancelled: "none",
-          CaseStatus.lost: "none",
-      }
-      _EV_ACTION: dict[CaseStatus, str] = {
-          CaseStatus.pending: "book a site-survey time",
-          CaseStatus.quoted: "review and sign your quote",
-          CaseStatus.permit_approved: "book your installation time",
-          CaseStatus.installed: "settle the final balance",
-      }
-      ```
-      verify: `python -c "from app.services.nudge_service import _EV_CLASSIFY; from app.models.models import CaseStatus; assert set(_EV_CLASSIFY) == set(CaseStatus); print('ok')"` 打印 `ok`。
-
-- [x] **Step 2.4** — 追加服务单分类表（穷举诊断 5 态 + 鸟网 7 态，键为 `(ServiceType, ServiceBookingStatus)`）：
-      ```python
-      _SERVICE_CLASSIFY: dict[tuple[ServiceType, ServiceBookingStatus], Bucket] = {
-          (ServiceType.diagnostic, ServiceBookingStatus.submitted): "customer",
-          (ServiceType.diagnostic, ServiceBookingStatus.scheduled): "none",
-          (ServiceType.diagnostic, ServiceBookingStatus.in_progress): "none",
-          (ServiceType.diagnostic, ServiceBookingStatus.completed): "none",
-          (ServiceType.diagnostic, ServiceBookingStatus.cancelled): "none",
-          (ServiceType.bird_netting, ServiceBookingStatus.submitted): "none",
-          (ServiceType.bird_netting, ServiceBookingStatus.survey_scheduled): "ours",
-          (ServiceType.bird_netting, ServiceBookingStatus.quoted): "customer",
-          (ServiceType.bird_netting, ServiceBookingStatus.approved): "customer",
-          (ServiceType.bird_netting, ServiceBookingStatus.install_scheduled): "none",
-          (ServiceType.bird_netting, ServiceBookingStatus.completed): "none",
-          (ServiceType.bird_netting, ServiceBookingStatus.cancelled): "none",
-      }
-      _SERVICE_ACTION: dict[tuple[ServiceType, ServiceBookingStatus], str] = {
-          (ServiceType.diagnostic, ServiceBookingStatus.submitted): "confirm your diagnostic visit time",
-          (ServiceType.bird_netting, ServiceBookingStatus.quoted): "review and sign your quote",
-          (ServiceType.bird_netting, ServiceBookingStatus.approved): "settle the deposit so we can schedule your install",
-      }
-      ```
-      verify: 先跑 `python -c "import app.services.nudge_service"` 确认无语法错误；完整穷举断言在 Step 2.13。
-
-- [x] **Step 2.5** — 追加清洁订阅分类表（穷举全部 6 个 `(pricing_status, payment_status)` 组合）：
-      ```python
-      _CLEANING_CLASSIFY: dict[tuple[CleaningPricingStatus, CleaningPaymentStatus], Bucket] = {
-          (CleaningPricingStatus.quoted, CleaningPaymentStatus.unpaid): "customer",
-          (CleaningPricingStatus.quoted, CleaningPaymentStatus.paid): "none",
-          (CleaningPricingStatus.quoted, CleaningPaymentStatus.refunded): "none",
-          (CleaningPricingStatus.pending_quote, CleaningPaymentStatus.unpaid): "ours",
-          (CleaningPricingStatus.pending_quote, CleaningPaymentStatus.paid): "ours",
-          (CleaningPricingStatus.pending_quote, CleaningPaymentStatus.refunded): "none",
-      }
-      _CLEANING_ACTION = "complete payment for your cleaning subscription"
-      ```
-      verify: 语法检查通过（同上命令）。
-
-- [x] **Step 2.6** — 追加纯函数（无 DB）：
-      ```python
-      def should_nudge(stalled_days: int, sent_count: int) -> bool:
-          return sent_count < NUDGE_CAP and stalled_days >= NUDGE_INTERVAL_DAYS * (sent_count + 1)
-
-
-      def redirect_enabled() -> bool:
-          value = (get_settings().nudge_redirect or "").strip().casefold()
-          return value != "off"
-
-
-      def resolve_recipient(is_sms: bool, real_contact: str) -> tuple[str, bool]:
-          if not redirect_enabled():
-              return real_contact, False
-          s = get_settings()
-          return (s.nudge_redirect_sms if is_sms else s.nudge_redirect_email), True
-
-
-      def _calgary_day_bounds_utc(now: datetime) -> tuple[datetime, datetime]:
-          local = now.astimezone(CALGARY_TZ)
-          start_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
-          return start_local.astimezone(timezone.utc), (start_local + timedelta(days=1)).astimezone(timezone.utc)
-      ```
-      verify: `python -c "from app.services.nudge_service import should_nudge as f; assert (f(13,0),f(14,0),f(27,1),f(28,1),f(42,2),f(56,3))==(False,True,False,True,True,False); print('ok')"` 打印 `ok`。
-
-- [x] **Step 2.7** — 追加三个扫描函数 `_scan_ev(db, now)` / `_scan_services(db, now)` /
-      `_scan_cleaning(db, now)`，各返回 `list[StalledTarget]`，只保留 `bucket != "none"`：
-      - `_scan_ev`：SQL 用 `select(Case, func.coalesce(func.max(CaseStatusHistory.created_at), Case.created_at)).outerjoin(CaseStatusHistory, CaseStatusHistory.case_id == Case.id).group_by(Case.id)`
-        （不必在 SQL 里按状态过滤——`_EV_CLASSIFY` 本就穷举全部 13 态，Python 里判 `bucket=="none"`
-        就地跳过即可，避免以后分类表改了要同步改两处 SQL）。`clock` = 查出来的 coalesce 值
-        （确保 tz-aware，缺省时 `.replace(tzinfo=timezone.utc)`）。`stalled_days = (now - clock).days`。
-        `link = f"{get_settings().frontend_url.rstrip('/')}/quote/status/{case.access_token}"`。
-        `admin_url = admin_case_url(str(case.id))`（EV 专属，恒有值）。`customer_name/phone/email`
-        取 `case.customer.nickname/.phone/.email`（用 `db.get(Customer, case.customer_id)` 或依赖
-        已有的 relationship）。`action_text = _EV_ACTION.get(case.status)`（只有 bucket=="customer"
-        才非 None）。
-      - `_scan_services`：`select(ServiceBooking)`，按 `(service_type, status)` 查
-        `_SERVICE_CLASSIFY`（缺失 key 的组合视为 "none"）。`clock = booking.status_changed_at`。
-        `link`：诊断用 `service_status_url(booking.access_token)`；鸟网用
-        `bird_quote_url(booking.access_token)`。`admin_url = None`（ctx 契约已声明
-        `admin_url: str|None`，服务单没有可复用的后台详情链接）。`action_text =
-        _SERVICE_ACTION.get((service_type, status))`。`kind = "diagnostic"` 或 `"bird_netting"`
-        按 `service_type`。
-      - `_scan_cleaning`：`select(CleaningSubscription)`，按 `(pricing_status, payment_status)`
-        查 `_CLEANING_CLASSIFY`。`clock = sub.status_changed_at`。`link = cleaning_status_url(sub.access_token)`。
-        `action_text = _CLEANING_ACTION if bucket=="customer" else None`。`admin_url = None`。
-      - **防御性降级（三个扫描函数共用同一条规则）**：分类结果为 `bucket=="customer"` 时，
-        如果该目标的 `phone` 为空字符串或 `None`，**把 `bucket` 强制改成 `"ours"`**（连带
-        `action_text`/`link` 保留原值，反正 "ours" 分支不使用它们；进摘要邮件"球在我们"节，
-        而不是尝试发一条注定失败的短信）。EV/服务单/清洁订阅三张表的 `phone` 字段都是
-        `NOT NULL`，正常情况下这个分支不会触发，纯属纵深防御——不加这一步的后果是：万一真出现
-        空号数据，`_deliver_customer_sms` 会对着 `to_phone=""` 天天调 Twilio、天天记一条
-        `failed` 通知，且这条"失败"会被 `_already_attempted_today` 当成"今天试过了"，永远不会
-        被人发现也永远不会自愈。
-      verify: 语法检查 `python -c "import app.services.nudge_service"` 通过；完整行为由 Step 2.13
-      的测试文件验证。
-
-- [x] **Step 2.8** — 追加三个基于 `Notification` 表的查询函数：
-      ```python
-      def _target_fk_filter(target: StalledTarget):
-          if target.kind == "ev":
-              return Notification.case_id == target.id
-          if target.kind == "cleaning":
-              return Notification.cleaning_subscription_id == target.id
-          return Notification.service_booking_id == target.id
-
-
-      def _sent_count(db: Session, target: StalledTarget) -> int:
-          return db.execute(
-              select(func.count()).select_from(Notification).where(
-                  _target_fk_filter(target),
-                  Notification.template_name == NUDGE_CUSTOMER_TEMPLATE,
-                  Notification.status == NotificationStatus.sent,
-                  Notification.created_at > target.clock,
-              )
-          ).scalar_one()
-
-
-      def _already_attempted_today(db: Session, target: StalledTarget, now: datetime) -> bool:
-          start, end = _calgary_day_bounds_utc(now)
-          return db.execute(
-              select(func.count()).select_from(Notification).where(
-                  _target_fk_filter(target),
-                  Notification.template_name == NUDGE_CUSTOMER_TEMPLATE,
-                  Notification.created_at >= start, Notification.created_at < end,
-              )
-          ).scalar_one() > 0
-
-
-      def _digest_already_sent_today(db: Session, now: datetime) -> bool:
-          start, end = _calgary_day_bounds_utc(now)
-          return db.execute(
-              select(func.count()).select_from(Notification).where(
-                  Notification.template_name == NUDGE_DIGEST_TEMPLATE,
-                  Notification.created_at >= start, Notification.created_at < end,
-              )
-          ).scalar_one() > 0
-      ```
-      verify: 语法检查通过；行为由测试文件验证。
-
-- [x] **Step 2.9** — 追加两个 deliver 函数（**全模块唯一允许调用 `notify_sms` /
-      `_send_service_sms` / `_send_service_email` 的两处**）：
-      ```python
-      def _deliver_customer_sms(db: Session, target: StalledTarget, now: datetime) -> Literal["sent", "failed"]:
-          real_contact = target.phone or ""
-          recipient, redirected = resolve_recipient(True, real_contact)
-          body = render_sms_from_db_or_fallback(
-              db, template_key=NUDGE_CUSTOMER_TEMPLATE,
-              ctx={"reference_number": target.reference_number, "action_text": target.action_text, "link": target.link},
-              fallback="{{ brand_name }}\nFriendly reminder — {{ reference_number }}\nWe're waiting on you to {{ action_text }}.\n{{ link }}",
-          )
-          if redirected:
-              body = f"[→ {target.customer_name} {real_contact}] " + body
-          if target.kind == "ev":
-              n = notify_sms(db, case_id=target.id, to_phone=recipient, template_name=NUDGE_CUSTOMER_TEMPLATE, body=body)
-          else:
-              n = _send_service_sms(
-                  db, to_phone=recipient, template_name=NUDGE_CUSTOMER_TEMPLATE, body=body,
-                  service_booking_id=target.id if target.kind != "cleaning" else None,
-                  cleaning_subscription_id=target.id if target.kind == "cleaning" else None,
-              )
-          db.commit()
-          return "sent" if n is not None and n.status == NotificationStatus.sent else "failed"
-
-
-      def _deliver_digest_email(db: Session, ctx: dict, now: datetime) -> None:
-          merged = _with_brand_profile(db, ctx)
-          templates = _get_system_setting(db, "email_templates") or {}
-          tpl = templates.get(NUDGE_DIGEST_TEMPLATE)
-          if isinstance(tpl, dict) and tpl.get("html"):
-              subject = str(tpl.get("subject") or f"Stalled-order digest — {ctx['date']}")
-              html = _templates_env().from_string(str(tpl["html"])).render(**merged)
-          else:
-              subject = f"Stalled-order digest — {ctx['date']}"
-              html = _templates_env().from_string(
-                  '{% extends "base.html" %}{% block content %}<p>No template found.</p>{% endblock %}'
-              ).render(**merged)
-          s = get_settings()
-          _send_service_email(
-              db, to_email=s.nudge_redirect_email, template_name=NUDGE_DIGEST_TEMPLATE,
-              subject=subject, html=html, service_booking_id=None, cleaning_subscription_id=None,
-          )
-          db.commit()
-      ```
-      （Step 2.7 的防御性降级已保证走到这里的 `target.phone` 一定非空，所以 `real_contact = target.phone or ""`
-      这里的 `""` 分支实际不可达，保留只是为了类型安全。）
-      **`db.commit()` 必须紧跟在每次 `_record_notification`（即 `notify_sms`/`_send_service_sms`/
-      `_send_service_email` 返回）之后，不能等整批扫描结束再统一提交**——原因见 DESIGN.md
-      `## Review` 红线核对表：`run_daily_nudges` 一次跑几十个目标，中途崩溃如果只有一次收尾
-      commit，会丢失"已经真实发送但未落库"的 notifications 行，次日（或同日第二条 cron）会
-      误判"没催过"从而对真实客户重复发短信。
-      verify: `grep -n "notify_sms\|_send_service_sms\|_send_service_email" backend/app/services/nudge_service.py`
-      的命中行必须全部落在 `_deliver_customer_sms` 或 `_deliver_digest_email` 函数体内（人工核对，
-      不应出现在 `run_daily_nudges` 或任何 `_scan_*` 函数里）。
-
-- [x] **Step 2.10** — 追加待人工跟进的 CaseNote 去重写入函数（仅 EV）：
-      ```python
-      def _needs_followup_case_note(db: Session, target: StalledTarget) -> None:
-          exists = db.execute(
-              select(func.count()).select_from(CaseNote).where(
-                  CaseNote.case_id == target.id,
-                  CaseNote.content.like("NUDGE:%"),
-                  CaseNote.created_at > target.clock,
-              )
-          ).scalar_one() > 0
-          if exists:
-              return
-          db.add(CaseNote(
-              case_id=target.id, admin_user_id=None,
-              content=f"NUDGE: reached {NUDGE_CAP} auto-reminders at {target.stalled_days} days stalled "
-                      f"({target.status_label}); needs manual follow-up.",
-          ))
-          db.commit()
-      ```
-      verify: 语法检查通过。
-
-- [x] **Step 2.11** — 追加 `_build_digest_ctx(nudged, our_side, needs_followup, now) -> dict`
-      纯函数，按 DESIGN §3.5 的 ctx 契约组装（`date` 用 `now.astimezone(CALGARY_TZ).date().isoformat()`；
-      `nudged` 每项 `{"ref","state","days","count","intended","redirected","admin_url"}`，
-      `intended = f"{t.customer_name} {t.phone or t.email or ''}"`；`our_side`/`needs_followup`
-      每项 `{"ref","state","days","admin_url"}`）。
-      verify: 语法检查通过；行为由测试文件验证。
-
-- [x] **Step 2.12** — 追加编排函数 `run_daily_nudges(db: Session, *, now: datetime | None = None) -> dict`：
-      1. `now = now or datetime.now(timezone.utc)`
-      2. `targets = _scan_ev(db, now) + _scan_services(db, now) + _scan_cleaning(db, now)`
-      3. 拆分 `customer_targets`（`bucket=="customer"`）与 `ours_targets`（`bucket=="ours"`）
-      4. 对每个 `customer_targets`：若 `_already_attempted_today` 为真 → `skipped_today += 1` 并
-         `continue`；否则算 `sent_count = _sent_count(db, t)`；若 `sent_count >= NUDGE_CAP` →
-         加入 `needs_followup`，若 `t.kind=="ev"` 调 `_needs_followup_case_note`，`continue`；
-         否则若 `not should_nudge(t.stalled_days, sent_count)` → `continue`（还没到点）；
-         否则调 `_deliver_customer_sms`，按返回值累加 `customer_nudges_sent`/`customer_nudges_failed`，
-         成功的加入 `nudged` 列表。
-      5. 若 `nudged` 或 `ours_targets` 或 `needs_followup` 三者任一非空，且
-         `not _digest_already_sent_today(db, now)` → 用 `_build_digest_ctx` 组装 ctx，调
-         `_deliver_digest_email`，`digest_sent = True`；否则 `digest_sent = False`。
-      6. 返回
-         `{"date": now.astimezone(CALGARY_TZ).date().isoformat(), "scanned": len(targets),
-           "customer_nudges_sent": ..., "customer_nudges_failed": ..., "skipped_today": ...,
-           "our_side": len(ours_targets), "needs_followup": len(needs_followup), "digest_sent": digest_sent}`
-      verify: `python -c "import app.services.nudge_service"` 无报错；`grep -n "def run_daily_nudges"`
-      命中且签名为 `run_daily_nudges(db: Session, *, now: datetime | None = None) -> dict`。
-
-#### Round-2 追加（必改1/必改2，DESIGN.md Review 核签 APPROVE-WITH-CHANGES 后落地）
-
-- [x] **必改1** — `run_daily_nudges` 里 `targets = _scan_ev(...) + _scan_services(...) + _scan_cleaning(...)`
-      之后、拆分 `customer_targets`/`ours_targets` 之前，加一行咽喉点过滤：
-      `targets = [t for t in targets if not t.reference_number.startswith("MOCK-")]`（附
-      `ponytail:` 注释说明原因：生产 mock 数据的联系方式本不可送达，但催单重定向会把收件人替换
-      成真实手机号，抵消这层保护；且 "ours" 分支没有任何每日幂等门，`MOCK-` 记录会永久污染
-      digest）。**不放进三个 `_scan_*` 函数内**，保持它们可被裸调用做普查。
-      verify: 见 Step 2.13 round-2 追加的 `test_mock_prefix_excluded_everywhere`。
-- [x] **必改2** — 模块级常量 `NUDGE_MAX_PER_RUN = 10`（不进 config）。`run_daily_nudges` 的
-      customer 循环里，在 `should_nudge` 判定通过、真正要发之前插入：
-      `if customer_nudges_sent + customer_nudges_failed >= NUDGE_MAX_PER_RUN: flood_capped += 1; continue`
-      ——不写 Notification 行、不计入 `failed`、不影响 `_already_attempted_today`/`needs_followup`
-      的判定（被闸掉的目标当天没有任何记录，同日重跑或次日 cron 自然继续排空积压）。返回 dict
-      新增 `flood_capped` 键。
-      verify: 见 Step 2.13 round-2 追加的 `test_flood_cap_limits_sends_and_flags_flood_capped`。
-
-### 测试文件
-
-- [x] **Step 2.13** — 新建 `backend/tests/test_nudge_service.py`。**不 `import pytest`**，仿照
-      `backend/tests/test_booking_logic.py` 的写法：普通 `assert`、函数名 `test_*`、文件末尾
-      ```python
-      if __name__ == "__main__":
-          fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
-          for fn in fns:
-              fn()
-              print(f"  ok  {fn.__name__}")
-          print(f"\nAll {len(fns)} nudge-service tests passed.")
-      ```
-      测试内容（对照 DESIGN §5 测试接缝 1/2/4，逐条落地）：
-      1. `test_ev_classify_exhaustive` — `assert set(_EV_CLASSIFY) == set(CaseStatus)`。
-      2. `test_service_classify_exhaustive` — 对 `DIAGNOSTIC_TRANSITIONS`/`BIRD_TRANSITIONS`
-         的全部 key 并上 value 集合（即 5 诊断态 + 7 鸟网态），断言
-         `(ServiceType.diagnostic/bird_netting, status)` 都在 `_SERVICE_CLASSIFY` 里，且这两组
-         并起来恰好等于 `_SERVICE_CLASSIFY` 的 key 集合（无多余、无遗漏）。
-      3. `test_cleaning_classify_exhaustive` — `assert set(_CLEANING_CLASSIFY) == {(p, m) for p in CleaningPricingStatus for m in CleaningPaymentStatus}`。
-      4. `test_should_nudge_boundaries` — 断言 `(13,0)→False (14,0)→True (27,1)→False (28,1)→True (42,2)→True (56,3)→False`。
-      5. `test_redirect_default_on_and_off` — **必须 patch `app.services.nudge_service.get_settings`
-         这个模块属性，不是 `app.config.get_settings`**——`nudge_service.py` 用
-         `from app.config import get_settings` 把函数对象绑到了自己的模块命名空间，改
-         `app.config.get_settings` 对已经绑定的引用不生效；且 `get_settings` 本身带
-         `@lru_cache`，不能指望改配置就让它重新求值。具体做法：
-         ```python
-         import app.services.nudge_service as ns
-         from app.config import Settings
-
-         def test_redirect_default_on_and_off():
-             original = ns.get_settings
-             try:
-                 ns.get_settings = lambda: Settings(nudge_redirect=None)
-                 assert ns.redirect_enabled() is True
-                 ns.get_settings = lambda: Settings(nudge_redirect="off")
-                 assert ns.redirect_enabled() is False
-                 ns.get_settings = lambda: Settings(nudge_redirect="FALSE")
-                 assert ns.redirect_enabled() is True  # 不是精确的 "off"，仍重定向
-             finally:
-                 ns.get_settings = original
-         ```
-         **`finally` 里必须还原 `ns.get_settings`**——不还原会让本文件里排在它后面的其它测试
-         （尤其 `test_run_daily_nudges_*` 系列和下面第 11 条）读到被打过补丁的假配置。
-      6. `test_run_daily_nudges_ev_quoted_sends_redirected` — 用 `SessionLocal()` 直连 DB，插入一个
-         **打 `MOCK-`/`Mock-` 标记**的临时 `Customer`+`Case`（status=quoted）+一条
-         `CaseStatusHistory`（`created_at` = `now - 20 days`），调用
-         `run_daily_nudges(db, now=<固定 now>)`，断言：`notifications` 表里恰好新增 1 条
-         `template_name="nudge_customer"` 行，`recipient == "+15879669668"`，`content` 以 `"[→ "` 开头；
-         同一 `now` 下再跑一次 `run_daily_nudges`，断言这次 0 条新增（当日幂等）。测试结束在
-         `finally` 里删除自己插入的行（`Case`/`Customer`/`CaseStatusHistory`/`Notification`）,
-         **不要依赖 `mock_data.py purge`**（避免和它的固定数据集打架）。
-      7. `test_run_daily_nudges_needs_followup_writes_case_note_once` — 同上手法插入一个 EV case，
-         预先手工插入 3 条 `status="sent", template_name="nudge_customer"` 的 `Notification` 行
-         （`created_at` 均晚于 case 的 stalled clock），跑 `run_daily_nudges`，断言：不产生第 4 条
-         `nudge_customer` 行；产生恰好 1 条 `content LIKE 'NUDGE:%'` 的 `CaseNote`；同一 `now` 下
-         再跑一次，`CaseNote` 数量仍为 1（不重复写）。
-      8. `test_run_daily_nudges_service_booking_customer_side` — 对一个临时 `ServiceBooking`
-         （`service_type=bird_netting, status=quoted`, `status_changed_at = now - 20 days`）跑一遍，
-         断言产生 1 条 `service_booking_id` 匹配的 `nudge_customer` 行，`content` 含
-         `bird_quote_url` 的路径片段 `/service/bird-netting/quote/`。
-      9. `test_run_daily_nudges_cleaning_customer_side` — 同上手法对 `CleaningSubscription`
-         （`pricing_status=quoted, payment_status=unpaid`, `status_changed_at = now - 20 days`）验证。
-      10. `test_digest_is_one_row_per_day` — 构造至少 1 个 "ours" 目标 + 1 个上面产生的 "customer"
-          目标，跑 `run_daily_nudges`，断言恰好新增 1 条 `template_name="nudge_admin_digest"` 且
-          三个 FK 全 NULL 的 `Notification` 行；同一天再跑一次断言仍是 1 条。
-      11. `test_redirect_recipient_never_real_contact` — 红线测试，**必须自成一体，不依赖其它
-          测试留下的行**（其它测试大多在 `finally` 里把自己插入的行删掉了，如果这条测试只是
-          去"遍历本文件所有测试产生的行"，很可能遍历到一个空集合，断言在空集合上永远为真，
-          等于没测）：自己新插入一条打 `MOCK-`/`Mock-` 标记、`phone` 为真实构造值（如
-          `"+15550009999"`）的 EV case（`status=quoted`，clock 设为 `now - 20 days`），默认配置
-          （不 monkeypatch）下调用 `run_daily_nudges`，断言产生的那条 `nudge_customer` 行
-          `recipient == "+15879669668"` 且 `recipient != "+15550009999"`（即真实构造的 phone），
-          `finally` 里清理自己插入的行。
-      verify: `docker exec -w /app <backend> python -m tests.test_nudge_service`（注意用
-      `-m tests.test_nudge_service` 而不是 `python tests/test_nudge_service.py`——后者以文件路径
-      启动时 `/app` 不在 `sys.path`，`from app...` 会 `ModuleNotFoundError`，本容器没设
-      `PYTHONPATH`；`docker-compose.dev.yml` 已经 bind-mount 了 `./backend:/app`，本地改完文件
-      容器内直接可见，不需要 `docker cp`）输出 `All 11 nudge-service tests passed.`，退出码 0。
-      >
-      > **Round-2 追加（必改3，见 DESIGN.md Review 核签）**：新增
-      > `test_mock_prefix_excluded_everywhere` + `test_flood_cap_limits_sends_and_flags_flood_capped`
-      > 两条，用例总数变为 13。为配合 `run_daily_nudges` 新增的 `MOCK-` 前缀咽喉点过滤（见 Ticket 2
-      > 引擎模块 round-2 追加小节），测试辅助函数 `_ref()` 改为生成 `TEST-` 前缀（而不是
-      > `MOCK-` 前缀）的 `reference_number`——否则所有跑真实 `run_daily_nudges()` 的现有测试都会
-      > 因为自己的测试行被咽喉点过滤掉而失败。`customer_name`/`email` 仍保留 `Mock-`/`mock+` 内容
-      > 标记（不受过滤影响，纯用于人眼识别）。新增 `_mock_ref()`（**DOES** 生成 `MOCK-` 前缀）
-      > 专供 `test_mock_prefix_excluded_everywhere` 验证过滤本身。verify 命令与用例总数改为
-      > `All 13 nudge-service tests passed.`。
-
-**Ticket 2 Test plan**: Step 2.13 的 13 个 assert 用例（round-2 后）是主体；额外跑一次
-`docker exec -w /app <backend> python -m tests.test_booking_logic` 和上面 Ticket 1 提到的 docker
-pytest e2e，确认没有把 `notification_service.py`（未改动，只读）或 `service_booking_flow.py`
-其它函数带出回归。
+**Ticket 0 Test plan**: `PY -m tests.test_money` (9 pass) · `PY -m tests.test_timefmt` (7 pass) · migration round trip (Step 0.15) · four `config | Select-String NOTIFY_REDIRECT` checks (`"on"` ×3, `off` ×1) · nudge file 13 pass.
 
 ---
 
-## Ticket 3 — 端点 + 调度  [Blocked by: 2] [serial]
-**Files**: `backend/app/api/v1/internal_nudges.py`（新建）、`backend/app/api/v1/router.py`、
-`backend/tests/test_nudge_endpoint.py`（新建）、`docker-compose.test.yml`
+## Ticket 2 — Global notification redirect + Calgary time on the non-service files  [Blocked by: 0] [serial — runs BEFORE T1, Review R2]
+**Files**: `backend/app/services/notification_service.py`, `backend/app/api/v1/admin/case_extras.py`, `backend/app/services/booking_flow.py`, `backend/app/api/v1/admin/installations.py`, `backend/app/api/v1/admin/surveys.py`, `backend/app/api/v1/admin/quotes.py`, `backend/tests/test_notify_redirect.py` (new). **Do not touch `service_booking_flow.py`** (T1 does its 3 time sites). In the EV files change ONLY the named time expression (SPEC: EV = time display only).
 
-- [x] **Step 3.1** — 新建 `backend/app/api/v1/internal_nudges.py`：
-      ```python
-      from __future__ import annotations
+- [x] **Step 2.1** — baseline send-site inventory (red line: no unknown sender). verify: `Get-ChildItem backend\app -Recurse -Filter *.py | Select-String -Pattern '(?<!def )\bsend_(email|sms)\(' | Select-Object Path, LineNumber` → **exactly 5 rows**: `notification_service.py` ×4 and `admin\case_extras.py` ×1. Any other count → STOP and report (an unknown send path is a red-line hole).
+- [x] **Step 2.2** — `backend/tests/test_notify_redirect.py` (new; RED first). Helpers: `_mode(on: bool)` context manager that sets `notif_svc.get_settings = lambda: Settings(NOTIFY_REDIRECT="on" if on else "off")` (construct via the alias, see the note in `test_nudge_service.py::test_redirect_default_on_and_off`; **always pass an explicit `"on"`/`"off"`, never `None`** — after Step 2.12 the container itself has `NOTIFY_REDIRECT=on` in its environment and these tests must not depend on how a `None` kwarg interacts with it), replaces `notif_svc.send_sms` / `notif_svc.send_email` with recorders (append kwargs to a list), restores all three in `finally`. Each test opens `db = SessionLocal()`, ends with `db.rollback(); db.close()` (rows are flushed inside the record function's SAVEPOINT and never committed — nothing to clean). Assertions are on the **`Notification` object the record function returns** plus the recorder (system boundary), never on a table query. Constants: `KUO_SMS = "+15879669668"`, `KUO_EMAIL = "cool@khtain.com"`. Eight tests:
+      1 `_send_service_sms(db, to_phone="+14035550123", template_name="t", body="Hello", service_booking_id=None, cleaning_subscription_id=None)` ON → `n.recipient == KUO_SMS`, `n.content == "[REDIRECTED — intended for +14035550123]\nHello"`, recorder got `to_phone == KUO_SMS` and the same body.
+      2 `_send_service_email(db, to_email="real@example.com", template_name="t", subject="Hi", html="<p>x</p>", service_booking_id=None, cleaning_subscription_id=None)` ON → `n.recipient == KUO_EMAIL`, `n.subject == "[REDIRECTED → real@example.com] Hi"`, `n.content.endswith("<p>x</p>")`, `"Intended recipient: real@example.com" in n.content`, recorder got `to_email == KUO_EMAIL`.
+      3 OFF → both functions: `n.recipient` is the real one, `n.content`/`n.subject` unchanged, no `REDIRECTED` anywhere, recorder got the real recipient.
+      4 ON but `to` already the target (`KUO_SMS` / `KUO_EMAIL`, also with different case/whitespace for the email) → content/subject unchanged (nudge path no-op).
+      5 EV pair: create `Customer` + `Case` with `db.add(...)` + `db.flush()` (copy field values from `_mk_ev_case` in `test_nudge_service.py` but do not commit), then `notif_svc.notify_sms(db, case_id=str(case.id), to_phone="+14035550123", template_name="t", body="Hello")` and `notify_email(db, case_id=..., to_email="real@example.com", template_name="t", subject="Hi", html="<p>x</p>")` ON → same redirected recipients/markers as 1–2.
+      6 resend endpoint (R1): flush a `Case` + an email `Notification(case_id=case.id, channel=NotificationChannel.email, recipient="real@example.com", template_name="t", subject="Hi", content="<p>x</p>", status=NotificationStatus.sent)`; patch `app.api.v1.admin.case_extras.send_email` with a recorder; call `resend_notification_email(str(n.id), NotificationResendIn(to_email=None), db, None)` ON → recorder got `to_email == KUO_EMAIL`, subject starts `"[REDIRECTED"`, returned dict `{"ok": True, "to": KUO_EMAIL}`; OFF → recorder got `real@example.com`.
+      7 `notify_redirect_enabled()` semantics through the patched settings (explicit strings only): `"on"`, `"ON"`, `" On "` → True; `"off"`, `""`, `"true"`, `"1"` → False.
+      8 emails keep `inline_images` working: ON + html containing `cid:brand-logo` still records and calls the recorder once (the banner must not break the `cid:` detection).
+      verify: `PY -m tests.test_notify_redirect` → fails with `ImportError`/`AttributeError` on `notify_redirect_enabled` (RED).
+- [x] **Step 2.3** — `notification_service.py`: add `from html import escape`, `from app.utils.timefmt import calgary_date_iso` (used in Step 2.10), and after `render_sms_from_db_or_fallback` add:
+      `def notify_redirect_enabled() -> bool` → `(get_settings().notify_redirect or "").strip().casefold() == "on"`;
+      `def _apply_redirect(*, is_sms: bool, to: str, subject: str | None, body: str) -> tuple[str, str | None, str]`: not enabled → `(to, subject, body)`; `target = s.nudge_redirect_sms if is_sms else s.nudge_redirect_email`; if `to.strip().casefold() == target.strip().casefold()` → unchanged; SMS → `(target, subject, f"[REDIRECTED — intended for {to}]\n{body}")`; email → `(target, f"[REDIRECTED → {to}] {subject}", banner + body)` with `banner = f'<div style="background:#fef3c7;border:1px solid #f59e0b;color:#92400e;padding:8px 12px;margin:0 0 12px 0;font:13px/1.4 Arial,sans-serif;">[REDIRECTED] Intended recipient: {escape(to)}</div>'`. Docstring: why record-layer (audit stays truthful), see ADR-017.
+      verify: `PY -c "from app.services.notification_service import notify_redirect_enabled, _apply_redirect; print(callable(_apply_redirect), notify_redirect_enabled())"` → `True False` (the container has no `NOTIFY_REDIRECT` yet at this point; after Step 2.12 it prints `True True`).
+- [x] **Step 2.4** — `notification_service.py`, `notify_email` and `notify_sms` (EV): first statement of each function body, **before** `Notification(...)` is built: `to_email, subject, html = _apply_redirect(is_sms=False, to=to_email, subject=subject, body=html)` / `to_phone, _, body = _apply_redirect(is_sms=True, to=to_phone, subject=None, body=body)`. Everything after uses the rebound names (so `Notification.recipient` records the real destination).
+      verify: `Select-String -Path backend\app\services\notification_service.py -Pattern '_apply_redirect\(' | Measure-Object | Select-Object -ExpandProperty Count` → `3` (1 def + 2 calls) at this step.
+- [x] **Step 2.5** — `notification_service.py`, `_send_service_email` and `_send_service_sms`: same first-statement pattern (`to_email, subject, html = ...` / `to_phone, _, body = ...`).
+      verify: the count command above → `5` (1 def + 4 calls).
+- [x] **Step 2.6** — `backend/app/api/v1/admin/case_extras.py` (R1): add `from app.services.notification_service import _apply_redirect`; in `resend_notification_email` replace the call by `to_email, subject, html = _apply_redirect(is_sms=False, to=to_email, subject=n.subject, body=n.content)` followed by `send_email(to_email=to_email, subject=subject, html=html)`; the returned dict keeps `{"ok": True, "to": to_email}` (now the actual, redirected address).
+      verify: `Select-String -Path backend\app\api\v1\admin\case_extras.py -Pattern '_apply_redirect'` → 2 matches (import + call).
+- [x] **Step 2.7** — `backend/app/services/booking_flow.py`: add `from app.utils.timefmt import fmt_calgary`; line ~53 `scheduled_text = start_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")` → `scheduled_text = fmt_calgary(start_at)`; line ~102 `when = start_at.astimezone().strftime(...)` → `when = fmt_calgary(start_at)`.
+      verify: `Select-String -Path backend\app\services\booking_flow.py -Pattern 'astimezone\(\)\.strftime'` → no match.
+- [x] **Step 2.8** — `backend/app/api/v1/admin/installations.py`: import `fmt_calgary`; line ~462 `scheduled_text = payload.scheduled_date.astimezone().strftime(...)` → `fmt_calgary(payload.scheduled_date)`; line ~665 `completed_text = inst.completed_at.astimezone().strftime(...)` → `fmt_calgary(inst.completed_at)`. Touch nothing else (money code lives in this file).
+      verify: `Select-String -Path backend\app\api\v1\admin\installations.py -Pattern 'astimezone\(\)\.strftime'` → no match.
+- [x] **Step 2.9** — `backend/app/api/v1/admin/surveys.py`: import `fmt_calgary`; line ~113 `scheduled_text = payload.scheduled_date.astimezone().strftime(...)` → `fmt_calgary(payload.scheduled_date)`.
+      verify: same grep on `surveys.py` → no match.
+- [x] **Step 2.10** — `backend/app/api/v1/admin/quotes.py` line ~150: `"generated_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")` → `"generated_at": fmt_calgary(datetime.now(timezone.utc))` (the file has `from datetime import datetime` → add `timezone`; import `fmt_calgary`). And `notification_service.py` `build_invoice_pdf`: `"invoice_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")` → `calgary_date_iso(datetime.now(timezone.utc))` (import added in Step 2.3). Two files, two one-line edits.
+      verify: `Get-ChildItem backend\app -Recurse -Filter *.py | Select-String -Pattern 'astimezone\(\)\.strftime|utcnow\(\)\.strftime|now\(timezone\.utc\)\.strftime'` → exactly 3 matches, all in `service_booking_flow.py` (T1 removes them).
+- [x] **Step 2.11** — GREEN. verify: `PY -m tests.test_notify_redirect` → `All 8 notify-redirect tests passed.`; `PY -m tests.test_timefmt` → 7 pass.
+- [x] **Step 2.12** — make the container actually enforce it. `DC up -d backend` (recreates the container with the new env) then verify: `PY -c "from app.services.notification_service import notify_redirect_enabled as f; print(f())"` → `True`. Also `DC exec -T backend printenv NOTIFY_REDIRECT` → `on`. Then re-run `PY -m tests.test_notify_redirect` → still `All 8 notify-redirect tests passed.` (proves the tests do not depend on the container's own `on`). (Only now may send-capable flows run on the dev stack.)
+- [x] **Step 2.13** — existing nudge tests must stay green with the container's `NOTIFY_REDIRECT=on`: verify `PY -m tests.test_nudge_service` → `All 13 nudge-service tests passed.` (nudge recipients already equal the targets → `_apply_redirect` is a no-op). If a test fails *because of the redirect*, the only allowed fix is to also patch `notif_svc.get_settings` inside that test (never edit an assertion) — and say so in your report.
+- [x] **Step 2.14** — re-run the Step 2.1 inventory. verify: still exactly 5 rows, and `Select-String -Path backend\app\api\v1\admin\case_extras.py -Pattern '_apply_redirect'` → 2.
 
-      import hmac
+**Ticket 2 Test plan**: `test_notify_redirect` (8 pass, asserts on returned `Notification` objects + transport recorder, before and after the container carries `on`) · `test_timefmt` · `test_nudge_service` (13) · inventory = 5 sites · container prints `True`. Red-line spot check with the dev container running: `PY -c "from app.services.notification_service import _apply_redirect; print(_apply_redirect(is_sms=True, to='+14035550000', subject=None, body='probe'))"` → first element `+15879669668`, body starts `[REDIRECTED`.
 
-      from fastapi import APIRouter, Depends, Header, HTTPException
-      from sqlalchemy.orm import Session
+---
 
-      from app.config import get_settings
-      from app.database import get_db
-      from app.services.nudge_service import run_daily_nudges
+## Ticket 1 — Bird-netting backend + GST on all three service lines  [Blocked by: 0, 2] [serial]
+**Files**: see table. Implement DESIGN §3.6–3.8 with these pinned amendments. **Constants** (module level in `service_booking_flow.py`): `MAX_PERIMETER_FT = 50_000`, `MAX_ITEM_COUNT = 1_000`, `MAX_SURVEY_PHOTOS = 30`, `MAX_NOTES_LEN = 2000`, `MAX_REASON_LEN = 300`, `_SURVEY_PHOTO_RE = re.compile(r"^/uploads/services/[A-Za-z0-9_-][A-Za-z0-9._-]*$")`, `PREVIEW_TOKEN_SCOPE = "bird_quote_preview"`, `PREVIEW_TOKEN_MINUTES = 30`. All validation failures raise `HTTPException(400, <clear message>)` at the flow layer (no Pydantic range constraints — they would answer 422). `_money_str(d) -> str` = `f"{d:,.2f}"` (thousands comma, matches the contract sample `$1,990.80`).
 
-      router = APIRouter(prefix="/internal")
-
-
-      @router.post("/nudges/run")
-      def run_nudges(
-          db: Session = Depends(get_db),
-          x_nudge_key: str | None = Header(default=None, alias="X-Nudge-Key"),
-      ):
-          settings = get_settings()
-          if not settings.nudge_run_key:
-              raise HTTPException(status_code=503, detail="Nudges are not configured")
-          if not hmac.compare_digest(x_nudge_key or "", settings.nudge_run_key):
-              raise HTTPException(status_code=401, detail="Invalid key")
-          return run_daily_nudges(db)
+- [x] **Step 1.1** — `backend/app/models/models.py`: add `surveyed = "surveyed"  # bird netting (survey result recorded; quote not yet sent)` to `ServiceBookingStatus` right after `survey_scheduled`; update the class docstring lifecycle line (`... survey_scheduled → surveyed → quoted → approved ...`). (R4: the DB value already exists from T0.)
+      verify: `PY -c "from app.models.models import ServiceBookingStatus as S; print([s.value for s in S])"` → list contains `surveyed` right after `survey_scheduled`.
+- [x] **Step 1.2** — `service_booking_flow.py`: replace `BIRD_TRANSITIONS` by DESIGN §3.6 (`submitted:{survey_scheduled,cancelled}`, `survey_scheduled:{surveyed,cancelled}`, `surveyed:{quoted,cancelled}`, `quoted:{approved,surveyed,cancelled}`, `approved:{install_scheduled,cancelled}`, `install_scheduled:{completed,cancelled}`) and add `BIRD_STATUS_ENDPOINT_ALLOWED = {ServiceBookingStatus.completed, ServiceBookingStatus.cancelled}`.
+      verify: `PY -c "from app.services.service_booking_flow import BIRD_TRANSITIONS as T, BIRD_STATUS_ENDPOINT_ALLOWED as A; from app.models.models import ServiceBookingStatus as S; print(S.surveyed in T[S.survey_scheduled], sorted(x.value for x in A))"` → `True ['cancelled', 'completed']`.
+- [x] **Step 1.3** — `backend/app/services/nudge_service.py`: in `_SERVICE_CLASSIFY` add `(ServiceType.bird_netting, ServiceBookingStatus.surveyed): "ours",` right after the `survey_scheduled` row. Nothing else in this file.
+      verify: `PY -c "import tests.test_nudge_service as t; t.test_service_classify_exhaustive(); print('sentinel ok')"` → `sentinel ok`.
+- [x] **Step 1.4** — `backend/tests/test_bird_helpers.py` (new; RED first; no pytest import; runner prints `All {n} bird-helper tests passed.`). Imports from `app.services.service_booking_flow`: `bird_invoice_items, make_preview_token, verify_preview_token`; plus `jose.jwt`, `app.config.get_settings`, `types.SimpleNamespace`. Six tests:
+      1 `bird_invoice_items(SimpleNamespace(roll_count=3, nest_count=1, roll_price_snapshot=599.0, nest_fee_snapshot=99.0))` → 2 items and `round(sum(i["amount"] for i in items), 2) == 1896.00` (literal; this is the class of bug that hit Raju's invoice) · 2 `roll_count=2, nest_count=0` → exactly 1 item, sum `1198.00` · 3 `verify_preview_token(make_preview_token("b-1"), "b-1") is True` · 4 same token with `"b-2"` → False · 5 a token signed with the same secret but **without** `scope` (payload `{"sub": "b-1", "role": "super_admin", "exp": <future>}`) → False; and an expired token (valid scope, `exp` in the past) → False · 6 `verify_preview_token("garbage", "b-1")` and `verify_preview_token("", "b-1")` → False.
+      verify: `PY -m tests.test_bird_helpers` → fails with `ImportError` (RED).
+- [x] **Step 1.5** — `service_booking_flow.py` imports/constants: add `import re`, `timedelta` to the datetime import, `from decimal import Decimal`, `from jose import jwt`, `from app.services.security import decode_token`, `from app.utils.money import GST_RATE_PERCENT, deposit_split, suggested_rolls, to_money, with_gst`, `from app.utils.timefmt import fmt_calgary`, the constants and `_money_str` above; add `_get_bird_quote(db, booking) -> BirdNettingQuote | None` (the `select(BirdNettingQuote).where(booking_id == booking.id)` that is currently repeated).
+      verify: `PY -c "import app.services.service_booking_flow as f; print(f.MAX_PERIMETER_FT, f._money_str(1990.8))"` → `50000 1,990.80`.
+- [x] **Step 1.6** — `service_booking_flow.py`: add `bird_invoice_items(quote) -> list[dict]` — the single copy of the invoice line-item block that `approve_bird_quote` and `_build_completion_invoice` duplicate today (netting line always: description `Bird netting installation — {n} roll(s)`, quantity, `unit_price` string, `amount = roll_count * float(roll_price_snapshot)`; nest line only when `nest_count`: `Bird nest cleanup — {n} nest(s)`). Same dict keys as the existing code.
+      verify: `PY -c "from app.services.service_booking_flow import bird_invoice_items"` → no error.
+- [x] **Step 1.7** — `service_booking_flow.py`: add `make_preview_token(booking_id) -> str` (`jwt.encode({"sub": str(booking_id), "scope": PREVIEW_TOKEN_SCOPE, "exp": int((now_utc + timedelta(minutes=PREVIEW_TOKEN_MINUTES)).timestamp())}, get_settings().secret_key, algorithm="HS256")`) and `verify_preview_token(token, booking_id) -> bool` (via `decode_token`; catch `ValueError`/any decode failure → False; True only if `payload.get("scope") == PREVIEW_TOKEN_SCOPE and payload.get("sub") == str(booking_id)`; expiry is enforced by `decode_token`). A preview token never carries `role`, so it cannot authenticate as admin.
+      verify: `PY -m tests.test_bird_helpers` → `All 6 bird-helper tests passed.`
+- [x] **Step 1.8** — `service_booking_flow.py`: replace the three `strftime("%Y-%m-%d %H:%M %Z")` expressions (`create_service_booking` `scheduled_text`, `admin_schedule_booking` `scheduled_text`, `admin_schedule_visit` `scheduled_text`) by `fmt_calgary(start_at)`.
+      verify: `Get-ChildItem backend\app -Recurse -Filter *.py | Select-String -Pattern 'astimezone\(\)\.strftime|utcnow\(\)\.strftime|now\(timezone\.utc\)\.strftime'` → no match anywhere.
+- [x] **Step 1.9** — `admin_schedule_booking`, bird branch: `status == survey_scheduled` → `kind = AppointmentKind.bird_survey`, `new_status = survey_scheduled`, template `service_scheduled` (reschedule the survey; status unchanged so no `_mark_status_changed`); `status in {approved, install_scheduled}` → existing install behaviour; any other status → 400 `"A time can be set only for the drone survey (before it is recorded) or the installation (after approval)."`. The rest of the function is unchanged.
+      verify: `Select-String -Path backend\app\services\service_booking_flow.py -Pattern 'A time can be set only for the drone survey'` → 1 match.
+- [x] **Step 1.10** — add `admin_record_survey_result(db, *, booking, perimeter_ft, nest_count, notes, photo_urls) -> ServiceBooking` per DESIGN §3.6 with: bird only; status ∈ {survey_scheduled, surveyed} else 400; `perimeter_ft` int `1..MAX_PERIMETER_FT`; `nest_count` int `0..MAX_ITEM_COUNT`; `notes` stripped, empty → None, `len <= MAX_NOTES_LEN`; `photo_urls` a list of ≤ `MAX_SURVEY_PHOTOS` strings each matching `_SURVEY_PHOTO_RE`; write the 5 columns; `surveyed_at = now (UTC)` only if currently None; mark active `bird_survey` appointments `AppointmentStatus.completed`; status → `surveyed` (`_mark_status_changed` only when it was not already `surveyed`); commit/refresh; **no notification**.
+      verify: `PY -c "from app.services.service_booking_flow import admin_record_survey_result"` → no error.
+- [x] **Step 1.11** — add `admin_save_bird_quote_draft(db, *, booking, roll_count, nest_count, roll_override_reason) -> BirdNettingQuote`: bird only; status must be `surveyed` (if `quoted` → 400 `"Revise the sent quote first."`, otherwise 400 `"Record the survey result first."`); `booking.survey_perimeter_ft is None` → 400 `"Record the survey result first."` (R8, legacy rows); `roll_count`/`nest_count` ints `0..MAX_ITEM_COUNT` and `roll_count + nest_count > 0`; `suggested = suggested_rolls(booking.survey_perimeter_ft)`; if `roll_count != suggested` the stripped reason (≤ `MAX_REASON_LEN`) is mandatory else 400 `f"Explain why the roll count differs from the suggested {suggested}."`, and when equal the reason is stored as NULL; snapshot prices from `get_service_pricing(db)` via `to_money`; `subtotal = roll_count*roll_price + nest_count*nest_fee`; `subtotal, gst, total = with_gst(subtotal)`; `deposit, _ = deposit_split(total)`; upsert the quote row: `roll_count, nest_count, roll_price_snapshot, nest_fee_snapshot, subtotal, gst_rate=GST_RATE_PERCENT, gst_amount=gst, total, deposit_amount=deposit, roll_override_reason, status=QuoteStatus.pending, signature_data=None, signed_name=None, approved_at=None, sent_at=None`; booking status unchanged; **no notification**.
+      verify: `PY -c "from app.services.service_booking_flow import admin_save_bird_quote_draft"` → no error.
+- [x] **Step 1.12** — add `admin_send_bird_quote(db, *, booking) -> BirdNettingQuote`: bird only; status == `surveyed` else 400; quote must exist with `sent_at is None` else 400 `"Save a quote draft first."`; `quote.sent_at = now (UTC)`; `_mark_status_changed`; status `quoted`; commit; then `notify_service(template_key="bird_quote_ready", ...)` — ctx `customer_name, reference_number, roll_count, nest_count, subtotal=_money_str(...), gst_amount=_money_str(...), total=_money_str(...), deposit_amount=_money_str(...), quote_url`; email fallback: subject `Your bird-netting quote is ready`, body `... {{ roll_count }} roll(s), {{ nest_count }} nest(s). Subtotal ${{ subtotal }} + GST ${{ gst_amount }} = <strong>${{ total }}</strong> (incl. GST). A 30% deposit of ${{ deposit_amount }} is due on approval.` + the existing button; SMS fallback `{{ brand_name }}\nBird-netting quote ready\nTotal: ${{ total }} (incl. GST)\nRef: {{ reference_number }}\nApprove: {{ quote_url }}`.
+      verify: `Select-String -Path backend\app\services\service_booking_flow.py -Pattern '\(incl\. GST\)'` → ≥ 2 matches (email + SMS fallbacks).
+- [x] **Step 1.13** — add `admin_revise_bird_quote(db, *, booking) -> BirdNettingQuote`: bird only; status == `quoted` else 400; quote `status == pending` else 400 `"This quote is already signed."`; `quote.sent_at = None`; `_mark_status_changed`; status `surveyed`; commit; **no notification**; the quote row is kept (never deleted).
+      verify: `PY -c "from app.services.service_booking_flow import admin_revise_bird_quote"` → no error.
+- [x] **Step 1.14** — delete `admin_create_bird_quote` entirely (an immediate-notify path must not survive).
+      verify: `Select-String -Path backend\app\services\service_booking_flow.py -Pattern 'admin_create_bird_quote'` → no match.
+- [x] **Step 1.15** — `approve_bird_quote`: keep order not-found(404) → already-approved(return) → add `if quote.sent_at is None: raise HTTPException(400, "This quote has not been sent.")` → existing `status != quoted` check; `quote.approved_at = datetime.now(timezone.utc)`; `deposit = to_money(quote.deposit_amount)`; build the PDF with `items=bird_invoice_items(quote)`, `subtotal=float(quote.subtotal)`, `gst_rate=float(quote.gst_rate)` (snapshot, **not** a constant 5.0 — historical 0-tax quotes must not print a tax rate), `gst_amount=float(quote.gst_amount)`, `total=float(quote.total)`, `due_now_label="Deposit Due Now (30%)"`, `due_now_amount=float(deposit)`, note unchanged; notification ctx `deposit_amount=_money_str(deposit)`.
+      verify: `Select-String -Path backend\app\services\service_booking_flow.py -Pattern 'This quote has not been sent'` → 1 match.
+- [x] **Step 1.16** — `admin_update_status`: first statement after the signature: `if booking.service_type == ServiceType.bird_netting and new_status not in BIRD_STATUS_ENDPOINT_ALLOWED: raise HTTPException(400, "Use the survey / quote actions for this step.")`. In the completion notification (`service_completed`) add ctx `balance_amount` = `_money_str(to_money(quote.total) - to_money(quote.deposit_amount))` for bird bookings that have a quote (snapshot-based, same rule as the admin view), else `""`; update the email fallback (`... complete. Thank you!</p>{% if balance_amount %}<p style="margin:0 0 12px 0;">Balance due: <strong>${{ balance_amount }}</strong> — invoice attached.</p>{% endif %}`) and SMS fallback (`{{ brand_name }}\nService complete\nRef: {{ reference_number }}{% if balance_amount %}\nBalance due: ${{ balance_amount }}{% endif %}\nThank you!`).
+      verify: `Select-String -Path backend\app\services\service_booking_flow.py -Pattern 'Use the survey / quote actions|balance_amount'` → ≥ 4 matches.
+- [x] **Step 1.17** — `_build_completion_invoice`: diagnostic → `subtotal = Decimal(str(actual_hours)) * Decimal(str(hourly_rate_snapshot))`, `subtotal, gst, total = with_gst(subtotal)`; PDF `subtotal/gst_rate=float(GST_RATE_PERCENT)/gst_amount/total`; item `amount = float(subtotal)`. Bird → `items = bird_invoice_items(quote)`; `subtotal/gst_rate/gst_amount/total` from the quote snapshot (floats); `amount_paid = float(quote.deposit_amount)`. Delete the duplicated item-building code.
+      verify: `Select-String -Path backend\app\services\service_booking_flow.py -Pattern 'bird_invoice_items\('` → 3 matches (def + approve + completion).
+- [x] **Step 1.18** — `create_cleaning_subscription`: when `annual_price is not None` compute `subtotal, gst, total = with_gst(annual_price)`; invoice item `amount=float(subtotal)`, PDF `subtotal/gst_rate/gst_amount/total` accordingly; ctx `annual_total = _money_str(total)` (else `""`); email fallback `... Annual price: <strong>${{ annual_price }}</strong>{% if annual_total %} + 5% GST = <strong>${{ annual_total }}</strong>{% endif %}.`; SMS fallback `{{ brand_name }}\nCleaning subscription confirmed\nAnnual: ${{ annual_price }}{% if annual_total %} + 5% GST = ${{ annual_total }}{% endif %}\nRef: {{ reference_number }}\nView: {{ status_url }}`.
+      verify: `PY -c "import app.services.service_booking_flow"` → no error; `PY -m tests.test_bird_helpers` → 6 pass; `PY -m tests.test_money` → 9 pass.
+- [x] **Step 1.19** — `backend/app/api/v1/admin/services.py`, `_booking_admin_view(db, b, detail: bool = False)` (import `suggested_rolls`, `to_money` from `app.utils.money`, `AppointmentKind`): add keys `surveyed_at` (iso|None) and `survey` = `None if b.surveyed_at is None else {"perimeter_ft", "nest_count", "notes", "photo_urls": b.survey_photo_urls or [], "suggested_rolls": suggested_rolls(b.survey_perimeter_ft)}` (R8); extend `quote` with `subtotal, gst_rate, gst_amount, total, deposit_amount, balance_amount (= to_money(total) − to_money(deposit), None if no deposit), roll_override_reason, sent_at` (all floats/iso|None); when `detail` and bird: `quote.preview_url` (only if a quote row exists) = `f"{flow.bird_quote_url(b.access_token)}?preview={flow.make_preview_token(b.id)}"` and top-level `install_booked_at` = `created_at` of the newest `Appointment` with `service_booking_id == b.id` and `kind == AppointmentKind.bird_install` (else None). `list_bookings` keeps `detail=False` (no tokens, no extra query).
+      verify: `PY -c "import app.api.v1.admin.services"` → no error.
+- [x] **Step 1.20** — same file, endpoints (each returns `_booking_admin_view(db, b, detail=True)`; `get_booking`, `schedule_booking`, `update_booking_status`, `cancel_booking` also switch to `detail=True`): add `class SurveyResultIn(BaseModel): perimeter_ft: int; nest_count: int; notes: str | None = None; photo_urls: list[str] = Field(default_factory=list)` and `POST /services/bookings/{booking_id}/survey-result`; `class QuoteDraftIn(BaseModel): roll_count: int; nest_count: int; roll_override_reason: str | None = None` and `PUT /services/bookings/{booking_id}/quote-draft`; `POST .../quote/send`; `POST .../quote/revise`; **delete** `QuoteIn` and `POST /services/bookings/{id}/quote`. All depend on `get_current_admin`; import `Field` from pydantic.
+      verify: `Select-String -Path backend\app\api\v1\admin\services.py -Pattern '/survey-result|/quote-draft|/quote/send|/quote/revise'` → 4 matches; `... -Pattern 'create_quote|QuoteIn'` → no match.
+- [x] **Step 1.21** — same file, `services_dashboard` bird loop: `bird_rev += float(q.subtotal)` (ex-GST, same basis as EV finance) and `outstanding` only when `q.status == QuoteStatus.pending and q.sent_at is not None` (drafts are not outstanding quotes, R10).
+      verify: `Select-String -Path backend\app\api\v1\admin\services.py -Pattern 'q\.subtotal|q\.sent_at is not None'` → 2 matches; `PY -c "import app.main"` → no error.
+- [x] **Step 1.22** — `backend/app/api/v1/public/services.py`: import `SystemSetting` and `from app.services.bootstrap_service import DEFAULT_ETRANSFER_RECIPIENT_EMAIL`; add `_etransfer_email(db)` (read `SystemSetting` key `etransfer_settings`, `value.get("recipient_email")` else the constant — same logic as `public/payments.py`); `_booking_public_view`: add `surveyed_at`, `etransfer_email`, and expose `quote` **only when `quote is not None and quote.sent_at is not None`** with `roll_count, nest_count, subtotal, gst_rate, gst_amount, total, deposit_amount, balance_amount, status, sent_at`, plus `survey` `{perimeter_ft, nest_count, photo_urls, surveyed_at}` only together with `quote` and only when `b.surveyed_at is not None`; otherwise `quote: None`, `survey: None`.
+      verify: `Select-String -Path backend\app\api\v1\public\services.py -Pattern 'sent_at is not None'` → ≥ 1 match; `PY -c "import app.api.v1.public.services"` → no error.
+- [x] **Step 1.23** — same file, `get_bird_quote(token, preview: str | None = Query(default=None), db)` (import `Query` from fastapi): no quote row → 404 `"No quote yet"`; `quote.sent_at is None and not flow.verify_preview_token(preview or "", b.id)` → the same 404 `"No quote yet"`; response per DESIGN §3.7 (adds `subtotal, gst_rate, gst_amount, deposit_amount, balance_amount, sent_at, survey|None`) and `preview: quote.sent_at is None`. The `approve_bird_quote` endpoint keeps ignoring any `preview` parameter (the flow-layer guard from Step 1.15 does the rest).
+      verify: `Select-String -Path backend\app\api\v1\public\services.py -Pattern 'verify_preview_token'` → 1 match; `PY -c "import app.main"` → no error.
+- [x] **Step 1.24** — `backend/app/services/bootstrap_service.py` (3 templates only, email **and** sms, strings identical to the flow fallbacks of Steps 1.12/1.16/1.18): `bird_quote_ready`, `service_completed`, `cleaning_subscription_confirm`. (Existing DB rows are not overwritten — merge-without-overwrite; this only affects fresh databases such as the test stack.)
+      verify: `Select-String -Path backend\app\services\bootstrap_service.py -Pattern 'incl\. GST|balance_amount|annual_total'` → ≥ 5 matches.
+- [x] **Step 1.25** — `backend/scripts/mock_data.py`: (a) imports `from app.utils.money import GST_RATE_PERCENT, deposit_split, with_gst`, `zlib`, `struct`, `Path`; (b) helper `_solid_png(rgb, size=24) -> bytes` (stdlib PNG: signature + IHDR(8-bit RGB) + one zlib IDAT of `size` rows of `b"\x00" + bytes(rgb)*size` + IEND, each chunk `len + type + data + crc32`) and `ensure_mock_photos()` that creates `uploads/services/` and writes `mock-survey-1..3.png` (colours `(148,163,184)`, `(100,116,139)`, `(71,85,105)`) if missing; constant `MOCK_SURVEY_PHOTOS = [f"/uploads/services/mock-survey-{i}.png" for i in (1, 2, 3)]`; call it from `seed_services`; (c) `SERVICE_BOOKINGS`: append `("12", "Yuri", ServiceType.bird_netting, ServiceBookingStatus.surveyed, 26, "27 Mahogany Rd SE")`; (d) new set `SURVEYED_STATES = {surveyed, quoted, approved, install_scheduled, completed}`; every bird booking in it gets `survey_perimeter_ft=230, survey_nest_count=2, survey_notes="Mock-survey notes: two arrays, south + west faces.", survey_photo_urls=MOCK_SURVEY_PHOTOS, surveyed_at=days(offset + 4, 2)`; (e) bird quotes for `QUOTED_STATES ∪ {surveyed}`: rolls 3, nests 2, `sub, gst, total = with_gst(3*599 + 2*99)`, `deposit, _ = deposit_split(total)`, columns `subtotal/gst_rate=GST_RATE_PERCENT/gst_amount/total/deposit_amount`, `sent_at = None` for `surveyed` (the draft, MOCK-BN-12) else `days(offset + 5)`. No other seed changes.
+      verify: `PY -c "import scripts.mock_data as m; print(m.SERVICE_BOOKINGS[-1][0], len(m.MOCK_SURVEY_PHOTOS))"` → `12 3`.
+- [x] **Step 1.26** — `backend/tests/test_services_v3.py`: (a) move the two top-level imports `from app.services.service_pricing import ...` and `from app.models.models import CleaningTier` **inside** `test_cleaning_tier_resolution`, preceded by `pytest.importorskip("app.services.service_pricing")` (the `tests` image has no `app` package); (b) delete the obsolete `test_bird_netting_quote_and_approve` (it posts to the deleted `/quote`) and add the six tests below (each decorated with the existing `@needs_stack`) plus helpers `_slots(n)` (first n slots from `/public/services/slots`, `pytest.skip` if fewer), `_new_bird(slot)` (POST a bird booking: `phone="+14035550113"`, `email="bird@example.com"`, `panel_count=24`, `disclaimer_accepted=True`; return `(token, booking_id)` by matching `access_token` in the admin list), `_adm(method, path, headers, **kw)` (`httpx.request(method, _url("/api/v1/admin" + path), headers=headers, timeout=20, **kw)`), constants `PHOTO = "/uploads/services/mock-test-1.png"` and `SIG` (reuse the data-URI string from the old test). Each test logs in through the existing `_admin_headers()` (the login throttle in `admin/auth.py` counts only **failed** attempts, successful logins reset the bucket — checked, so the extra logins are safe). Tests (literals, not recomputed):
+      **T-a `test_bird_full_flow_money_visibility_and_stages`**: new booking is `survey_scheduled`, view `survey is None` and `quote is None` → `POST /survey-result {perimeter_ft:230, nest_count:1, notes:"Mock-test", photo_urls:[PHOTO]}` 200, status `surveyed`, `survey.suggested_rolls == 3`, `surveyed_at` set → public status view: `status == "surveyed"`, `quote` absent/None, `survey` absent/None → public quote endpoint 404 → `PUT /quote-draft {roll_count:3, nest_count:1}` 200 with `quote.subtotal == 1896.0`, `gst_rate == 5.0`, `gst_amount == 94.8`, `total == 1990.8`, `deposit_amount == 597.24`, `balance_amount == 1393.56`, `sent_at is None`, booking still `surveyed` → public status still has no quote, public quote 404, public `approve` → 400 → admin detail `quote.preview_url` contains `?preview=`; `GET public quote?preview=<jwt>` → 200 with `preview is True` and `total == 1990.8`; `?preview=garbage` → 404; no param → 404 → `POST /quote/send` 200, status `quoted`, `quote.sent_at` set → public quote (no param) 200: `preview is False`, `total == 1990.8`, `deposit_amount == 597.24`, `balance_amount == 1393.56`, `survey.perimeter_ft == 230`, `survey.photo_urls == [PHOTO]`; public status view now has the quote and survey → `PUT /quote-draft` while quoted → 400 → `POST /quote/revise` 200, status `surveyed`, `quote.sent_at is None`, public quote **404 again**, public status has no quote → `/quote/send` again 200 → public `approve` with `SIG` 200 `{"ok": True, "status": "approved"}` → admin detail `status == "approved"`, `quote.status == "approved"`, `total == 1990.8`, `deposit_amount == 597.24`, `balance_amount == 1393.56` → `POST /quote/revise` → 400 → public status view has non-empty `etransfer_email` → `POST /schedule {start_at: <free slot>, technician: "Mock-Tech"}` 200, status `install_scheduled` → `POST /status {status:"completed", completion_notes:"ok"}` 200, status `completed`.
+      **T-b `test_bird_reschedule_survey_returns_200`**: `POST /schedule {start_at: slot2}` on a `survey_scheduled` booking → 200, `status` still `survey_scheduled`, `scheduled_at` equals slot2 (parse both as datetimes).
+      **T-c `test_bird_status_endpoint_blocks_stage_skipping`**: from `survey_scheduled`, `POST /status` with `quoted`, `surveyed`, `approved`, `install_scheduled` → each 400; `cancelled` → 200.
+      **T-d `test_bird_validation_boundaries`**: `PUT /quote-draft` before any survey → 400; `/survey-result` with `perimeter_ft` 0, 50001, `nest_count` -1, `photo_urls:["https://evil.example/x.png"]`, `photo_urls:["/uploads/services/../../etc/passwd"]` → each 400; valid `{230,1}` → 200; `PUT /quote-draft {roll_count:2, nest_count:1}` (no reason) → 400; same with `roll_override_reason:"extra roll for split arrays"` → 200 and `quote.roll_override_reason` equals it; `{0,0}` → 400; `{1001,0}` → 400.
+      **T-e `test_bird_old_quote_endpoint_is_gone`**: `POST /services/bookings/{id}/quote {"roll_count":1,"nest_count":0}` → 404.
+      **T-f `test_bird_dashboard_outstanding_excludes_unsent_drafts`**: read `per_service.bird_netting.outstanding_quote_value` (`v0`); survey 230/1 + `PUT /quote-draft {3,1}` → value still `v0` (±0.005); `POST /quote/send` → `v0 + 1990.80` (±0.005).
+      verify: `Select-String -Path backend\tests\test_services_v3.py -Pattern 'def test_bird_'` → 6 matches.
+- [x] **Step 1.27** — `docker-compose.test.yml`: delete the single line `- --ignore=tests/test_services_v3.py` (the file is now collectable in the `tests` image). Leave the other ignores.
+      verify: `Select-String -Path docker-compose.test.yml -Pattern 'test_services_v3'` → no match.
+- [x] **Step 1.28** — run the hermetic stack (fresh DB, SMTP/Twilio blanked, redirect on). verify: `TC up --build --abort-on-container-exit --exit-code-from tests 2>&1 | Select-String -Pattern 'passed|failed|error'` → a `... passed ...` line with no `failed`/`error`; then `$LASTEXITCODE` → `0`; then `TC down -v` (test project only). If a **pre-existing** test in `test_services_v3.py` (not one of the six `test_bird_*`) fails: do **not** edit it — STOP and report (likely rot from before this build).
+- [x] **Step 1.29** — seed on the dev DB and look at the rows. Run `PY -m scripts.mock_data seed` → prints `done — every mock row is tagged MOCK-/Mock-`; then
       ```
-      **顺序不能反**：先判断 key 是否配置（否则 503），再做 `compare_digest`（否则 401）——反过来
-      会导致"没配置密钥"时也回 401 而不是 503，掩盖了"整个功能没开"这一更重要的状态。
-      verify: `docker exec -w /app <backend> python -c "import app.api.v1.internal_nudges"` 无报错。
-
-- [x] **Step 3.2** — `backend/app/api/v1/router.py` — 新增
-      `from app.api.v1 import internal_nudges` 和
-      `api_router.include_router(internal_nudges.router, tags=["internal"])`
-      （放在 Admin 分组之后即可，顺序不影响功能）。
-      verify: `docker compose -f docker-compose.yml -f docker-compose.dev.yml restart backend`
-      后 `curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:7222/api/v1/internal/nudges/run`
-      返回 `503`（本地 `.env` 默认没配 `NUDGE_RUN_KEY`）。
-
-- [x] **Step 3.3** — `docker-compose.test.yml` — 在 `backend` 服务的 `environment` 块里新增一行：
-      `NUDGE_RUN_KEY: ${NUDGE_RUN_KEY:-test-nudge-key-do-not-use-in-prod}`
-      （不加 `NUDGE_REDIRECT`，保持默认重定向 ON，这样测试栈里发出的任何催单短信/邮件走的
-      收件人都是 `+15879669668`/`cool@khtain.com`，不会真的发给测试数据里的联系方式——虽然
-      测试栈本来 SMTP/Twilio 也是禁用的，两层保险都在）。同时在 `tests` 服务的 `environment`
-      块加一行 `NUDGE_RUN_KEY: ${NUDGE_RUN_KEY:-test-nudge-key-do-not-use-in-prod}`（供
-      test_nudge_endpoint.py 的 httpx 请求携带同一把 key）。
-      verify: `grep -c "NUDGE_RUN_KEY" docker-compose.test.yml` = 2。
-
-- [x] **Step 3.4** — 新建 `backend/tests/test_nudge_endpoint.py`，仿 `test_admin_notifications.py`
-      的 httpx + `needs_stack` 风格（**这个文件走 `docker-compose.test.yml` 的独立 `tests`
-      容器，是 pytest 可用的那一套，和 Step 2.13 不同**）：
-      ```python
-      import os
-      import httpx
-      import pytest
-
-      def _api_base() -> str:
-          return os.environ.get("API_BASE", "http://backend:8000").rstrip("/")
-
-      def _url(path: str) -> str:
-          return f"{_api_base()}{path}"
-
-      def _stack_up() -> bool:
-          try:
-              return httpx.get(_url("/health"), timeout=5).status_code == 200
-          except Exception:
-              return False
-
-      needs_stack = pytest.mark.skipif(not _stack_up(), reason="live backend stack not reachable")
-
-      @needs_stack
-      def test_wrong_key_returns_401():
-          r = httpx.post(_url("/api/v1/internal/nudges/run"), headers={"X-Nudge-Key": "wrong"}, timeout=20)
-          assert r.status_code == 401
-
-      @needs_stack
-      def test_correct_key_returns_200_with_summary():
-          key = os.environ.get("NUDGE_RUN_KEY", "test-nudge-key-do-not-use-in-prod")
-          r = httpx.post(_url("/api/v1/internal/nudges/run"), headers={"X-Nudge-Key": key}, timeout=30)
-          assert r.status_code == 200, r.text
-          body = r.json()
-          for k in ("date", "scanned", "customer_nudges_sent", "customer_nudges_failed",
-                    "skipped_today", "our_side", "needs_followup", "digest_sent"):
-              assert k in body
+      @'
+      from app.database import SessionLocal
+      from app.models.models import ServiceBooking as B, BirdNettingQuote as Q
+      db = SessionLocal()
+      for b in db.query(B).filter(B.reference_number.like('MOCK-BN-%')).order_by(B.reference_number):
+          q = db.query(Q).filter(Q.booking_id == b.id).one_or_none()
+          print(b.reference_number, b.status.value, b.survey_perimeter_ft, None if q is None else (float(q.total), float(q.deposit_amount), q.sent_at is not None), b.access_token if b.reference_number == 'MOCK-BN-12' else '')
+      '@ | DC exec -T backend python -
       ```
-      verify: `docker compose -f docker-compose.test.yml --env-file .env up --build --abort-on-container-exit --exit-code-from tests`
-      退出码 0，日志里两条新测试均 PASSED。
+      verify: output has `MOCK-BN-12 surveyed 230 (2094.75, 628.43, False) <token>`, `MOCK-BN-07 quoted 230 (2094.75, 628.43, True)`, `MOCK-BN-08/09/10` same amounts with `True`, `MOCK-BN-05 submitted None None`, `MOCK-BN-06 survey_scheduled None None`. Then the draft must be invisible: `curl.exe -s -o NUL -w "%{http_code}" http://localhost:7222/api/v1/public/services/bird-netting/quote/<BN-12 token>` → `404`.
+- [x] **Step 1.30** — final static checks. verify: `PY -m tests.test_money`, `tests.test_timefmt`, `tests.test_bird_helpers`, `tests.test_notify_redirect`, `tests.test_nudge_service` each print their `All N ... passed.`; the time-site grep from Step 1.8 → no match; `Select-String -Path backend\app\api\v1\admin\services.py -Pattern 'create_quote|QuoteIn'` → no match.
 
-- [ ] **Step 3.5**（手工，非自动化，Kuo 上线前执行）— 验证"缺 key → 503"分支：本地 `.env` 里 `NUDGE_RUN_KEY`
-      本就默认留空（Step 1.13 已是空），Step 3.2 的 verify 已经做过这个检查，此步骤只是明确
-      写进 runbook：部署到生产前，先确认 `.env` 里**没有**意外把 `NUDGE_RUN_KEY` 设成空字符串
-      以外的东西就直接上线（应该先设置真实 key 再启用 cron，见下）。
+**Ticket 1 Test plan**: the six HTTP tests (T-a…T-f) in the hermetic stack; five pure test modules; seed rows as in Step 1.29. Red-line spot checks: draft invisible (T-a steps 3–5 and the curl above); money literals (T-a); revise re-hides (T-a); `/status` cannot skip stages (T-c).
 
-### 部署 runbook（手工，不在自动化 verify 范围内，供 Kuo 执行）
+**⟦GATE 1 — orchestrator, not the implementer⟧** Planned advisor consult #1 (mid-implementation review). Scope to hand the advisor: `app/utils/money.py` + `admin_save_bird_quote_draft`/`approve_bird_quote`/`_build_completion_invoice` (money); the two public reads + `verify_preview_token` (draft visibility); `_apply_redirect` + the four record functions + `case_extras.py` + the Step 2.1/2.14 inventory (redirect). Also ask for a decision on the optional transport-layer fail-closed guard (DESIGN `## Review` R1). T3 starts only after the gate is released.
+- [x] **GATE 1 required changes (ADR-020)** — fail-closed guard first in `email_service.send_email` / `sms_service.send_sms`; `test_notify_redirect` tests 9/10 → `All 10 notify-redirect tests passed.`; inventory still 5; nudge 13 pass. Accepted LOW: `admin_send_bird_quote` re-checks roll override vs current `suggested_rolls` (400) + HTTP test `test_bird_send_rechecks_override_after_survey_change`; hermetic stack `28 passed, 1 skipped`, exit 0.
 
-- [ ] 生产 `.env` 追加真实 `NUDGE_RUN_KEY`（随机字符串，不进 git）、保持 `NUDGE_REDIRECT` 留空
-      （= 重定向默认 ON）。
-- [ ] **迁移预检（真跑前）**：`alembic current` 确认生产版本戳确实是 `a5b6c7d8e9f0`
-      （`case_load_calc`，2026-07-24 那次部署的最后一次迁移）。若生产落后得比这更多，说明待打
-      的迁移不止 `b1c2d3e4f5a6` + `655efc445c97` 两个，干跑必须覆盖完整链条，不能只测这两个。
-      同时确认临时库的 PostgreSQL 大版本号（`SELECT version();`）与生产一致——干跑结果只在
-      同版本下才可信。
-- [ ] **`pg_dump` 全量备份，在干跑之前、真跑之前都要有**：本次迁移链条含
-      `ALTER TYPE ... ADD VALUE`（`b1c2d3e4f5a6` 的 `appointment_kind` 枚举扩容）——这个操作
-      **不可回滚**，枚举值一旦加上，`downgrade()` 不会把它删掉，没有其它办法撤销。备份是唯一的
-      安全网。
-- [ ] **先在 VPS 复制一份生产库到临时库跑 `alembic upgrade head` 干跑一次**，确认本次新迁移
-      和从未上过生产的 `b1c2d3e4f5a6`（v3.0，含 `ALTER TYPE ... ADD VALUE` autocommit 块）能连续
-      跑通——MEMORY.md 记录 v3.0 从未部署过生产，这次可能是它们第一次一起上生产。
-      确认无误后才对生产库跑 `alembic upgrade head`。
-- [ ] **失败重试语义（心里有数，不必现在做）**：`ALTER TYPE ... ADD VALUE` 跑在 autocommit
-      块里，如果迁移在这一步之后、之前的某处中途失败，这个 `ADD VALUE` 已经真实持久化到库里了
-      （不会随失败回滚）——但迁移文件对它加了 `IF NOT EXISTS`，所以**同一条迁移重跑是安全的**，
-      不会因为"枚举值已存在"报错。中途失败时按此处理，不要慌着手工改库。
-- [ ] **给 Kuo 报预期条数前的普查（census）口径**：预计会催单多少条，**必须**按
-      `bucket == "customer"` 且 `should_nudge(stalled_days, sent_count)` 为真来数，**不能只数
-      `_scan_*` 命中数**——单纯 `_scan_*` 命中会把 our-side（`bucket=="ours"`，不发短信）和
-      "还没到 14 天整数倍"的 customer-side 目标也算进去，报出来的数字会虚高。`our_side` /
-      `needs_followup` 这两个数字（digest 里"我们方"/"待人工跟进"两节）单独报，不要和
-      customer 端将要发短信的条数混在一起。
-- [ ] 生产 crontab 加两行（`crontab -e`，抄 DESIGN.md §3.6 原文，`.env` 路径按实际部署目录改）：
-      ```cron
-      0 16 * * * curl -fsS -m 120 -X POST -H "X-Nudge-Key: $(grep '^NUDGE_RUN_KEY=' /www/wwwroot/evquote.khtain.com/fft-evquote-helper/.env | cut -d= -f2-)" http://127.0.0.1:7622/api/v1/internal/nudges/run >> /var/log/fft-nudge.log 2>&1
-      0 17 * * * curl -fsS -m 120 -X POST -H "X-Nudge-Key: $(grep '^NUDGE_RUN_KEY=' /www/wwwroot/evquote.khtain.com/fft-evquote-helper/.env | cut -d= -f2-)" http://127.0.0.1:7622/api/v1/internal/nudges/run >> /var/log/fft-nudge.log 2>&1
+---
+
+## Ticket 3 — Admin stage page  [Blocked by: 1] [serial]
+**Files**: `admin/src/utils/calgaryTime.js` (new), `admin/src/utils/birdMoney.js` (new), `admin/src/utils/serviceTone.js`, `admin/src/components/services/AdminSlotPicker.jsx`, `admin/src/pages/services/ServiceBookings.jsx`, `admin/src/pages/Dashboard.jsx` (one line, R5), `admin/src/pages/services/ServiceBookingDetail.jsx`, `admin/src/pages/services/BirdBookingDetail.jsx` (new), `admin/src/components/services/bird/{BirdStepper,SurveyStageCard,SurveySummaryCard,QuoteDraftCard,SendQuoteDialog,QuoteSummaryCard,InstallStageCard}.jsx` (new ×7; the Completed block is inline — Review D3). UI authority: `ui-ux-pro-max`; markup/classes are copied from `design/mockups/v1.html` (line ranges cited per step). Use `Card`/`Pill` primitives only where the contract markup is identical; otherwise copy the contract classes.
+
+**Time format table** (the only formats used; both apps get the same `calgaryTime.js`; web uses "·", notifications use commas — Kuo's resolution 1):
+| Where | Function | Example |
+|---|---|---|
+| stage time boxes (survey time, install time), customer time lines | `fmtCalgary(iso)` | `Fri, Oct 9 · 8:00 AM MDT` |
+| summary stamps (`Quote · sent …`, `Signed by … ·`, `Completed ·`) | `fmtCalgaryShort(iso)` | `Oct 9, 3:12 PM MDT` |
+| timeline rows | `fmtCalgaryShort(iso, false)` | `Oct 4, 3:31 PM` |
+| date only (`Survey result · …`, customer `Surveyed …`, `Completed …`) | `fmtCalgaryDay(isoOrDayKey)` | `Fri, Oct 9` |
+| slot pickers (day chip / hour button; the existing two-level picker is kept — the mock's single-button grid is illustrative) | `fmtCalgaryDay(dayKey)` / `fmtCalgaryHour(iso)` | `Fri, Oct 9` / `8:00 AM` |
+
+- [x] **Step 3.1** — `admin/src/utils/calgaryTime.js` (new):
+      ```js
+      const TZ = 'America/Edmonton'
+      const parts = (v, opts) => Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: TZ, ...opts }).formatToParts(new Date(v)).map((p) => [p.type, p.value]))
+      const WHEN = { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }
+      export function fmtCalgary(iso) { const p = parts(iso, WHEN); return `${p.weekday}, ${p.month} ${p.day} · ${p.hour}:${p.minute} ${p.dayPeriod} ${p.timeZoneName}` }
+      export function fmtCalgaryShort(iso, withTz = true) { const p = parts(iso, WHEN); return `${p.month} ${p.day}, ${p.hour}:${p.minute} ${p.dayPeriod}${withTz ? ` ${p.timeZoneName}` : ''}` }
+      export function fmtCalgaryDay(v) { const p = parts(/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T12:00:00Z` : v, { weekday: 'short', month: 'short', day: 'numeric' }); return `${p.weekday}, ${p.month} ${p.day}` }
+      export function fmtCalgaryHour(iso) { const p = parts(iso, { hour: 'numeric', minute: '2-digit' }); return `${p.hour}:${p.minute} ${p.dayPeriod}` }
       ```
-- [ ] **上线后首次调端点前**，核对生产 `.env` 三项：①`NUDGE_RUN_KEY` 已设置（否则端点返回
-      503，cron 会一直静默失败）；②`NUDGE_REDIRECT` 没被误设成字面值 `off`（除此之外任何
-      值/留空都保持重定向 ON）；③`NUDGE_REDIRECT_SMS`/`NUDGE_REDIRECT_EMAIL` 确实是 Kuo 本人的
-      手机/邮箱——digest 第一封信、第一条催单短信都会直接发到这两个地址。
-- [ ] **首次调用生产链路的验证方式（不要用 mock 数据穿透验证）**：`run_daily_nudges` 现在会在
-      咽喉点过滤掉全部 `MOCK-` 前缀记录（见 `nudge_service.py` 的 ponytail 注释），所以 mock 数据
-      **不会**再出现在催单短信或 digest 里，靠 mock 数据验证不了真实链路。改用一条
-      real-shaped 测试记录：用 Kuo 自己的手机号新建一条真实 booking/case（非 `MOCK-` 编号），
-      SQL 把它的 `status_changed_at`（或 EV 案子对应的 `CaseStatusHistory.created_at`）回拨 15
-      天，保持 `NUDGE_REDIRECT` 为 ON，手动调一次端点，确认短信 + digest 都送达（走的仍是重定向
-      地址，不是这条测试记录本身的手机号——因为重定向对非 mock 数据同样生效），验证完**清理掉
-      这条记录**（删行或状态改回，避免留下测试脏数据）。
-      约 8 月 10 日之后，`FFT-2026-0002`（Raju，非 mock）应会自然命中"球在客户·等付尾款"，
-      是观察真实链路的另一个天然时机——确认那条催单**没有**被真的发给 Raju
-      （`notifications.recipient` 应为 `+15879669668`）。
-- [ ] **关闭重定向是独立的决策门，不随本次部署自动发生**：把 `NUDGE_REDIRECT` 拨到字面值
-      `off`（让真实客户开始收到催单短信）必须由 Kuo 显式批准，不是"部署完就顺手关掉"。
-      建议：先让重定向 ON 跑几天，逐日看 digest 摘要（`我们方`/`待人工跟进`/预计催单数）符合
-      预期后，再单独决定何时拨 `off`。拨 `off` 前，如果要让真实客户"从第 1 次催起"（而不是
-      带着重定向期间已经计过的 `sent_count`），执行（DESIGN §3.3 提到的一次性 SQL，仅作参考，
-      执行前 Kuo 自行核对目标）：
-      `DELETE FROM notifications WHERE template_name = 'nudge_customer' AND recipient IN ('+15879669668', 'cool@khtain.com');`
-- [ ] **未来新增独立表的服务线**（像 cleaning 当年另起一张表那样）不会被任何穷举测试捕获——
-      `test_ev_classify_exhaustive` / `test_service_classify_exhaustive` / `test_cleaning_classify_exhaustive`
-      三条哨兵各自只穷举自己那张表的枚举值，谁都不知道"天上又掉下来一张新表"这件事。
-      新服务线上线时必须手工把它的分类规则接入 `_EV_CLASSIFY`/`_SERVICE_CLASSIFY`/`_CLEANING_CLASSIFY`
-      同款模式（新增一张 `_<NEW>_CLASSIFY` 穷举表 + 对应扫描函数 + 对应穷举测试），并把它接进
-      `run_daily_nudges` 的 `targets = _scan_ev(...) + _scan_services(...) + _scan_cleaning(...)`
-      拼接列表——写进上线 checklist，不要指望测试会替你发现遗漏。
+      (`en-US` is mandatory — `en-CA` prints `a.m.`; the AM/PM space is built by us so ICU's narrow no-break space never leaks.)
+      verify: `node --input-type=module -e "import { fmtCalgary, fmtCalgaryShort, fmtCalgaryDay, fmtCalgaryHour } from './admin/src/utils/calgaryTime.js'; const n = (s) => s.replace(/\s+/g, ' '); console.log([n(fmtCalgary('2026-10-09T14:00:00Z')), n(fmtCalgaryShort('2026-10-09T21:12:00Z')), n(fmtCalgaryShort('2026-10-04T21:31:00Z', false)), n(fmtCalgaryDay('2026-10-09')), n(fmtCalgaryDay('2026-10-09T14:00:00Z')), n(fmtCalgaryHour('2026-10-09T14:00:00Z')), n(fmtCalgary('2026-01-15T16:00:00Z'))].join(' | '))"` → `Fri, Oct 9 · 8:00 AM MDT | Oct 9, 3:12 PM MDT | Oct 4, 3:31 PM | Fri, Oct 9 | Fri, Oct 9 | 8:00 AM | Thu, Jan 15 · 9:00 AM MST`.
+- [x] **Step 3.2** — `admin/src/utils/birdMoney.js` (new): `export const money = (v) => { const n = Number(v); return Number.isNaN(n) ? '—' : n.toLocaleString('en-CA', { style: 'currency', currency: 'CAD' }) }` and `estimateBirdQuote(rolls, nests, rollPrice, nestFee)` using integer cents and `Math.round` (HALF_UP for positives): `c = (v) => Math.round(Number(v) * 100)`; `sub = Number(rolls) * c(rollPrice) + Number(nests) * c(nestFee)`; `gst = Math.round((sub * 5) / 100)`; `total = sub + gst`; `deposit = Math.round((total * 30) / 100)`; return `{ subtotal: sub/100, gst: gst/100, total: total/100, deposit: deposit/100, balance: (total - deposit)/100 }`. (UI-only estimate for unsaved inputs; every number the customer sees comes from the server.)
+      verify: `node --input-type=module -e "import { estimateBirdQuote as e } from './admin/src/utils/birdMoney.js'; console.log(JSON.stringify([e(3,1,599,99), e(1,0,100.10,0)]))"` → `[{"subtotal":1896,"gst":94.8,"total":1990.8,"deposit":597.24,"balance":1393.56},{"subtotal":100.1,"gst":5.01,"total":105.11,"deposit":31.53,"balance":73.58}]`.
+- [x] **Step 3.3** — `admin/src/utils/serviceTone.js`: add `surveyed: 'indigo'` to `SERVICE_BOOKING_STATUS_TONE`; export `BIRD_STATUS_LABEL = { submitted: 'Submitted', survey_scheduled: 'Survey booked', surveyed: 'Surveyed', quoted: 'Quoted', approved: 'Approved', install_scheduled: 'Install scheduled', completed: 'Completed', cancelled: 'Cancelled' }`.
+      verify: `Select-String -Path admin\src\utils\serviceTone.js -Pattern "surveyed"` → 2 matches.
+- [x] **Step 3.4** — `admin/src/components/services/AdminSlotPicker.jsx`: delete the local `fmtDay`/`fmtHour`; `import { fmtCalgaryDay, fmtCalgaryHour } from '../../utils/calgaryTime.js'` and use them (`{fmtCalgaryDay(d)}` for day chips, `{fmtCalgaryHour(s)}` for hour buttons). `dayKey` stays (the API returns slots with the Calgary offset, so `slice(0, 10)` is already the Calgary date).
+      verify: `Select-String -Path admin\src\components\services\AdminSlotPicker.jsx -Pattern 'toLocale'` → no match.
+- [x] **Step 3.5** — `admin/src/pages/services/ServiceBookings.jsx`: `STATUSES` gets `'surveyed'` after `'survey_scheduled'`; the Scheduled column `new Date(b.scheduled_at).toLocaleString()` → `fmtCalgary(b.scheduled_at)` (import).
+      verify: `Select-String -Path admin\src\pages\services\ServiceBookings.jsx -Pattern "'surveyed'|fmtCalgary"` → ≥ 2 matches, and `... -Pattern 'toLocale'` → no match.
+- [x] **Step 3.6** — `admin/src/pages/Dashboard.jsx` (R5): in `BIRD_STAGES` insert `{ label: 'Surveyed', key: 'surveyed' },` between `Survey` and `Quoted`. Nothing else.
+      verify: `Select-String -Path admin\src\pages\Dashboard.jsx -Pattern "key: 'surveyed'"` → 1 match.
+- [x] **Step 3.7** — `admin/src/components/services/bird/BirdStepper.jsx` (new). Props `{ status }`. Markup = contract lines 50–52 + the builder at lines 402–409 (`<nav aria-label="Progress">`, `<ol>` grid `grid-cols-3 gap-y-3 sm:grid-cols-6`, `<li>` with the 8×8 dot + label). Steps `['Survey booked','Surveyed','Quoted','Approved','Install scheduled','Completed']`; index map `submitted|survey_scheduled→0, surveyed→1, quoted→2, approved→3, install_scheduled→4, completed→5` (completed = all done, no current); `aria-current="step"` on the current `<li>`; done = check svg, current = number with ring, upcoming = number. **Contrast fix (whitelisted colour tweak, Review A):** upcoming dot `bg-slate-100 text-slate-600`, upcoming label `text-slate-500` (contract's `slate-400` is 2.6:1). Add `<span className="sr-only">` after each label: `(completed)` / `(current step)` / `(upcoming)`.
+      verify: `Select-String -Path admin\src\components\services\bird\BirdStepper.jsx -Pattern 'aria-current|sr-only|Progress'` → ≥ 3 matches.
+- [x] **Step 3.8** — `admin/src/components/services/bird/SurveySummaryCard.jsx` (new). Props `{ b }`; render nothing if `!b.survey`. Markup = contract lines 122–134: header `Survey result · {fmtCalgaryDay(b.surveyed_at)}` + green `Done` badge, three tiles (Perimeter `{ft} ft`, Nests, Photos count = `b.survey.photo_urls.length`), notes paragraph (hidden when empty).
+      verify: `Select-String -Path admin\src\components\services\bird\SurveySummaryCard.jsx -Pattern 'Survey result|fmtCalgaryDay'` → 2 matches.
+- [x] **Step 3.9** — `admin/src/components/services/bird/SurveyStageCard.jsx` (new). Props `{ b, reload }`. Markup = contract lines 75–120 (`border-2 border-emerald-600` current-step card, `Current step · 1 of 6`, title `Drone survey`). Behaviour:
+      (1) survey-time box `Survey time: <b>{fmtCalgary(b.scheduled_at)}</b> (Calgary)`; (2) the `<details>` "Change survey time" block **only when `b.status === 'survey_scheduled'`**: `AdminSlotPicker` + button `Reschedule survey & notify customer` → `api.post('/services/bookings/${b.id}/schedule', { start_at: slot })`, disabled until a slot is picked and while busy, success → `await reload()`, failure → inline message; (3) form with `<label>`ed inputs `Perimeter to net (ft)` (number, min 1) and `Active nests found` (number, min 0) and `Survey notes` textarea — prefilled from `b.survey` when present, empty otherwise (contract's `230` etc. are sample data); (4) photos: thumbnails `<img alt={`Drone photo ${i + 1}`} loading="lazy">` each with a remove button `aria-label={`Remove photo ${i + 1}`}`, plus the dashed `Add` label wrapping `<input type="file" accept="image/*" multiple className="hidden">`; each file is uploaded sequentially with `api.post('/public/services/upload', fd, { baseURL: '/api/v1', timeout: 120000 })` and its `res.data.url` appended; a per-file failure shows an inline message (`aria-live="polite"`) and does not drop earlier photos; (5) primary button `Save survey result → Surveyed` (disabled while uploading/saving, text `Saving…`) → client checks (integer perimeter ≥ 1, nests ≥ 0; inline error under the field, `aria-invalid`) then `api.post('/services/bookings/${b.id}/survey-result', { perimeter_ft, nest_count, notes: notes.trim() || null, photo_urls })`, success → `await reload()`, failure → show `e.response.data.detail`; helper lines from the contract (`Photos are shown to the customer on the quote page.`, `No message is sent to the customer.`).
+      verify: `Select-String -Path admin\src\components\services\bird\SurveyStageCard.jsx -Pattern 'Save survey result|/survey-result|/public/services/upload|Reschedule survey'` → 4 matches.
+- [x] **Step 3.10** — `admin/src/components/services/bird/QuoteDraftCard.jsx` (new). Props `{ b, reload }`. Markup = contract lines 136–175 (title `Quote draft`, badge `Draft · not sent`). State: `rolls`, `nests`, `reason` initialised from `b.quote` if present else `rolls = b.survey.suggested_rolls`, `nests = b.survey.nest_count`; prices = `b.quote` snapshots if a quote exists, else `api.get('/services/pricing')` (`bird_netting_roll_price`, `bird_netting_nest_fee`) on mount. `dirty` = inputs differ from the saved quote (or no quote yet). Lines: `Suggested <b>{suggested}</b> = ⌈{perimeter} ft ÷ 100⌉`, `From survey: {nests}`; amber box always shown (`If rolls ≠ suggested, a reason is required:`), error text **inside the amber box** when Save is clicked with rolls ≠ suggested and an empty reason (also show a server 400 detail there). Price table (contract lines 159–166): when not `dirty` use the server numbers from `b.quote` (`subtotal, gst_amount, total, deposit_amount`), when `dirty` use `estimateBirdQuote(...)` and show `Estimate — save to confirm` under the table. Buttons (contract lines 168–172): `Save draft` → `api.put('/services/bookings/${b.id}/quote-draft', { roll_count: Number(rolls), nest_count: Number(nests), roll_override_reason: reason.trim() || null })` then `await reload()` and a polite `Draft saved.` message; `Preview customer page` → `window.open(b.quote.preview_url, '_blank', 'noopener')`, **disabled when there is no saved draft or inputs are dirty** (the preview shows the saved draft); `Send quote…` → opens `SendQuoteDialog`, same disabled rule. Footer text from the contract. Keep a `ref` to the `Send quote…` button for focus return.
+      verify: `Select-String -Path admin\src\components\services\bird\QuoteDraftCard.jsx -Pattern 'quote-draft|estimateBirdQuote|preview_url|Send quote'` → ≥ 4 matches.
+- [x] **Step 3.11** — `admin/src/components/services/bird/SendQuoteDialog.jsx` (new). Props `{ open, b, onClose, onSent }`. Markup = contract lines 250–265 (`role="dialog" aria-modal="true" aria-labelledby`); content `To: <b>{b.email}</b>`, `SMS: <b>{b.phone}</b>`, `Total: <b>{money(b.quote.total)}</b> (incl. GST) · Deposit {money(b.quote.deposit_amount)}`. Behaviour: on open focus the `Back` button; `Esc` → `onClose`; `Tab`/`Shift+Tab` cycle between `Back` and `Send now` only; `Send now` → `api.post('/services/bookings/${b.id}/quote/send', {})`, disabled with text `Sending…` while busy, success → `onSent()`, failure → message inside the dialog and the dialog stays open. The parent (QuoteDraftCard) restores focus to its `Send quote…` button after close.
+      verify: `Select-String -Path admin\src\components\services\bird\SendQuoteDialog.jsx -Pattern 'aria-modal|aria-labelledby|Escape|quote/send'` → ≥ 4 matches.
+- [x] **Step 3.12** — `admin/src/components/services/bird/QuoteSummaryCard.jsx` (new). Props `{ b }`. Markup = contract lines 177–190: header `Quote · sent {fmtCalgaryShort(b.quote.sent_at)}`, pill `Awaiting signature` (amber) / `Signed` (emerald, when `b.quote.status === 'approved'`), 4 tiles (Rolls, Nests, `Total (incl. GST)` → label is just `Total` when `gst_amount` is 0 (legacy quotes), Deposit 30%), signed line `Signed by <b>{signed_name}</b> · {fmtCalgaryShort(approved_at)}` when approved.
+      verify: `Select-String -Path admin\src\components\services\bird\QuoteSummaryCard.jsx -Pattern 'Awaiting signature|Signed by'` → 2 matches.
+- [x] **Step 3.13** — `admin/src/components/services/bird/InstallStageCard.jsx` (new). Props `{ b, reload }`; two modes by `b.status`. `approved` = contract lines 205–221 (`Schedule installation`, note `Deposit invoice ({money(deposit_amount)}) was emailed on approval.`, `AdminSlotPicker`, `Technician` input, button `Confirm install time & notify customer` → `POST /services/bookings/${b.id}/schedule { start_at, technician: technician.trim() || null }`). `install_scheduled` = contract lines 223–237 (`Installation`, `Install time: <b>{fmtCalgary(b.scheduled_at)}</b>`, `<details>` `Change install time` containing the picker and a button `Reschedule install & notify customer`, `Completion notes` textarea, button `Mark completed & send balance invoice ({money(balance_amount)})`). The completion button first runs `window.confirm('Mark completed and email the balance invoice (' + money(balance_amount) + ') to the customer? This cannot be undone.')`, then `POST /services/bookings/${b.id}/status { status: 'completed', completion_notes: notes.trim() || undefined }`. All buttons disabled while busy; failures shown inline.
+      verify: `Select-String -Path admin\src\components\services\bird\InstallStageCard.jsx -Pattern 'window\.confirm|Mark completed|Confirm install time'` → ≥ 3 matches.
+- [x] **Step 3.14** — `admin/src/pages/services/BirdBookingDetail.jsx` (new). Props `{ b, reload }`. Layout = contract lines 35–74 (header, stepper, left column, right column). Header: `← All bookings` link, `<h1>{b.reference_number}</h1>`, pills `Bird Netting` (teal) and the status pill (`Pill tone={toneForServiceBookingStatus(b.status)}` with label `BIRD_STATUS_LABEL[b.status]`), and `Cancel booking` (contract line 46 classes) hidden for `completed`/`cancelled`, guarded by `window.confirm('Cancel this booking? This cannot be undone.')` then `api.post('/services/bookings/${b.id}/cancel')` → `reload()`. Left: Customer card (contract lines 57–65; `Mock-` names show as-is) and Timeline card (contract lines 66–69) with rows only for events that happened, in this order: `Booked online` (+ ` · survey {fmtCalgary(b.scheduled_at)}` only while `status === 'survey_scheduled'`) @ `created_at`; `Survey result recorded · {ft} ft, {n} nest(s)` @ `surveyed_at`; `Quote sent · {money(total)}` @ `quote.sent_at`; `Signed by customer · deposit invoice sent` @ `quote.approved_at`; `Install scheduled · {fmtCalgary(b.scheduled_at)}` @ `install_booked_at` (only when status ∈ install_scheduled/completed); `Completed · balance invoice sent` @ `completed_at`; times via `fmtCalgaryShort(x, false)`. Right column by status: `needsSurvey = status === 'survey_scheduled' || (status === 'surveyed' && !b.survey)` → `SurveyStageCard`; `surveyed` (with survey) → `SurveySummaryCard` + `QuoteDraftCard`; `quoted` → `SurveySummaryCard` + `QuoteSummaryCard` + an inline waiting card (contract lines 192–203: title `Waiting for customer signature`, text, buttons `View customer page` → `window.open(b.quote.preview_url, '_blank', 'noopener')` and `Revise quote (back to draft)` → `POST /services/bookings/${b.id}/quote/revise` then `reload()`); `approved` / `install_scheduled` → `SurveySummaryCard` + `QuoteSummaryCard` + `InstallStageCard`; `completed` → `SurveySummaryCard` + `QuoteSummaryCard` + the inline completed block (contract lines 239–245: `Completed · {fmtCalgaryShort(b.completed_at)}`, `Balance invoice {money(balance)} sent. Deposit {money(deposit)} + balance {money(balance)} = {money(total)}.`); `cancelled` → a rose notice `This booking was cancelled.` and no stage cards. `SurveySummaryCard` is simply not shown when `b.survey` is null (legacy rows).
+      verify: `Select-String -Path admin\src\pages\services\BirdBookingDetail.jsx -Pattern 'BirdStepper|SurveyStageCard|QuoteDraftCard|InstallStageCard|QuoteSummaryCard|window\.confirm|Revise quote'` → ≥ 7 matches.
+- [x] **Step 3.15** — `admin/src/pages/services/ServiceBookingDetail.jsx`: remove every bird branch (`BIRD_TRANSITIONS`, `rollCount/nestCount`, `doQuote`, `canQuote`, the bird `Card`, bird wording in the Schedule title); change `load()` to accept `{ silent }` (when silent, do not `setLoading(true)` — avoids unmounting children and losing `<details>`/scroll on every reload) and pass `reload={() => load({ silent: true })}`; after the loading/error guards, `if (b.service_type === 'bird_netting') return <AdminShell><BirdBookingDetail b={b} reload={() => load({ silent: true })} /></AdminShell>`; the diagnostic view keeps working unchanged except `scheduled_at`/`completed_at` use `fmtCalgary`.
+      verify: `Select-String -Path admin\src\pages\services\ServiceBookingDetail.jsx -Pattern 'rollCount|doQuote|BIRD_TRANSITIONS|toLocaleString'` → no match.
+- [x] **Step 3.16** — build + lint. verify: `npm --prefix admin run build` → exit 0, ends with `✓ built in`; `npm --prefix admin run lint 2>&1 | Select-String -Pattern 'BirdBookingDetail|components\\services\\bird|calgaryTime|birdMoney|serviceTone|ServiceBookings|ServiceBookingDetail|AdminSlotPicker|Dashboard'` → no output (no lint problem reported for any touched file).
+- [x] **Step 3.17** — browser check on the dev stack (the implementer's own real-browser pass — MEMORY lesson: static checks miss regressions). Run `DC up -d --build admin`, re-run `PY -m scripts.mock_data seed`, open `http://localhost:7221/admin/services/bookings`, log in with the local dev admin credentials from your local `.env` (never print them), then go through `MOCK-BN-06`, `-12`, `-07`, `-08`, `-09`, `-10` and compare each page with `design/mockups/v1.html` stages ①–⑥ (open the mockup file and use its switcher).
+      verify (checklist): stepper highlights the right step and `aria-current` is on exactly one `<li>`; status pill text matches `BIRD_STATUS_LABEL`; ① survey card shows a `Fri, …`-style Calgary time; ② draft card shows `Suggested 3 = ⌈230 ft ÷ 100⌉`, price table `$1,797.00 / $198.00 / $1,995.00 / $99.75 / $2,094.75 / deposit $628.43`; `Preview customer page` opens the customer page in a new tab; `Send quote…` opens the dialog, focus lands on `Back`, `Esc` closes and focus returns to `Send quote…`; ③ shows `Quote · sent …` and the revise button; ④⑤ show the install card; ⑥ shows the completed block; no free Status dropdown anywhere; Dashboard bird flow strip shows a `Surveyed` box counting `MOCK-BN-12`. You may click through actions on `MOCK-BN-06` (the walk-through row); afterwards run `PY -m scripts.mock_data seed` again to restore the fixtures.
 
-**Ticket 3 Test plan**：
-- Step 3.4 的两个 httpx 用例（401 / 200+summary）覆盖端点主路径。
-- Step 3.2 的 curl 覆盖"缺 key → 503"。
-- **Single-exit 静态核查**（对应 Review 里的红线复核项，跑一次即可）：
-  `grep -n "notify_sms\|_send_service_sms\|_send_service_email" backend/app/services/nudge_service.py`，
-  人工确认全部命中都在 `_deliver_customer_sms`/`_deliver_digest_email` 函数体内。
-- **红线抽查**：Step 2.13 的 `test_redirect_recipient_never_real_contact` 已覆盖"默认配置下
-  recipient 永不等于真实联系方式"；Step 2.13 新增的 `test_mock_prefix_excluded_everywhere` 已覆盖
-  "`MOCK-` 前缀记录既不发短信也不进 digest 任何一节"。本票额外用 `curl` 对本地栈实跑一次
-  `POST /internal/nudges/run`（正确 key），然后
-  `docker exec <db> psql ... -c "select recipient, content, created_at from notifications where template_name='nudge_customer' order by created_at desc limit 5;"`
-  人工确认 `recipient` 全部是 `+15879669668`——**注意**：本地栈的 `mock_data.py` 种子数据全部是
-  `MOCK-` 前缀，会被咽喉点过滤掉，这一步很可能查不到新的一行（本地库没有非-mock 的、真到期的
-  customer-side stalled 目标），这是**预期行为，不是回归**；如果确实想现场看到一条真实产生的
-  `nudge_customer` 行，改用下方部署 runbook 里"real-shaped 测试记录"的做法现造一条。
-- **鸟网 `approved` 落地页人工检查**（无代码改动，纯人工验收，本次新增的 `approved` 分流点是否
-  真的有地方可去）：浏览器打开
-  `http://localhost:7220/service/bird-netting/quote/<MOCK-BN-08 的 access_token>`
-  （`MOCK-BN-08` 是 `approved` 状态那条 mock 数据），确认页面渲染出可操作内容（哪怕只是显示
-  "已批准，等待安排安装"之类状态文案），而不是一个死链接/报错页——如果这个页面对
-  `approved` 状态完全没有可展示内容，催单短信会把客户导向一个空白页，需要回头找 Kuo 确认是否
-  仍要发这条催单（不属于本次代码改动范围，只是验收阶段的一次风险确认）。
-- **DB → 引擎 → API → （重定向）收件人 全链路验证**：round-2 review 加了 `MOCK-` 前缀咽喉点过滤
-  （见 nudge_service.py `run_daily_nudges` 的 ponytail 注释）之后，`mock_data.py` 种下的
-  `MOCK-` 数据**不再**是可用于穿透验证生产链路的手段——这条原计划里"全部标的都是 `Mock-`"的
-  end-to-end 验收**在改动之后已不可达，不要再按这个标准验收**。Step 2.13 的
-  `test_run_daily_nudges_ev_quoted_sends_redirected` /
-  `test_run_daily_nudges_service_booking_customer_side` /
-  `test_run_daily_nudges_cleaning_customer_side` /
-  `test_digest_is_one_row_per_day` 四条已经在测试层面把 EV / 诊断 / 鸟网 / 清洁三类
-  `nudge_customer` 行 + 1 条 `nudge_admin_digest` 行的全链路验证覆盖了（用非-`MOCK-`前缀的
-  `TEST-` 测试记录）。生产上线后的对应验证见"部署 runbook"里的 real-shaped 测试记录做法
-  （新建一条 Kuo 本人手机号的真实记录，回拨 `status_changed_at`，验证完清理）。
+**Ticket 3 Test plan** (tester re-runs at Test-plan time): build + lint (Step 3.16), both `node -e` checks (Steps 3.1/3.2), the Step 3.17 checklist in a real browser at 1280 px and 390 px widths. A11y: keyboard-only pass through the dialog (Tab cycles, Esc closes, focus returns), every input has a visible `<label>`, photo `alt`s, stepper `sr-only` text.
+
+---
+
+## Ticket 4 — Customer pages  [Blocked by: 3] [serial]
+**Files**: `frontend/src/utils/calgaryTime.js` (new — byte-identical copy of the admin file), `frontend/src/utils/renderBold.jsx` (new), `frontend/src/components/ServiceSlotPicker.jsx`, `frontend/src/components/SlotPicker.jsx`, `frontend/src/pages/service/BirdNettingFlow.jsx`, `frontend/src/pages/service/BirdQuoteApprove.jsx`, `frontend/src/pages/service/ServiceStatusPage.jsx`, `frontend/src/pages/service/DiagnosticFlow.jsx`, `frontend/src/pages/StatusPage.jsx`, `frontend/src/pages/SurveyConfirm.jsx`, `frontend/src/i18n/index.js`. UI authority `ui-ux-pro-max`; contract lines cited. Start by re-seeding: `PY -m scripts.mock_data seed` (T3 may have advanced rows).
+
+- [x] **Step 4.1** — copy `admin/src/utils/calgaryTime.js` to `frontend/src/utils/calgaryTime.js` unchanged.
+      verify: `(Get-FileHash admin\src\utils\calgaryTime.js).Hash -eq (Get-FileHash frontend\src\utils\calgaryTime.js).Hash` → `True`; run the same `node -e` check as Step 3.1 with `./frontend/src/utils/calgaryTime.js` → identical output.
+- [x] **Step 4.2** — `frontend/src/utils/renderBold.jsx` (new): `import { Fragment } from 'react'` and `export function renderBold(text) { return String(text ?? '').split('**').map((seg, i) => (i % 2 ? <b key={i}>{seg}</b> : <Fragment key={i}>{seg}</Fragment>)) }` (React escapes the text — no HTML injection; lets i18n strings carry `**bold**` like the contract's `<b>` without ~25 extra keys).
+      verify: `Select-String -Path frontend\src\utils\renderBold.jsx -Pattern "split\('\*\*'\)"` → 1 match.
+- [x] **Step 4.3** — `frontend/src/components/ServiceSlotPicker.jsx` and `SlotPicker.jsx` (two edits): delete the local `fmtDay`/`fmtHour`, import `fmtCalgaryDay`/`fmtCalgaryHour` from `../utils/calgaryTime.js`, use them in the two places they are called.
+      verify: `Select-String -Path frontend\src\components\ServiceSlotPicker.jsx,frontend\src\components\SlotPicker.jsx -Pattern 'toLocale'` → no match.
+- [x] **Step 4.4** — i18n, **en block** of `frontend/src/i18n/index.js` (modify/add exactly these keys; `**x**` = bold via `renderBold`; keep the existing `${{roll}}` placeholder style):
+      modify: `svc.bird.intro_body` → `Netting installed under your panels to keep birds out — priced by the roll, with a free drone survey for an exact quote.` · `svc.bird.intro_price_body` → `${{roll}} CAD per roll (100 ft), materials + 2-year warranty included. Active nests are ${{nest}} CAD each to clear.` · `svc.bird.intro_how_1` → `Book a free drone survey time` · `svc.bird.intro_how_2` → `We measure your panel perimeter and check for nests — you'll see the photos` · `svc.bird.intro_how_3` → `You get a formal quote to review and sign online` · `svc.bird.intro_how_4` → `30% deposit books your install — no one needs to be home` · `svc.bird.pricing_formula` → `Priced at ${{rollPrice}}/roll (100 ft) + ${{nestFee}}/nest if any are found, plus GST — final price confirmed after the drone survey.`
+      add: `svc.bird.intro_gst` `Prices before GST (5%).` · `svc.bird.calgary_hint` `All times are Calgary time.` · `svc.status.label.surveyed` `Survey completed` ·
+      `svc.status.bird.step.survey|quote|approve|install|done` = `Survey|Quote|Approve|Install|Done` ·
+      `svc.status.bird.s1.title` `Drone survey scheduled`, `.body` `Survey: **{{dt}}**`, `.note` `No one needs to be home. We'll text you when your quote is ready.` ·
+      `svc.status.bird.s2.title` `Survey done — preparing your quote`, `.body` `Surveyed **{{day}}**. We're preparing your quote — usually within 1 business day.` ·
+      `svc.status.bird.s3.title` `Your quote is ready`, `.body` `Total **{{total}}** (incl. GST)` ·
+      `svc.status.bird.s4.title` `Quote approved — thank you!`, `.body` `Deposit due: **{{deposit}}** (30%) — invoice emailed. Pay by e-Transfer to **{{email}}**.`, `.note` `We'll text you your install date.` ·
+      `svc.status.bird.s5.title` `Installation scheduled`, `.body` `Install: **{{dt}}**`, `.note` `No one needs to be home.` ·
+      `svc.status.bird.s6.title` `Completed`, `.body` `Completed **{{day}}**.`, `.balance` `Balance due: **{{balance}}** — invoice emailed.`, `.sum` `Deposit {{deposit}} + balance {{balance}} = {{total}}` ·
+      `svc.bird.quote.measured` `What we measured` · `.perimeter` `Perimeter` · `.ft` `ft` · `.nests_found` `Nests found` · `.photos_caption` `Drone photos from your survey on {{day}}.` · `.netting_line` `Netting · {{n}} rolls (100 ft each) × {{price}}` · `.nest_line` `Nest clearing · {{n}} × {{price}}` · `.subtotal` `Subtotal` · `.gst` `GST {{rate}}%` · `.deposit_box` `On approval: **30% deposit {{deposit}}** to book your install date.` · `.balance_box` `Balance **{{balance}}** after installation.` · `.warranty` `2-year warranty on netting and workmanship.` · `.preview_banner` `Preview — not sent` · `.preview_sign_disabled` `Signing is disabled in preview.` · `.photo_alt` `Drone survey photo {{n}}`.
+      verify: `Select-String -Path frontend\src\i18n\index.js -Pattern "'svc\.status\.bird\.s6\.sum'|'svc\.bird\.intro_gst'"` → 2 matches at this step (one per key, en only); 4 after Step 4.5.
+- [x] **Step 4.5** — i18n, **zh block** (same keys, same order):
+      modify: `svc.bird.intro_price_body` → `${{roll}} CAD/卷（100 英尺），含材料与 2 年质保。如有活跃鸟窝，每个清理费 ${{nest}} CAD。` · `intro_how_1` `预约免费无人机勘测时间` · `intro_how_2` `我方测量你的光伏板周长并检查鸟窝——你可以看到勘测照片` · `intro_how_3` `出具正式报价，供你在线查看并签字确认` · `intro_how_4` `支付 30% 订金锁定安装日期——安装期间无需在家` · `pricing_formula` `按 ${{rollPrice}}/卷（100 英尺）+ 若有鸟窝 ${{nestFee}}/个 计价，另加 GST——最终价格以无人机勘测报价为准。` (`intro_body` zh already matches the contract — leave it).
+      add: `intro_gst` `以上价格均为税前价（另加 5% GST）。` · `calgary_hint` `所有时间均为卡尔加里当地时间。` · `svc.status.label.surveyed` `勘测已完成` · steps `勘测|报价|确认|安装|完成` · `s1.title` `无人机勘测已安排` / `.body` `勘测时间：**{{dt}}**` / `.note` `无需有人在家。报价就绪后我们会短信通知你。` · `s2.title` `勘测完成，正在准备报价` / `.body` `勘测于 **{{day}}**。我们正在准备你的报价——通常 1 个工作日内发出。` · `s3.title` `你的报价已就绪` / `.body` `总计 **{{total}}**（含 GST）` · `s4.title` `报价已确认，谢谢！` / `.body` `应付订金：**{{deposit}}**（30%）——发票已发至邮箱。请通过 e-Transfer 支付至 **{{email}}**。` / `.note` `我们会短信告知你的安装日期。` · `s5.title` `安装已安排` / `.body` `安装时间：**{{dt}}**` / `.note` `安装期间无需有人在家。` · `s6.title` `已完成` / `.body` `完成于 **{{day}}**。` / `.balance` `尾款：**{{balance}}**——发票已发至邮箱。` / `.sum` `订金 {{deposit}} + 尾款 {{balance}} = {{total}}` · quote page: `measured` `实测数据` / `perimeter` `周长` / `ft` `英尺` / `nests_found` `发现鸟窝` / `photos_caption` `勘测当天（{{day}}）的无人机照片。` / `netting_line` `网材 · {{n}} 卷（每卷 100 英尺）× {{price}}` / `nest_line` `清理鸟窝 · {{n}} × {{price}}` / `subtotal` `小计` / `gst` `GST {{rate}}%` / `deposit_box` `确认后：**30% 订金 {{deposit}}** 用于锁定安装日期。` / `balance_box` `尾款 **{{balance}}** 于安装完成后支付。` / `warranty` `网材与安装工艺享 2 年质保。` / `preview_banner` `预览——尚未发送` / `preview_sign_disabled` `预览模式下无法签字。` / `photo_alt` `无人机勘测照片 {{n}}`.
+      verify: pair audit — `@'
+const fs = require('fs'); const t = fs.readFileSync('frontend/src/i18n/index.js', 'utf8'); const i = t.indexOf('  zh: {')
+const keys = (s) => new Set([...s.matchAll(/^ {4}'(svc\.[^']+)':/gm)].map((m) => m[1]))
+const en = keys(t.slice(0, i)), zh = keys(t.slice(i))
+console.log('MISSING_IN_ZH', [...en].filter((k) => !zh.has(k)), 'MISSING_IN_EN', [...zh].filter((k) => !en.has(k)))
+'@ | node -` → `MISSING_IN_ZH [] MISSING_IN_EN []`.
+- [x] **Step 4.6** — `frontend/src/pages/service/BirdNettingFlow.jsx`: price card: after the `intro_price_body` paragraph add `<p className="mt-1 text-sm font-semibold text-slate-900">{t('svc.bird.intro_gst')}</p>` (contract line 314 `<b>Prices before GST (5%).</b>`); below `<ServiceSlotPicker .../>` add `<p className="mt-1 text-xs text-slate-500">{t('svc.bird.calgary_hint')}</p>` (contract line 332); the summary row `new Date(slot).toLocaleString()` → `fmtCalgary(slot)` (import). No other change.
+      verify: `Select-String -Path frontend\src\pages\service\BirdNettingFlow.jsx -Pattern 'toLocale'` → no match; `... -Pattern 'intro_gst|calgary_hint|fmtCalgary'` → ≥ 3 matches.
+- [x] **Step 4.7** — `frontend/src/pages/service/DiagnosticFlow.jsx` L~223: `slot ? new Date(slot).toLocaleString() : '—'` → `slot ? fmtCalgary(slot) : '—'` (import). `frontend/src/pages/SurveyConfirm.jsx` L~59: `new Date(status.survey_scheduled_date).toLocaleString()` → `fmtCalgary(status.survey_scheduled_date)` (import). `frontend/src/pages/StatusPage.jsx` `dt(v)` (L~69–75): body becomes `try { return fmtCalgary(v) } catch { return String(v || '') }` (import); leave `toLocalInputValue` alone (it feeds a `datetime-local` input).
+      verify: `Select-String -Path frontend\src\pages\service\DiagnosticFlow.jsx,frontend\src\pages\SurveyConfirm.jsx -Pattern 'toLocaleString'` → no match; `Select-String -Path frontend\src\pages\StatusPage.jsx -Pattern 'fmtCalgary'` → 2 matches (import + use).
+- [x] **Step 4.8** — `frontend/src/pages/service/ServiceStatusPage.jsx`: `dt(v)` → `fmtCalgary(v)` (cleaning/diagnostic branches keep working with Calgary times). For `kind === 'booking' && data.service_type === 'bird_netting'` replace the generic "Current status" + separate quote card with the contract's status block (lines 438–453): the Reference header stays; then a 5-dot progress `<ol>` (copy classes from contract lines 443–446; labels `t('svc.status.bird.step.*')`; index map `submitted|survey_scheduled→0, surveyed→1, quoted→2, approved→3, install_scheduled→3, completed→all done`) and one card `Current status` containing the state's `title` (`svc.status.bird.sN.title`), body via `renderBold(t('svc.status.bird.sN.body', {...}))`, optional gray note, per state: s1 `{dt: fmtCalgary(data.scheduled_at)}`; s2 `{day: fmtCalgaryDay(data.surveyed_at)}` and **no amounts at all**; s3 `{total: money(data.quote.total)}` + the existing `View & sign quote` link to `/service/bird-netting/quote/${token}` (key `svc.status.view_quote`); s4 teal box (contract line 432) `{deposit: money(data.quote.deposit_amount), email: data.etransfer_email}` + note; s5 `{dt: fmtCalgary(data.scheduled_at)}` + existing technician line + note; s6 `{day: fmtCalgaryDay(data.completed_at)}`, then the slate box with `.balance` `{balance: money(data.quote.balance_amount)}` and the small `.sum` line `{deposit, balance, total}`. `cancelled` → card with `svc.status.label.cancelled`, no dots. Diagnostic keeps its existing card.
+      verify: `Select-String -Path frontend\src\pages\service\ServiceStatusPage.jsx -Pattern 'svc\.status\.bird\.s[1-6]\.title|svc\.status\.bird\.s\$\{'` → ≥ 1 match covering the six titles (literal keys or one template-literal lookup); `... -Pattern 'toLocale'` → exactly 1 match (the `money` helper's currency formatting).
+- [x] **Step 4.9** — `frontend/src/pages/service/BirdQuoteApprove.jsx`: `const [params] = useSearchParams(); const preview = params.get('preview')`; the GET becomes `api.get(`/public/services/bird-netting/quote/${token}`, { params: preview ? { preview } : undefined })`; **the approve POST never sends `preview`**. Render (inside the existing card, under the `h2`): `Ref {quote.reference_number}` line (contract line 273; also shows the `MOCK-` marker on mock rows); if `quote.preview` an amber banner `t('svc.bird.quote.preview_banner')` at the top; section `What we measured` (contract lines 276–288, only when `quote.survey`): two tiles Perimeter `{ft} {t('svc.bird.quote.ft')}` / Nests found, a horizontal scroll strip of `<img src={url} alt={t('svc.bird.quote.photo_alt', { n: i + 1 })} loading="lazy" className="h-24 w-32 shrink-0 rounded-xl object-cover">`, caption `photos_caption` with `{day: fmtCalgaryDay(quote.survey.surveyed_at)}`; price table (contract lines 289–295): `netting_line` `{n: roll_count, price: money(roll_price)}` → `money(roll_count*roll_price)`, `nest_line` row only when `nest_count > 0`, `Subtotal`, `GST {rate}%` rows only when `gst_amount > 0`, bold `Total`; blue box (contract lines 296–298) with `renderBold(t('svc.bird.quote.deposit_box', { deposit }))` and `renderBold(t('svc.bird.quote.balance_box', { balance }))`; warranty line (contract line 300). In preview mode the agree checkbox, name input, signature pad and the approve button are `disabled` (button text unchanged, plus `t('svc.bird.quote.preview_sign_disabled')` under it). `survey: null` (legacy quotes) simply hides the measured section. Keep the approved state (message + back link) as it is.
+      verify: `Select-String -Path frontend\src\pages\service\BirdQuoteApprove.jsx -Pattern 'useSearchParams|preview_banner|photo_alt|balance_box'` → ≥ 4 matches; and the approve call must not carry `preview`: `@'
+const t = require('fs').readFileSync('frontend/src/pages/service/BirdQuoteApprove.jsx', 'utf8'); const i = t.indexOf('async function onApprove'); const j = t.indexOf('\n  }\n', i)
+console.log(t.slice(i, j).includes('preview'))
+'@ | node -` → `false`.
+- [x] **Step 4.10** — build + lint + key audit. verify: `npm --prefix frontend run build` → exit 0; `npm --prefix frontend run lint 2>&1 | Select-String -Pattern 'BirdNettingFlow|BirdQuoteApprove|ServiceStatusPage|DiagnosticFlow|StatusPage|SurveyConfirm|SlotPicker|calgaryTime|renderBold|i18n'` → no output; missing-key audit `@'
+const fs = require('fs'), path = require('path')
+const t = fs.readFileSync('frontend/src/i18n/index.js', 'utf8'); const en = new Set([...t.slice(0, t.indexOf('  zh: {')).matchAll(/^ {4}'([^']+)':/gm)].map((m) => m[1]))
+const files = ['pages/service/BirdNettingFlow.jsx', 'pages/service/BirdQuoteApprove.jsx', 'pages/service/ServiceStatusPage.jsx'].map((f) => path.join('frontend/src', f))
+const used = new Set(); for (const f of files) for (const m of fs.readFileSync(f, 'utf8').matchAll(/\bt\(\s*['"]([^'"$]+)['"]/g)) used.add(m[1])
+console.log('MISSING', [...used].filter((k) => !en.has(k)))
+'@ | node -` → `MISSING []` (keys built with a template literal such as ``svc.status.bird.s${n}.title`` are covered by the Step 4.8 grep instead).
+- [x] **Step 4.11** — browser check on the dev stack. Run `DC up -d --build frontend`; get tokens: `@'
+from app.database import SessionLocal
+from app.models.models import ServiceBooking as B
+for b in SessionLocal().query(B).filter(B.reference_number.like('MOCK-BN-%')).order_by(B.reference_number): print(b.reference_number, b.status.value, b.access_token)
+'@ | DC exec -T backend python -`. Open `http://localhost:7220/service/status/<token>` for BN-06/12/07/08/09/10 and compare with the six phones of the mockup's `客户进度页 · 6 阶段` view (contract lines 423–453); open `http://localhost:7220/service/bird-netting/quote/<BN-07 token>` and compare with the mockup's `客户报价页（手机）`; open BN-12's token on the quote URL; get a preview URL from the admin BN-12 page (`Preview customer page`); open `http://localhost:7220/service/bird-netting`; toggle the language to zh.
+      verify (checklist): correct dot position, titles/bodies/notes and bold amounts per state; **BN-12 (draft) status page shows no dollar amount anywhere** and its plain quote URL shows the "quote not ready" message (404 path); BN-08 shows the e-Transfer address `bruce@khtain.com`; BN-10 shows balance + deposit = total; the BN-07 quote page has the measured section with 3 photos and `alt`s, table `$1,797.00 / $198.00 / $1,995.00 / GST $99.75 / Total $2,094.75`, blue box `$628.43 / $1,466.32`, warranty line, `Ref MOCK-BN-07`; the preview URL shows the amber `Preview — not sent` banner with signing disabled; the booking page shows the GST sentence, the 4 step texts and `All times are Calgary time.`; zh text present everywhere.
+
+**Ticket 4 Test plan**: build + lint + key audit (Step 4.10), `node -e` format check (Step 4.1), the Step 4.11 checklist (draft invisibility on BN-12 is the red-line item), both languages, 390 px width. Mock-marker end-to-end: the page `Ref MOCK-BN-07` text comes from DB → API → UI.
+
+---
+
+## Repair R-ADR021 — Alberta permanent UTC-6 (tester failure on test_timefmt case 6)  [after T4, before T5]
+Law-driven spec correction, NOT a loosened test: Alberta Official Time Act makes Calgary permanent UTC-6 from 2026-11-01 (IANA 2026c). Step 0.5 case 6 ("1:30 AM MST" after 08:00Z) encoded the repealed fall-back; DESIGN.md ADR-021 supersedes it.
+- [x] **Step R.1** — `backend/app/utils/timefmt.py`: `fmt_calgary` drops `%Z`, appends ` (Calgary time)` → `"Fri, Oct 9, 8:00 AM (Calgary time)"`. All callers only interpolate `{{ scheduled_text }}` / `completed_text` / `generated_at` (grep MDT|MST|%Z → none left in backend code).
+- [x] **Step R.2** — `backend/requirements.txt` `tzdata==2025.1` → `tzdata==2026.5` (IANA 2026e; 2026.3 = 2026c is the minimum). verify: container prints `tzdata 2026.5 IANA 2026e`.
+- [x] **Step R.3** — `test_timefmt.py`: expectations → `(Calgary time)`; case 6 → 08:30Z = `"Sun, Nov 1, 2:30 AM (Calgary time)"`; new case 8 `2027-01-15 15:00Z` → `"Fri, Jan 15, 9:00 AM (Calgary time)"`. verify: `PY -m tests.test_timefmt` → `All 8 timefmt tests passed.` (also with `-e PYTHONTZPATH=` = pip tzdata only).
+- [x] **Step R.4** — `admin/src/utils/calgaryTime.js` = `frontend/src/utils/calgaryTime.js` (byte-identical): instants >= 2026-11-01T08:00:00Z use `Etc/GMT+6`, else `America/Edmonton`; no `timeZoneName`; `fmtCalgaryShort` loses the dead `withTz` arg (one caller in BirdBookingDetail). verify: node check 07:30Z → 1:30 AM, 08:30Z → 2:30 AM, 2027-01-15T15Z → 9:00 AM (raw ICU Edmonton prints the stale "8 AM MST").
+- [x] **Step R.5** — copy whitelist: i18n `svc.status.bird.s1.body`/`s5.body` (en/zh) append "(Calgary time)"/"（卡尔加里时间）"; SurveyStageCard "(Calgary)" → "(Calgary time)"; `design/mockups/v1.html` MDT removed at the same spots (contract = product).
+- [x] **Step R.6** — zh money: `currencyDisplay: 'narrowSymbol'` in BirdQuoteApprove / ServiceStatusPage `money()` (zh-CN "CA$" → "$"; en-CA output byte-identical). Admin `birdMoney.js` is en-CA only — unaffected.
+- [x] **Step R.7** — hermetic stack runs test_timefmt: `Dockerfile.test` copies `app/__init__.py` + `app/utils/timefmt.py`, `ENV PYTHONPATH=/tests`; `requirements-test.txt` + `tzdata==2026.5`; ignore line removed from `docker-compose.test.yml`. verify: `TC up --build ...` → `36 passed, 1 skipped`, exit 0.
+
+## Ticket 5 — Production mirror + local verification  [Blocked by: 4] [serial] [KUO] [PROD read-only] [DESTRUCTIVE: overwrites the LOCAL database]
+**Files**: `scripts/mirror-prod-db.ps1` (new). Mechanics per Review R6: **no SQL ever goes through a PowerShell text pipe or `>`** (Windows PowerShell 5.1 re-encodes it); dump in-container with `pg_dump -Fc`, move with `scp` / `docker compose cp`, restore with `pg_restore`. `db-backup.ps1`/`db-restore.ps1` are NOT used. Quoting rule inside the script: remote commands are PowerShell **single-quoted** strings with embedded single quotes doubled and no double quotes; container commands use `sh -c '... $POSTGRES_USER ...'` so the container's own env supplies the credentials (nothing is hard-coded or typed). Syntax check used by the verify lines below (call it `PSCHECK`): `powershell -NoProfile -Command "$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile('scripts/mirror-prod-db.ps1', [ref]$null, [ref]$e); if ($e) { $e; exit 1 }"` → exit 0.
+
+- [x] **Step 5.0** — **[KUO] go-ahead.** Kuo says explicitly "go T5" (this reads production and overwrites the local DB). Preconditions: T0–T4 done, dev stack up, Kuo's ssh alias `vultr-vps` works in his terminal.
+      verify: Kuo's explicit message is in the conversation; `ssh vultr-vps true` exits 0 in Kuo's terminal.
+- [x] **Step 5.1** — `scripts/mirror-prod-db.ps1` (new), header: `param([switch]$DryRun)`, `$ErrorActionPreference = 'Stop'`, `$ts = Get-Date -Format 'yyyyMMdd-HHmmss'`, `$R = '/www/wwwroot/evquote.khtain.com/fft-evquote-helper'`, `$DC = @('compose','-f','docker-compose.yml','-f','docker-compose.dev.yml')`, a `Step($desc, [scriptblock]$cmd)` helper that prints `==> $desc` and, under `-DryRun`, prints `[dry-run] skipped` instead of running `$cmd`. **Pre-flight (read-only, also in dry-run):** assert `docker-compose.yml` and `docker-compose.dev.yml` each contain `NOTIFY_REDIRECT: "on"` (`Select-String`), else `throw`; assert `ssh vultr-vps true` exits 0; assert `docker @DC ps --status running` lists `db`.
+      verify: `PSCHECK` → exit 0.
+- [x] **Step 5.2** — script phase **local safety backup** (binary-safe): `docker @DC exec -T db sh -c 'pg_dump -Fc -U $POSTGRES_USER -d $POSTGRES_DB -f /tmp/local-pre-mirror.dump'` → `docker @DC cp db:/tmp/local-pre-mirror.dump ".\backups\local-pre-mirror-$ts.dump"` → throw unless the file is > 1 KB.
+      verify: `PSCHECK` → exit 0.
+- [x] **Step 5.3** — phase **[PROD read-only] remote dump + uploads archive** on the VPS host: `$dumpRemote = "/root/backups/prod-mirror-$ts.dump"`; `ssh vultr-vps ('mkdir -p /root/backups && cd {0} && docker compose -f docker-compose.vps.yml exec -T db sh -c ''pg_dump -Fc -U $POSTGRES_USER -d $POSTGRES_DB'' > {1}' -f $R, $dumpRemote)` (the redirect happens in the remote shell, so it is byte-safe); `ssh vultr-vps ("tar -C $R/uploads -cf /root/backups/prod-uploads-$ts.tar .")`; integrity: `ssh vultr-vps "head -c 5 $dumpRemote"` must print `PGDMP` and `ssh vultr-vps "stat -c %s $dumpRemote"` must be > 100000, else `throw`.
+      verify: `PSCHECK` → exit 0.
+- [x] **Step 5.4** — phase **fetch** (binary-safe): `scp "vultr-vps:$dumpRemote" ".\backups\prod-mirror-$ts.dump"` and `scp "vultr-vps:/root/backups/prod-uploads-$ts.tar" ".\backups\prod-uploads-$ts.tar"`; throw unless each local file's `Length` equals the remote `stat -c %s` value.
+      verify: `PSCHECK` → exit 0.
+- [x] **Step 5.5** — phase **[DESTRUCTIVE] restore**: `$answer = Read-Host 'Type MIRROR to overwrite the LOCAL database'`; anything else → `throw`. Then `docker @DC stop backend`; `docker @DC cp ".\backups\prod-mirror-$ts.dump" db:/tmp/prod-mirror.dump`; `docker @DC exec -T db sh -c 'pg_restore --clean --if-exists --no-owner --no-privileges --single-transaction -U $POSTGRES_USER -d $POSTGRES_DB /tmp/prod-mirror.dump'` (any non-zero `$LASTEXITCODE` → `throw`; `--single-transaction` rolls the whole restore back on error so the local DB is never left half-restored); `docker @DC exec -T db rm /tmp/prod-mirror.dump`; write `(Get-Date).ToUniversalTime().ToString('o')` to `.\backups\last-mirror-utc.txt`.
+      verify: `PSCHECK` → exit 0.
+- [x] **Step 5.6** — phase **uploads**: `Copy-Item .\uploads ".\backups\uploads-local-$ts" -Recurse` (local backup first), then `tar -xf ".\backups\prod-uploads-$ts.tar" -C .\uploads` (the archive was made with `-C <dir> .`, so entries land directly in `.\uploads` — no `uploads\uploads` nesting; Windows ships `tar.exe`).
+      verify: `PSCHECK` → exit 0.
+- [x] **Step 5.7** — phase **restart + hard gates**: `docker @DC up -d backend` (the entrypoint runs `alembic upgrade head`: 655efc445c97 → c7d8e9f0a1b2 on the production-shaped data — this IS the migration dry run); poll `curl.exe -fsS http://localhost:7222/health` up to 60 × 2 s (else `throw`); then pipe this probe (single-quoted here-string, no network, no sends) to `docker @DC exec -T backend python -` and `throw` unless it prints `REDIRECT GATE OK`:
+      ```
+      from app.services.notification_service import notify_redirect_enabled, _apply_redirect
+      assert notify_redirect_enabled() is True, 'NOTIFY_REDIRECT is not on'
+      to, subj, body = _apply_redirect(is_sms=True, to='+14035550000', subject=None, body='probe')
+      assert to == '+15879669668' and body.startswith('[REDIRECTED'), (to, body)
+      to, subj, body = _apply_redirect(is_sms=False, to='probe@example.com', subject='s', body='<p>x</p>')
+      assert to == 'cool@khtain.com' and subj.startswith('[REDIRECTED'), (to, subj)
+      print('REDIRECT GATE OK')
+      ```
+      then `docker @DC exec -T backend alembic current` must contain `c7d8e9f0a1b2 (head)`; then the logo check: a here-string reading `SystemSetting` key `brand_profile` → `value.get('logo_url')`, and `curl.exe -s -o NUL -w "%{http_code}" http://localhost:7222<logo_url>` must print `200` (proves the uploads mirror, no nesting).
+      verify: `PSCHECK` → exit 0.
+- [x] **Step 5.8** — **verify the script without side effects** (agent-runnable). verify: `PSCHECK` → exit 0; then `powershell -NoProfile -File scripts\mirror-prod-db.ps1 -DryRun` → prints every `==>` phase with `[dry-run] skipped`, runs only the read-only pre-flight, creates no file under `backups\`, exit 0 (the pre-flight needs Kuo's ssh alias; if it is not reachable from the agent environment, report that and let Kuo run this step).
+- [x] **Step 5.9** — **[KUO] [PROD read-only] [DESTRUCTIVE local]** Kuo runs `powershell -NoProfile -File scripts\mirror-prod-db.ps1` in his own terminal and types `MIRROR` when prompted.
+      verify: the tail prints `REDIRECT GATE OK`, `c7d8e9f0a1b2 (head)` and logo `200`. **If any gate prints otherwise: STOP — do not open the admin UI.** Rollback of the local DB (if ever needed): `docker @DC cp .\backups\local-pre-mirror-<ts>.dump db:/tmp/b.dump` then the same `pg_restore` command with that file.
+- [x] **Step 5.10** — post-run read-only checks. Run
+      ```
+      @'
+      from app.database import SessionLocal
+      from app.models.models import ServiceBooking as B, Case, Notification
+      db = SessionLocal()
+      print('counts', db.query(B).count(), db.query(Case).count(), db.query(Notification).count())
+      b = db.query(B).filter(B.reference_number == 'SVC-2026-0001').one()
+      print(b.reference_number, b.status.value, b.scheduled_at)
+      '@ | DC exec -T backend python -
+      ```
+      verify: counts all > 0 and `SVC-2026-0001 survey_scheduled 2026-10-09 14:00:00+00:00` (= Fri Oct 9, 8:00 AM MDT).
+- [x] **Step 5.11** — **[KUO / tester, real browser] walk Nick's local record through all six stages.** Open `http://localhost:7221/admin/services/bookings` (log in with the **production** admin credentials — the mirrored DB carries production's password; never write it to a file), open `SVC-2026-0001`. NOTE: the dialogs show Nick's real email/phone, but delivery is redirected — that is the point of the gate. In order: ① page shows `Survey booked`, time `Fri, Oct 9 · 8:00 AM MDT`; `Change survey time` → reschedule (message goes to Kuo with the `[REDIRECTED — intended for …]` prefix) → record result (230 ft, 1 nest, 2 photos uploaded from disk) → `Surveyed`, **no message**; ② save draft (3 rolls, 1 nest) → totals `$1,896.00 / $94.80 / $1,990.80 / $597.24`, **no message**; open `Preview customer page` (banner, signing disabled); `Send quote…` → dialog → `Send now` → exactly one email + one SMS **to Kuo**, subject `[REDIRECTED → <Nick's email>] …`, SMS starts `[REDIRECTED — intended for …`, text `Total: $1,990.80 (incl. GST)`; ③ open the customer quote URL (copy `access_token` from the admin API view or the quote link in Kuo's inbox, rewrite the host to `http://localhost:7220`) and sign → deposit-invoice email to Kuo with the PDF attached; ④⑤ schedule install (message to Kuo, Calgary time) → `Mark completed & send balance invoice ($1,393.56)` (confirm dialog) → completion email to Kuo with the Balance Invoice PDF; ⑥ completed block `Deposit $597.24 + balance $1,393.56 = $1,990.80`. Note: the three DB templates (`bird_quote_ready`, `service_completed`, `cleaning_subscription_confirm`) are the OLD production rows (merge-without-overwrite), so email wording may lack `(incl. GST)` — numbers must still be right.
+      verify: every step above shows the stated result; open both PDFs from Kuo's inbox — deposit invoice `Subtotal $1,896.00, GST (5.0%) $94.80, Total $1,990.80, Deposit Due Now (30%) $597.24`; balance invoice `Total $1,990.80, Amount paid $597.24, Balance due $1,393.56`.
+- [x] **Step 5.12** — **message audit (red line).** With `$ts = (Get-Content .\backups\last-mirror-utc.txt).Trim()`, run
+      ```
+      @"
+      from datetime import datetime
+      from app.database import SessionLocal
+      from app.models.models import Notification as N
+      t = datetime.fromisoformat('${ts}')
+      rows = SessionLocal().query(N).filter(N.created_at > t).all()
+      print('SENT_SINCE', len(rows))
+      print('NON_KURO', [(n.template_name, n.recipient) for n in rows if n.recipient not in ('+15879669668', 'cool@khtain.com')])
+      "@ | DC exec -T backend python -
+      ```
+      verify: `SENT_SINCE` > 0 (Step 5.11 sent several) and `NON_KURO []`. Then re-run the seed on the mirrored DB: `PY -m scripts.mock_data seed` → success on the new schema, and the Step 5.10 query again → `SVC-2026-0001` still present (purge never touches the real row).
+
+> **T5 executed 2026-10-05 (implementer; orchestrator authorised MIRROR).** Deviations, all safety-direction: (a) 5.3/5.4 — nothing written on the VPS: `pg_dump -Fc` and `tar -cf -` are streamed over `ssh -n` into local files via `cmd /c ... >` (byte-safe); remote `stat`/`head` checks replaced by local `PGDMP` header + `pg_restore -l` (must list `service_bookings` data); the `> 100000` threshold dropped (the -Fc dump is 92,225 B). (b) pre-flight also runs the REDIRECT GATE (incl. `send_email` transport-guard refusal) on the running backend before any prod data lands; local backup verified with `pg_restore -l`. (c) `docker compose exec` calls are `$null |`-piped and ssh uses `-n` so stdin reaches the MIRROR prompt. (d) prod `logo_url` is absolute → the logo check uses its path. (e) 5.11 actions run on MOCK-BN-06 only; Nick's SVC-2026-0001 was read-only (admin detail + status page, zero non-GET requests); PDFs re-rendered locally from the same code path instead of Kuo's inbox. (f) 5.12 audit parses the 7-digit `o` timestamp by truncating to microseconds; audit ran BEFORE the seed (seed purges/re-creates MOCK notifications).
+
+**Ticket 5 Test plan**: Step 5.8 (syntax + dry run), Step 5.9 gates, Step 5.12 audit `NON_KURO []`, Step 5.11 PDFs read by a human (amounts), logo `200`, migration applied on production-shaped data without error.
+
+**⟦GATE 2 — orchestrator, not the implementer⟧** Planned advisor consult #2 (completion sign-off): hand over T5 evidence (gate output, audit `NON_KURO []`, PDF amounts), the final diff summary and `DESIGN.md ## Review`. T6 starts only on sign-off **and** Kuo's explicit "deploy".
+
+---
+
+## Ticket 6 — Production deploy (three-way sync)  [Blocked by: 5 + GATE 2] [serial] [PROD] [KUO]
+No code. All `ssh` use alias `vultr-vps` (no credentials in any command). **Do not use `deploy.sh`** — it skips the backup/pre-flight/verification below. Avoid 16:00–17:10 UTC (the nudge cron). In PowerShell: `$R = '/www/wwwroot/evquote.khtain.com/fft-evquote-helper'`; `$ts = Get-Date -Format 'yyyyMMdd-HHmm'`.
+
+- [ ] **Step 6.0** — **[KUO] go-ahead** ("deploy") after GATE 2. Nothing below runs without it.
+      verify: Kuo's explicit message is in the conversation.
+- [ ] **Step 6.1** — commit locally (explicit paths — the tree has untracked `.playwright-mcp/` and `image.png`; never `git add -A`): `git add backend admin frontend scripts docker-compose.yml docker-compose.dev.yml docker-compose.vps.yml docker-compose.test.yml .env.example SPEC.md CONTEXT.md DESIGN.md STEPS.md design` then `git status --short` — review: must NOT list `.playwright-mcp/`, `image.png`, `backups/`, `uploads/`, `.env`; then `git commit -m "feat(bird-netting): staged survey-draft-send flow, GST on all service lines, Calgary-time notifications, global NOTIFY_REDIRECT"` (ASCII only — avoids PowerShell encoding surprises). (`MEMORY.md` / `.cmm/` are the pipeline close-out, committed after deploy.)
+      verify: `git log -1 --stat | Select-Object -First 5` shows the commit; `git status --short` lists only the intentionally untracked paths.
+- [ ] **Step 6.2** — **[KUO — own terminal; the sandbox cannot reach GitHub]** `git push origin main`.
+      verify: `git rev-parse HEAD` equals `git rev-parse origin/main`.
+- [ ] **Step 6.3** — **[PROD read-only] pre-flight on the VPS** (must pass or STOP — `git reset --hard` would destroy VPS-only work): `ssh vultr-vps ("cd $R && git status --porcelain && git fetch origin && git log --oneline origin/main..HEAD && docker compose -f docker-compose.vps.yml exec -T backend alembic current")`; record the deploy start: `$t0 = (ssh vultr-vps "date -u +%Y-%m-%dT%H:%M:%SZ").Trim()`.
+      verify: `git status --porcelain` prints nothing (untracked-only is fine), `origin/main..HEAD` prints **nothing** (no VPS-only commits), `alembic current` prints `655efc445c97 (head)`.
+- [ ] **Step 6.4** — **[PROD] full backup before the irreversible enum migration:** `ssh vultr-vps ('mkdir -p /root/backups && cd {0} && docker compose -f docker-compose.vps.yml exec -T db sh -c ''pg_dump -Fc -U $POSTGRES_USER -d $POSTGRES_DB'' > /root/backups/evquote-full-{1}.dump' -f $R, $ts)`.
+      verify: `ssh vultr-vps "ls -l /root/backups/evquote-full-$ts.dump && head -c 5 /root/backups/evquote-full-$ts.dump"` → starts `PGDMP`; then `ssh vultr-vps "cd $R && docker compose -f docker-compose.vps.yml exec -T db pg_restore -l < /root/backups/evquote-full-$ts.dump | grep -c service_bookings"` → a number ≥ 1 (empty output or `0` = unreadable/incomplete dump). Validity is the header + a readable table of contents, not a byte threshold (ADR-023). If not → STOP.
+- [ ] **Step 6.5** — **[PROD] [KUO explicit go] [DESTRUCTIVE to the VPS working tree]** `ssh vultr-vps "cd $R && git reset --hard origin/main && git log -1 --oneline"`.
+      verify: shows the commit from Step 6.1.
+- [ ] **Step 6.6** — **[PROD read-only]** make sure production does not force the redirect: `ssh vultr-vps "grep -c '^NOTIFY_REDIRECT=' $R/.env"`.
+      verify: prints `0` (if `1`, look at that single line — it must not be `on`). Then the nudge redirect must stay at its default-on: `ssh vultr-vps "grep -c '^NUDGE_REDIRECT=off' $R/.env"` → must print `0` (anything else → STOP; ADR-023).
+- [ ] **Step 6.7** — **[PROD]** rebuild + migrate: `ssh vultr-vps "cd $R && docker compose -f docker-compose.vps.yml up -d --build"`; then `ssh vultr-vps "cd $R && docker compose -f docker-compose.vps.yml logs --tail 60 backend"`.
+      verify: the log contains `Running upgrade 655efc445c97 -> c7d8e9f0a1b2` and `Application startup complete`, and no `Traceback`.
+- [ ] **Step 6.8** — **[PROD read-only] verification.**
+      verify: (a) `ssh vultr-vps "cd $R && docker compose -f docker-compose.vps.yml exec -T backend alembic current"` → `c7d8e9f0a1b2 (head)`. (b) allow-list landed with the production default: `ssh vultr-vps "cd $R && docker compose -f docker-compose.vps.yml exec -T backend printenv NOTIFY_REDIRECT"` → `off` (empty output = the compose line is missing → STOP). (c) secrets present, value never printed: `@'
+from app.config import get_settings
+from app.services.notification_service import notify_redirect_enabled
+print('secret_key_len', len(get_settings().secret_key), 'redirect', notify_redirect_enabled())
+'@ | ssh vultr-vps "cd $R && docker compose -f docker-compose.vps.yml exec -T backend python -"` → `secret_key_len` ≥ 32 and `redirect False`. (d) `ssh vultr-vps "curl -fsS http://127.0.0.1:7622/health"` → `{"ok":true}`. (e) the three changed service templates were safe-upgraded at boot (ADR-022): `@'
+from app.database import SessionLocal
+from app.models.models import SystemSetting as S
+db = SessionLocal()
+e = db.query(S).filter(S.key == 'email_templates').one().value
+s = db.query(S).filter(S.key == 'sms_templates').one().value
+for k, m in (('bird_quote_ready', '(incl. GST)'), ('service_completed', 'balance_amount'), ('cleaning_subscription_confirm', 'annual_total')):
+    print(k, m in e[k]['html'], m in s[k]['body'])
+'@ | ssh vultr-vps "cd $R && docker compose -f docker-compose.vps.yml exec -T backend python -"` → three lines each ending `True True`. A `False` means that key was admin-edited (not equal to the old default, so bootstrap left it alone) → handle that key only via the Step 6.11 fallback; do not edit the DB from here.
+- [ ] **Step 6.9** — **[PROD read-only] Nick is untouched and nothing was sent.** Run (double-quoted here-string so `${t0}` interpolates)
+      ```
+      @"
+      from datetime import datetime
+      from app.database import SessionLocal
+      from app.models.models import ServiceBooking as B, Notification as N
+      db = SessionLocal()
+      b = db.query(B).filter(B.reference_number == 'SVC-2026-0001').one()
+      print(b.status.value, b.scheduled_at, b.surveyed_at, b.survey_perimeter_ft)
+      t0 = datetime.fromisoformat('${t0}'.replace('Z', '+00:00'))
+      print([(n.template_name, n.recipient) for n in db.query(N).filter(N.created_at > t0)])
+      "@ | ssh vultr-vps "cd $R && docker compose -f docker-compose.vps.yml exec -T backend python -"
+      ```
+      verify: first line `survey_scheduled 2026-10-09 14:00:00+00:00 None None`; second line is `[]`, or contains only `nudge_*` templates addressed to `+15879669668` / `cool@khtain.com` (the redirected nudge cron). Anything else → report immediately.
+- [ ] **Step 6.10** — **[KUO, browser — read only]** open `https://evquote.khtain.com/admin/services/bookings`, hard-refresh (Ctrl+Shift+R), open `SVC-2026-0001`. **Click nothing that saves, reschedules or sends.** Kuo tells Nick the actual time himself (SPEC decision 9).
+      verify: pill `Survey booked`, time `Fri, Oct 9 · 8:00 AM` labelled `(Calgary time)` — no `MDT`/`MST` anywhere (ADR-021), stepper step 1 current, survey form visible.
+- [ ] **Step 6.11** — **[KUO] follow-ups (not agent work):** fallback only for a key Step 6.8(e) reported `False` (admin-edited, so not auto-upgraded): Admin → Settings → email/SMS templates: hand-edit that key of `bird_quote_ready`, `service_completed`, `cleaning_subscription_confirm` to add `(incl. GST)` / the balance sentence / `annual_total`; nothing to do if 6.8(e) was all `True`; optional later: re-seed production mock rows (`MOCK-BN-12` only exists after a seed) — Kuo's call.
+      verify: Kuo confirms in the conversation.
+- **Rollback notes (do not execute unless needed):** migration failure before Step 6.7 completes → nothing changed in the schema (DDL is transactional except the enum value, which `IF NOT EXISTS` makes safe to re-run); code rollback = `git reset --hard <previous sha>` + `up -d --build` — safe only while **no booking is in status `surveyed`** (old code cannot load that value): first `UPDATE service_bookings SET status = 'survey_scheduled' WHERE status = 'surveyed'`; data rollback = stop backend, `docker compose -f docker-compose.vps.yml cp /root/backups/evquote-full-<ts>.dump db:/tmp/b.dump`, then `docker compose -f docker-compose.vps.yml exec -T db sh -c 'pg_restore --clean --if-exists --no-owner --single-transaction -U $POSTGRES_USER -d $POSTGRES_DB /tmp/b.dump'`.
+- Close-out (orchestrator, outside STEPS): `/cmm` rebuild → `.cmm/REPORT-<date>.md`, update `MEMORY.md`, commit + push the docs, `git pull` on the VPS later to keep the three ends level.
+
+**Ticket 6 Test plan**: Steps 6.4 (PGDMP + `pg_restore -l`), 6.6 (`NOTIFY_REDIRECT` / `NUDGE_REDIRECT=off` both `0`), 6.8 (a–e), 6.9 (zero-notification proof), 6.10 (Kuo's read-only look).
+
+---
+
+## Test plan (tester — run after T5; tests at the seams DESIGN §5.1 declares, plus the two pure seams added in Review R11)
+1. **Pure seams** (backend container): `PY -m tests.test_money` (9) · `tests.test_timefmt` (8, ADR-021) · `tests.test_bird_helpers` (6) · `tests.test_notify_redirect` (8) · `tests.test_nudge_service` (13, incl. `test_service_classify_exhaustive`). Every module prints `All N … passed.`
+2. **HTTP seam** (hermetic stack): `TC up --build --abort-on-container-exit --exit-code-from tests 2>&1 | Select-String 'passed|failed|error'` → passed, `$LASTEXITCODE` 0, then `TC down -v`. Covers the six `test_bird_*` tests incl. the contract money literals (1896.00 / 94.80 / 1990.80 / 597.24 / 1393.56), draft invisibility at both public endpoints, preview-token behaviour, revise re-hiding, stage-skip blocking, validation boundaries.
+3. **Frontend**: `npm --prefix admin run build`, `npm --prefix frontend run build`, lint filters from Steps 3.16/4.10, both `node -e` format checks, the i18n pair audit.
+4. **Red-line spot checks** — (a) *no real-customer messages*: Step 2.1/2.14 inventory = 5 call sites; container `notify_redirect_enabled()` = `True`; T5 gate output; Step 5.12 audit `NON_KURO []`; production `redirect False` is expected only on the VPS (Step 6.8c). (b) *draft never public*: T-a assertions + `curl` 404 on a draft's quote URL (Step 1.29) + customer status page for `MOCK-BN-12` shows no amount (Step 4.11). (c) *money*: literals above + the human-read PDFs of Step 5.11. (d) *compose allow-list*: `NOTIFY_REDIRECT` line present in all four compose files (`config | Select-String`; `"on"` ×3, `off` ×1; `docker-compose.mailpit.yml` is an override and inherits the base) and `printenv` inside the dev container = `on`. (e) *backups before the irreversible migration*: `backups\fft-evquote-*.sql` (T0), `backups\local-pre-mirror-*.dump` (T5), `/root/backups/evquote-full-*.dump` (T6). (f) *validation / trust boundary*: T-d. (g) *accessibility*: keyboard-only dialog pass, labels, `alt`, `aria-current`, contrast tweak.
+5. **UI acceptance vs the frozen contract** (`design/mockups/v1.html`): admin stages ①–⑥ on `MOCK-BN-06/12/07/08/09/10`; customer status page six states; quote page; booking page; notification sample (`Fri, Oct 9, 8:00 AM (Calgary time)` comma form in email/SMS bodies, `Fri, Oct 9 · 8:00 AM` `·` form on web labelled `(Calgary time)`; no `MDT`/`MST` — ADR-021). Verify at least one visibly Mock-marked record renders end-to-end DB → API → UI: `MOCK-BN-07` appears as `Ref MOCK-BN-07` on the customer quote page and as `Mock-Tara` in the admin list.
+6. Failure policy: failures go back to the implementer (max 3 rounds), never by editing a test to make it green; from the second failure of the same error follow `~/.claude/pipeline/debugging.md`.

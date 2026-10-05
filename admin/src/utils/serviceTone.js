@@ -5,6 +5,7 @@ const SERVICE_BOOKING_STATUS_TONE = {
   submitted: 'slate',
   scheduled: 'teal',
   survey_scheduled: 'teal',
+  surveyed: 'indigo',
   quoted: 'amber',
   approved: 'emerald',
   in_progress: 'indigo',
@@ -12,6 +13,9 @@ const SERVICE_BOOKING_STATUS_TONE = {
   completed: 'emerald',
   cancelled: 'rose',
 }
+
+// Bird-netting stage labels (UI contract v1 status pill)
+export const BIRD_STATUS_LABEL = { submitted: 'Submitted', survey_scheduled: 'Survey booked', surveyed: 'Surveyed', quoted: 'Quoted', approved: 'Approved', install_scheduled: 'Install scheduled', completed: 'Completed', cancelled: 'Cancelled' }
 
 const CLEANING_VISIT_STATUS_TONE = {
   pending: 'slate',

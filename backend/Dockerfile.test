@@ -6,6 +6,10 @@ COPY requirements-test.txt /tests/requirements-test.txt
 RUN pip install --no-cache-dir -r /tests/requirements-test.txt
 
 COPY tests /tests/tests
+# Pure helpers only (no DB/settings) so their plain-assert tests run here too (ADR-021 item 5).
+COPY app/__init__.py /tests/app/__init__.py
+COPY app/utils/timefmt.py /tests/app/utils/timefmt.py
+ENV PYTHONPATH=/tests
 
 ENV API_BASE=http://backend:8000
 ENV ADMIN_USERNAME=admin

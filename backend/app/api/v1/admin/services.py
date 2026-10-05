@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from app.middleware.auth import get_current_admin
 from app.models.models import (
     AdminUser,
     Appointment,
+    AppointmentKind,
     AppointmentStatus,
     BirdNettingQuote,
     Case,
@@ -35,6 +36,7 @@ from app.models.models import (
 )
 from app.services import service_booking_flow as flow
 from app.services.service_pricing import get_service_pricing
+from app.utils.money import suggested_rolls, to_money
 
 router = APIRouter(prefix="/admin")
 
@@ -50,11 +52,17 @@ _KIND_SERVICE = {
 }
 
 
-def _booking_admin_view(db: Session, b: ServiceBooking) -> dict:
+def _iso(dt: datetime | None) -> str | None:
+    return dt.isoformat() if dt else None
+
+
+def _booking_admin_view(db: Session, b: ServiceBooking, detail: bool = False) -> dict:
+    """detail=True (single-booking endpoints only): adds the draft preview link + install_booked_at."""
     quote = db.execute(
         select(BirdNettingQuote).where(BirdNettingQuote.booking_id == b.id)
     ).scalar_one_or_none()
-    return {
+    is_bird = b.service_type == ServiceType.bird_netting
+    view = {
         "id": str(b.id),
         "reference_number": b.reference_number,
         "service_type": b.service_type.value,
@@ -78,13 +86,36 @@ def _booking_admin_view(db: Session, b: ServiceBooking) -> dict:
         "hourly_rate_snapshot": float(b.hourly_rate_snapshot) if b.hourly_rate_snapshot is not None else None,
         "access_token": b.access_token,
         "created_at": b.created_at.isoformat() if b.created_at else None,
+        "surveyed_at": _iso(b.surveyed_at),
+        "survey": (
+            None
+            if b.surveyed_at is None
+            else {
+                "perimeter_ft": b.survey_perimeter_ft,
+                "nest_count": b.survey_nest_count,
+                "notes": b.survey_notes,
+                "photo_urls": b.survey_photo_urls or [],
+                "suggested_rolls": suggested_rolls(b.survey_perimeter_ft),
+            }
+        ),
         "quote": (
             {
                 "roll_count": quote.roll_count,
                 "nest_count": quote.nest_count,
                 "roll_price": float(quote.roll_price_snapshot),
                 "nest_fee": float(quote.nest_fee_snapshot),
+                "subtotal": float(quote.subtotal),
+                "gst_rate": float(quote.gst_rate),
+                "gst_amount": float(quote.gst_amount),
                 "total": float(quote.total),
+                "deposit_amount": float(quote.deposit_amount) if quote.deposit_amount is not None else None,
+                "balance_amount": (
+                    float(to_money(quote.total) - to_money(quote.deposit_amount))
+                    if quote.deposit_amount is not None
+                    else None
+                ),
+                "roll_override_reason": quote.roll_override_reason,
+                "sent_at": _iso(quote.sent_at),
                 "status": quote.status.value,
                 "signed_name": quote.signed_name,
                 "approved_at": quote.approved_at.isoformat() if quote.approved_at else None,
@@ -93,6 +124,19 @@ def _booking_admin_view(db: Session, b: ServiceBooking) -> dict:
             else None
         ),
     }
+    if detail and is_bird:
+        if quote is not None:
+            view["quote"]["preview_url"] = (
+                f"{flow.bird_quote_url(b.access_token)}?preview={flow.make_preview_token(b.id)}"
+            )
+        installed = db.execute(
+            select(Appointment)
+            .where(Appointment.service_booking_id == b.id, Appointment.kind == AppointmentKind.bird_install)
+            .order_by(Appointment.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        view["install_booked_at"] = _iso(installed.created_at) if installed else None
+    return view
 
 
 # ── service bookings ──
@@ -129,7 +173,7 @@ def _get_booking(db: Session, booking_id: str) -> ServiceBooking:
 @router.get("/services/bookings/{booking_id}")
 def get_booking(booking_id: str, db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_admin)):
     _ = admin
-    return _booking_admin_view(db, _get_booking(db, booking_id))
+    return _booking_admin_view(db, _get_booking(db, booking_id), detail=True)
 
 
 class ScheduleIn(BaseModel):
@@ -141,7 +185,7 @@ class ScheduleIn(BaseModel):
 def schedule_booking(booking_id: str, payload: ScheduleIn, db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_admin)):
     _ = admin
     b = flow.admin_schedule_booking(db, booking=_get_booking(db, booking_id), start_at=payload.start_at, technician=payload.technician)
-    return _booking_admin_view(db, b)
+    return _booking_admin_view(db, b, detail=True)
 
 
 class StatusIn(BaseModel):
@@ -166,26 +210,72 @@ def update_booking_status(booking_id: str, payload: StatusIn, db: Session = Depe
         hardware_involved=payload.hardware_involved,
         completion_notes=payload.completion_notes,
     )
-    return _booking_admin_view(db, b)
+    return _booking_admin_view(db, b, detail=True)
 
 
-class QuoteIn(BaseModel):
-    roll_count: int
-    nest_count: int = 0
+# ── bird-netting stage actions (range/format validation lives in the flow layer → 400) ──
+class SurveyResultIn(BaseModel):
+    perimeter_ft: int
+    nest_count: int
+    notes: str | None = None
+    photo_urls: list[str] = Field(default_factory=list)
 
 
-@router.post("/services/bookings/{booking_id}/quote")
-def create_quote(booking_id: str, payload: QuoteIn, db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_admin)):
+@router.post("/services/bookings/{booking_id}/survey-result")
+def record_survey_result(booking_id: str, payload: SurveyResultIn, db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_admin)):
     _ = admin
-    flow.admin_create_bird_quote(db, booking=_get_booking(db, booking_id), roll_count=payload.roll_count, nest_count=payload.nest_count)
-    return _booking_admin_view(db, _get_booking(db, booking_id))
+    b = flow.admin_record_survey_result(
+        db,
+        booking=_get_booking(db, booking_id),
+        perimeter_ft=payload.perimeter_ft,
+        nest_count=payload.nest_count,
+        notes=payload.notes,
+        photo_urls=payload.photo_urls,
+    )
+    return _booking_admin_view(db, b, detail=True)
+
+
+class QuoteDraftIn(BaseModel):
+    roll_count: int
+    nest_count: int
+    roll_override_reason: str | None = None
+
+
+@router.put("/services/bookings/{booking_id}/quote-draft")
+def save_quote_draft(booking_id: str, payload: QuoteDraftIn, db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_admin)):
+    _ = admin
+    b = _get_booking(db, booking_id)
+    flow.admin_save_bird_quote_draft(
+        db,
+        booking=b,
+        roll_count=payload.roll_count,
+        nest_count=payload.nest_count,
+        roll_override_reason=payload.roll_override_reason,
+    )
+    return _booking_admin_view(db, b, detail=True)
+
+
+@router.post("/services/bookings/{booking_id}/quote/send")
+def send_quote(booking_id: str, db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_admin)):
+    _ = admin
+    b = _get_booking(db, booking_id)
+    flow.admin_send_bird_quote(db, booking=b)
+    return _booking_admin_view(db, b, detail=True)
+
+
+@router.post("/services/bookings/{booking_id}/quote/revise")
+def revise_quote(booking_id: str, db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_admin)):
+    _ = admin
+    b = _get_booking(db, booking_id)
+    flow.admin_revise_bird_quote(db, booking=b)
+    return _booking_admin_view(db, b, detail=True)
 
 
 @router.post("/services/bookings/{booking_id}/cancel")
 def cancel_booking(booking_id: str, db: Session = Depends(get_db), admin: AdminUser = Depends(get_current_admin)):
     _ = admin
     b = flow.cancel_booking(db, booking=_get_booking(db, booking_id))
-    return _booking_admin_view(db, b)
+    return _booking_admin_view(db, b, detail=True)
 
 
 # ── cleaning subscriptions ──
@@ -455,8 +545,8 @@ def services_dashboard(db: Session = Depends(get_db), admin: AdminUser = Depends
             q = db.execute(select(BirdNettingQuote).where(BirdNettingQuote.booking_id == b.id)).scalar_one_or_none()
             if q and q.approved_at and q.approved_at >= month_start:
                 bird_count += 1
-                bird_rev += float(q.total)
-            if q and q.status == QuoteStatus.pending:
+                bird_rev += float(q.subtotal)  # ex-GST, same basis as EV finance
+            if q and q.status == QuoteStatus.pending and q.sent_at is not None:  # drafts are not outstanding
                 bird_outstanding_quote_value += float(q.total)
             if b.status == ServiceBookingStatus.survey_scheduled and b.scheduled_at and now <= b.scheduled_at <= week_end:
                 bird_surveys_next_7_days += 1

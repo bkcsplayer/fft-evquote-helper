@@ -16,12 +16,15 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 
-from app.services.service_pricing import DEFAULT_SERVICE_PRICING, resolve_cleaning_tier
-from app.models.models import CleaningTier
-
 
 # ── pure unit: tier resolution ──
 def test_cleaning_tier_resolution():
+    # The `tests` image (Dockerfile.test) has no `app` package; a top-level app import would abort
+    # collection of this whole file there, so import lazily and skip when it is unavailable.
+    pytest.importorskip("app.services.service_pricing")
+    from app.models.models import CleaningTier
+    from app.services.service_pricing import DEFAULT_SERVICE_PRICING, resolve_cleaning_tier
+
     p = DEFAULT_SERVICE_PRICING
     assert resolve_cleaning_tier(p, 10) == (CleaningTier.tier1, 599.0)
     assert resolve_cleaning_tier(p, 20) == (CleaningTier.tier1, 599.0)
@@ -141,66 +144,6 @@ def test_diagnostic_booking_consumes_shared_pool():
     assert st.status_code == 200
     assert st.json()["service_type"] == "diagnostic"
     assert st.json()["scheduled_at"] is not None
-
-
-@needs_stack
-def test_bird_netting_quote_and_approve():
-    slot = _first_slot()
-    if not slot:
-        pytest.skip("no available slots in booking window")
-    headers = _admin_headers()
-
-    # Submit a bird-netting booking (drone survey self-booked at submission).
-    r = httpx.post(
-        _url("/api/v1/public/services/bookings"),
-        json={
-            "service_type": "bird_netting",
-            "customer_name": "Bird Tester",
-            "phone": "+14035550113",
-            "email": "bird@example.com",
-            "address": "3 Test Ave, Calgary, AB",
-            "panel_count": 24,
-            "start_at": slot,
-            "disclaimer_accepted": True,
-        },
-        timeout=20,
-    )
-    assert r.status_code == 200, r.text
-    token = r.json()["token"]
-
-    # Admin: find the booking id.
-    lst = httpx.get(_url("/api/v1/admin/services/bookings?type=bird_netting"), headers=headers, timeout=20)
-    assert lst.status_code == 200
-    booking = next(b for b in lst.json() if b["access_token"] == token)
-    assert booking["status"] == "survey_scheduled"
-    booking_id = booking["id"]
-
-    # Admin: enter a quote (2 rolls, 1 nest) -> status quoted.
-    q = httpx.post(
-        _url(f"/api/v1/admin/services/bookings/{booking_id}/quote"),
-        headers=headers,
-        json={"roll_count": 2, "nest_count": 1},
-        timeout=20,
-    )
-    assert q.status_code == 200, q.text
-    assert q.json()["status"] == "quoted"
-    assert q.json()["quote"]["total"] == 2 * 599.0 + 1 * 99.0
-
-    # Public: view + approve with a signature.
-    view = httpx.get(_url(f"/api/v1/public/services/bird-netting/quote/{token}"), timeout=15)
-    assert view.status_code == 200
-    sig = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X8O0kAAAAASUVORK5CYII="
-    ap = httpx.post(
-        _url(f"/api/v1/public/services/bird-netting/quote/{token}/approve"),
-        json={"signature_data": sig, "signed_name": "Bird Tester"},
-        timeout=20,
-    )
-    assert ap.status_code == 200, ap.text
-    assert ap.json()["status"] == "approved"
-
-    # Booking is now approved (ready for install scheduling).
-    detail = httpx.get(_url(f"/api/v1/admin/services/bookings/{booking_id}"), headers=headers, timeout=15)
-    assert detail.json()["status"] == "approved"
 
 
 @needs_stack
@@ -398,3 +341,259 @@ def test_service_notification_templates_seeded():
     }
     assert expected <= email_keys, f"missing from email_templates: {expected - email_keys}"
     assert expected <= sms_keys, f"missing from sms_templates: {expected - sms_keys}"
+
+
+# ── bird netting: survey → draft → preview → send → revise → approve → install → complete ──
+PHOTO = "/uploads/services/mock-test-1.png"
+SIG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X8O0kAAAAASUVORK5CYII="
+
+
+def _slots(n: int) -> list[str]:
+    r = httpx.get(_url("/api/v1/public/services/slots"), timeout=15)
+    assert r.status_code == 200
+    slots = r.json().get("slots") or []
+    if len(slots) < n:
+        pytest.skip(f"need {n} free slots in the booking window")
+    return slots[:n]
+
+
+def _adm(method: str, path: str, headers: dict[str, str], **kw) -> httpx.Response:
+    return httpx.request(method, _url("/api/v1/admin" + path), headers=headers, timeout=20, **kw)
+
+
+def _new_bird(slot: str, headers: dict[str, str]) -> tuple[str, str]:
+    r = httpx.post(
+        _url("/api/v1/public/services/bookings"),
+        json={
+            "service_type": "bird_netting",
+            "customer_name": "Bird Tester",
+            "phone": "+14035550113",
+            "email": "bird@example.com",
+            "address": "3 Test Ave, Calgary, AB",
+            "panel_count": 24,
+            "start_at": slot,
+            "disclaimer_accepted": True,
+        },
+        timeout=20,
+    )
+    assert r.status_code == 200, r.text
+    token = r.json()["token"]
+    lst = _adm("GET", "/services/bookings?type=bird_netting", headers)
+    assert lst.status_code == 200
+    booking = next(b for b in lst.json() if b["access_token"] == token)
+    return token, booking["id"]
+
+
+def _pub_status(token: str) -> dict:
+    r = httpx.get(_url(f"/api/v1/public/services/bookings/{token}"), timeout=15)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _pub_quote(token: str, **params) -> httpx.Response:
+    return httpx.get(_url(f"/api/v1/public/services/bird-netting/quote/{token}"), params=params, timeout=15)
+
+
+def _pub_approve(token: str) -> httpx.Response:
+    return httpx.post(
+        _url(f"/api/v1/public/services/bird-netting/quote/{token}/approve"),
+        json={"signature_data": SIG, "signed_name": "Bird Tester"},
+        timeout=20,
+    )
+
+
+def _survey(bid: str, headers: dict[str, str], **override) -> httpx.Response:
+    body = {"perimeter_ft": 230, "nest_count": 1, "notes": "Mock-test", "photo_urls": [PHOTO], **override}
+    return _adm("POST", f"/services/bookings/{bid}/survey-result", headers, json=body)
+
+
+def _draft(bid: str, headers: dict[str, str], **body) -> httpx.Response:
+    return _adm("PUT", f"/services/bookings/{bid}/quote-draft", headers, json=body)
+
+
+@needs_stack
+def test_bird_full_flow_money_visibility_and_stages():
+    headers = _admin_headers()
+    token, bid = _new_bird(_slots(1)[0], headers)
+
+    d = _adm("GET", f"/services/bookings/{bid}", headers).json()
+    assert d["status"] == "survey_scheduled"
+    assert d["survey"] is None and d["quote"] is None
+
+    # survey result → surveyed (no notification, nothing customer-visible yet)
+    r = _survey(bid, headers)
+    assert r.status_code == 200, r.text
+    v = r.json()
+    assert v["status"] == "surveyed"
+    assert v["survey"]["suggested_rolls"] == 3
+    assert v["surveyed_at"] is not None
+    pub = _pub_status(token)
+    assert pub["status"] == "surveyed"
+    assert pub.get("quote") is None and pub.get("survey") is None
+    assert _pub_quote(token).status_code == 404
+
+    # quote draft: money literals (230 ft → 3 rolls + 1 nest)
+    r = _draft(bid, headers, roll_count=3, nest_count=1)
+    assert r.status_code == 200, r.text
+    v = r.json()
+    q = v["quote"]
+    assert q["subtotal"] == 1896.0
+    assert q["gst_rate"] == 5.0
+    assert q["gst_amount"] == 94.8
+    assert q["total"] == 1990.8
+    assert q["deposit_amount"] == 597.24
+    assert q["balance_amount"] == 1393.56
+    assert q["sent_at"] is None
+    assert v["status"] == "surveyed"
+
+    # the draft is invisible to the customer and cannot be signed
+    assert _pub_status(token).get("quote") is None
+    assert _pub_quote(token).status_code == 404
+    assert _pub_approve(token).status_code == 400
+
+    # admin preview link opens exactly the customer page, only with a valid token
+    d = _adm("GET", f"/services/bookings/{bid}", headers).json()
+    assert "?preview=" in d["quote"]["preview_url"]
+    jwt_token = d["quote"]["preview_url"].split("?preview=", 1)[1]
+    pv = _pub_quote(token, preview=jwt_token)
+    assert pv.status_code == 200, pv.text
+    assert pv.json()["preview"] is True
+    assert pv.json()["total"] == 1990.8
+    assert _pub_quote(token, preview="garbage").status_code == 404
+    assert _pub_quote(token).status_code == 404
+
+    # send → quoted; now the customer sees quote + survey
+    r = _adm("POST", f"/services/bookings/{bid}/quote/send", headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "quoted"
+    assert r.json()["quote"]["sent_at"] is not None
+    pq = _pub_quote(token)
+    assert pq.status_code == 200, pq.text
+    body = pq.json()
+    assert body["preview"] is False
+    assert body["total"] == 1990.8
+    assert body["deposit_amount"] == 597.24
+    assert body["balance_amount"] == 1393.56
+    assert body["survey"]["perimeter_ft"] == 230
+    assert body["survey"]["photo_urls"] == [PHOTO]
+    pub = _pub_status(token)
+    assert pub["quote"] is not None and pub["survey"] is not None
+
+    # a sent quote cannot be edited in place; revise re-hides it
+    assert _draft(bid, headers, roll_count=3, nest_count=1).status_code == 400
+    r = _adm("POST", f"/services/bookings/{bid}/quote/revise", headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "surveyed"
+    assert r.json()["quote"]["sent_at"] is None
+    assert _pub_quote(token).status_code == 404
+    assert _pub_status(token).get("quote") is None
+
+    # send again → customer signs
+    assert _adm("POST", f"/services/bookings/{bid}/quote/send", headers).status_code == 200
+    ap = _pub_approve(token)
+    assert ap.status_code == 200, ap.text
+    assert ap.json() == {"ok": True, "status": "approved"}
+
+    d = _adm("GET", f"/services/bookings/{bid}", headers).json()
+    assert d["status"] == "approved"
+    assert d["quote"]["status"] == "approved"
+    assert d["quote"]["total"] == 1990.8
+    assert d["quote"]["deposit_amount"] == 597.24
+    assert d["quote"]["balance_amount"] == 1393.56
+    assert _adm("POST", f"/services/bookings/{bid}/quote/revise", headers).status_code == 400
+    assert _pub_status(token)["etransfer_email"]
+
+    # install → complete
+    r = _adm("POST", f"/services/bookings/{bid}/schedule", headers, json={"start_at": _slots(1)[0], "technician": "Mock-Tech"})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "install_scheduled"
+    r = _adm("POST", f"/services/bookings/{bid}/status", headers, json={"status": "completed", "completion_notes": "ok"})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "completed"
+
+
+@needs_stack
+def test_bird_reschedule_survey_returns_200():
+    headers = _admin_headers()
+    slot1, slot2 = _slots(2)
+    _, bid = _new_bird(slot1, headers)
+    r = _adm("POST", f"/services/bookings/{bid}/schedule", headers, json={"start_at": slot2})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "survey_scheduled"
+    assert datetime.fromisoformat(r.json()["scheduled_at"]) == datetime.fromisoformat(slot2)
+
+
+@needs_stack
+def test_bird_status_endpoint_blocks_stage_skipping():
+    headers = _admin_headers()
+    _, bid = _new_bird(_slots(1)[0], headers)
+    for status in ("quoted", "surveyed", "approved", "install_scheduled"):
+        r = _adm("POST", f"/services/bookings/{bid}/status", headers, json={"status": status})
+        assert r.status_code == 400, (status, r.text)
+    r = _adm("POST", f"/services/bookings/{bid}/status", headers, json={"status": "cancelled"})
+    assert r.status_code == 200, r.text
+
+
+@needs_stack
+def test_bird_validation_boundaries():
+    headers = _admin_headers()
+    _, bid = _new_bird(_slots(1)[0], headers)
+    assert _draft(bid, headers, roll_count=3, nest_count=1).status_code == 400  # no survey yet
+    for bad in (
+        {"perimeter_ft": 0},
+        {"perimeter_ft": 50001},
+        {"nest_count": -1},
+        {"photo_urls": ["https://evil.example/x.png"]},
+        {"photo_urls": ["/uploads/services/../../etc/passwd"]},
+    ):
+        r = _survey(bid, headers, **bad)
+        assert r.status_code == 400, (bad, r.text)
+    assert _survey(bid, headers).status_code == 200
+    assert _draft(bid, headers, roll_count=2, nest_count=1).status_code == 400  # differs from 3, no reason
+    reason = "extra roll for split arrays"
+    r = _draft(bid, headers, roll_count=2, nest_count=1, roll_override_reason=reason)
+    assert r.status_code == 200, r.text
+    assert r.json()["quote"]["roll_override_reason"] == reason
+    assert _draft(bid, headers, roll_count=0, nest_count=0).status_code == 400
+    assert _draft(bid, headers, roll_count=1001, nest_count=0).status_code == 400
+
+
+@needs_stack
+def test_bird_old_quote_endpoint_is_gone():
+    headers = _admin_headers()
+    _, bid = _new_bird(_slots(1)[0], headers)
+    r = _adm("POST", f"/services/bookings/{bid}/quote", headers, json={"roll_count": 1, "nest_count": 0})
+    assert r.status_code == 404
+
+
+@needs_stack
+def test_bird_dashboard_outstanding_excludes_unsent_drafts():
+    headers = _admin_headers()
+
+    def outstanding() -> float:
+        r = _adm("GET", "/services/dashboard", headers)
+        assert r.status_code == 200, r.text
+        return r.json()["per_service"]["bird_netting"]["outstanding_quote_value"]
+
+    v0 = outstanding()
+    _, bid = _new_bird(_slots(1)[0], headers)
+    assert _survey(bid, headers).status_code == 200
+    assert _draft(bid, headers, roll_count=3, nest_count=1).status_code == 200
+    assert abs(outstanding() - v0) < 0.005
+    assert _adm("POST", f"/services/bookings/{bid}/quote/send", headers).status_code == 200
+    assert abs(outstanding() - (v0 + 1990.80)) < 0.005
+
+
+@needs_stack
+def test_bird_send_rechecks_override_after_survey_change():
+    headers = _admin_headers()
+    _, bid = _new_bird(_slots(1)[0], headers)
+    assert _survey(bid, headers).status_code == 200  # 230 ft → suggested 3
+    assert _draft(bid, headers, roll_count=3, nest_count=1).status_code == 200  # matches, no reason stored
+    assert _survey(bid, headers, perimeter_ft=330).status_code == 200  # re-recorded → suggested 4
+    r = _adm("POST", f"/services/bookings/{bid}/quote/send", headers)
+    assert r.status_code == 400, r.text
+    assert _adm("GET", f"/services/bookings/{bid}", headers).json()["status"] == "surveyed"
+    r = _draft(bid, headers, roll_count=3, nest_count=1, roll_override_reason="south face needs no netting")
+    assert r.status_code == 200, r.text
+    assert _adm("POST", f"/services/bookings/{bid}/quote/send", headers).status_code == 200

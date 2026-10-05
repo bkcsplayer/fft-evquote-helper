@@ -1,14 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../services/api.js'
+import { fmtCalgaryDay, fmtCalgaryHour } from '../../utils/calgaryTime.js'
 
 function dayKey(iso) { return iso.slice(0, 10) }
-function fmtDay(dayStr) {
-  const d = new Date(dayStr + 'T12:00:00')
-  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
-}
-function fmtHour(iso) {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-}
 
 /**
  * Admin-side shared-pool slot picker (diagnostic schedule, bird install schedule, cleaning visit
@@ -57,7 +51,7 @@ export function AdminSlotPicker({ value, onChange }) {
               selDay === d ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700'
             }`}
           >
-            {fmtDay(d)}
+            {fmtCalgaryDay(d)}
           </button>
         ))}
       </div>
@@ -73,7 +67,7 @@ export function AdminSlotPicker({ value, onChange }) {
                 : 'border-slate-200 bg-white text-slate-800 hover:border-emerald-500 hover:bg-emerald-50'
             }`}
           >
-            {fmtHour(s)}
+            {fmtCalgaryHour(s)}
           </button>
         ))}
       </div>

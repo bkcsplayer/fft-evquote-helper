@@ -133,7 +133,7 @@ SERVICE_EMAIL_TEMPLATES = {
     },
     "bird_quote_ready": {
         "subject": "Your bird-netting quote is ready",
-        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Your quote is ready</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your bird-netting quote is ready: {{ roll_count }} roll(s), {{ nest_count }} nest(s), total <strong>${{ total }}</strong>.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ quote_url }}">Review &amp; approve</a></p>{% endblock %}',
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Your quote is ready</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your bird-netting quote is ready: {{ roll_count }} roll(s), {{ nest_count }} nest(s). Subtotal ${{ subtotal }} + GST ${{ gst_amount }} = <strong>${{ total }}</strong> (incl. GST). A 30% deposit of ${{ deposit_amount }} is due on approval.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ quote_url }}">Review &amp; approve</a></p>{% endblock %}',
     },
     "bird_install_scheduled": {
         "subject": "Your bird-netting installation is scheduled",
@@ -145,11 +145,11 @@ SERVICE_EMAIL_TEMPLATES = {
     },
     "service_completed": {
         "subject": "Your service is complete",
-        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Service complete</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your service is complete. Thank you!</p>{% endblock %}',
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Service complete</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your service is complete. Thank you!</p>{% if balance_amount %}<p style="margin:0 0 12px 0;">Balance due: <strong>${{ balance_amount }}</strong> — invoice attached.</p>{% endif %}{% endblock %}',
     },
     "cleaning_subscription_confirm": {
         "subject": "Your solar panel cleaning subscription is confirmed",
-        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Subscription confirmed</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, thank you for subscribing to quarterly panel cleaning. Annual price: <strong>${{ annual_price }}</strong>.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">View subscription</a></p>{% endblock %}',
+        "html": '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Subscription confirmed</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, thank you for subscribing to quarterly panel cleaning. Annual price: <strong>${{ annual_price }}</strong>{% if annual_total %} + 5% GST = <strong>${{ annual_total }}</strong>{% endif %}.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">View subscription</a></p>{% endblock %}',
     },
     "cleaning_visit_upcoming": {
         "subject": "Upcoming solar panel cleaning",
@@ -164,13 +164,32 @@ SERVICE_EMAIL_TEMPLATES = {
 SERVICE_SMS_TEMPLATES = {
     "service_submission_confirm": {"body": "{{ brand_name }}\n{{ service_label }} booked\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}\nTrack: {{ status_url }}"},
     "service_scheduled": {"body": "{{ brand_name }}\nAppointment confirmed\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}\nTrack: {{ status_url }}"},
-    "bird_quote_ready": {"body": "{{ brand_name }}\nBird-netting quote ready\nTotal: ${{ total }}\nRef: {{ reference_number }}\nApprove: {{ quote_url }}"},
+    "bird_quote_ready": {"body": "{{ brand_name }}\nBird-netting quote ready\nTotal: ${{ total }} (incl. GST)\nRef: {{ reference_number }}\nApprove: {{ quote_url }}"},
     "bird_install_scheduled": {"body": "{{ brand_name }}\nInstallation scheduled\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}\nTrack: {{ status_url }}"},
     "bird_quote_approved": {"body": "{{ brand_name }}\nQuote approved\nDeposit due: ${{ deposit_amount }}\nRef: {{ reference_number }}\nTrack: {{ status_url }}"},
-    "service_completed": {"body": "{{ brand_name }}\nService complete\nRef: {{ reference_number }}\nThank you!"},
-    "cleaning_subscription_confirm": {"body": "{{ brand_name }}\nCleaning subscription confirmed\nAnnual: ${{ annual_price }}\nRef: {{ reference_number }}\nView: {{ status_url }}"},
+    "service_completed": {"body": "{{ brand_name }}\nService complete\nRef: {{ reference_number }}{% if balance_amount %}\nBalance due: ${{ balance_amount }}{% endif %}\nThank you!"},
+    "cleaning_subscription_confirm": {"body": "{{ brand_name }}\nCleaning subscription confirmed\nAnnual: ${{ annual_price }}{% if annual_total %} + 5% GST = ${{ annual_total }}{% endif %}\nRef: {{ reference_number }}\nView: {{ status_url }}"},
     "cleaning_visit_upcoming": {"body": "{{ brand_name }}\nUpcoming cleaning (Q{{ quarter }})\nTime: {{ scheduled_text }}\nRef: {{ reference_number }}"},
     "cleaning_visit_completed": {"body": "{{ brand_name }}\nCleaning complete (Q{{ quarter }})\nRef: {{ reference_number }}"},
+}
+
+# Previous (pre-GST) defaults of the service templates changed in v3.1; a stored row still equal
+# to one of these is upgraded at boot, anything else is an admin edit and is left alone (ADR-022).
+OLD_BIRD_QUOTE_READY_EMAIL_HTML = '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Your quote is ready</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your bird-netting quote is ready: {{ roll_count }} roll(s), {{ nest_count }} nest(s), total <strong>${{ total }}</strong>.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ quote_url }}">Review &amp; approve</a></p>{% endblock %}'
+OLD_BIRD_QUOTE_READY_SMS_BODY = '{{ brand_name }}\nBird-netting quote ready\nTotal: ${{ total }}\nRef: {{ reference_number }}\nApprove: {{ quote_url }}'
+OLD_SERVICE_COMPLETED_EMAIL_HTML = '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Service complete</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your service is complete. Thank you!</p>{% endblock %}'
+OLD_SERVICE_COMPLETED_SMS_BODY = '{{ brand_name }}\nService complete\nRef: {{ reference_number }}\nThank you!'
+OLD_CLEANING_SUBSCRIPTION_CONFIRM_EMAIL_HTML = '{% extends "base.html" %}{% block content %}<h2 style="margin:0 0 8px 0;">Subscription confirmed</h2><p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, thank you for subscribing to quarterly panel cleaning. Annual price: <strong>${{ annual_price }}</strong>.</p><p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">View subscription</a></p>{% endblock %}'
+OLD_CLEANING_SUBSCRIPTION_CONFIRM_SMS_BODY = '{{ brand_name }}\nCleaning subscription confirmed\nAnnual: ${{ annual_price }}\nRef: {{ reference_number }}\nView: {{ status_url }}'
+OLD_SERVICE_EMAIL_HTML = {
+    "bird_quote_ready": OLD_BIRD_QUOTE_READY_EMAIL_HTML,
+    "service_completed": OLD_SERVICE_COMPLETED_EMAIL_HTML,
+    "cleaning_subscription_confirm": OLD_CLEANING_SUBSCRIPTION_CONFIRM_EMAIL_HTML,
+}
+OLD_SERVICE_SMS_BODY = {
+    "bird_quote_ready": OLD_BIRD_QUOTE_READY_SMS_BODY,
+    "service_completed": OLD_SERVICE_COMPLETED_SMS_BODY,
+    "cleaning_subscription_confirm": OLD_CLEANING_SUBSCRIPTION_CONFIRM_SMS_BODY,
 }
 
 NUDGE_EMAIL_TEMPLATES = {
@@ -267,6 +286,12 @@ def _ensure_service_templates(db: Session) -> None:
             if k not in (email_row.value or {}):
                 email_row.value[k] = v
                 changed = True
+        # Safe upgrade: replace the html only if it still matches the previous default.
+        for k, old_html in OLD_SERVICE_EMAIL_HTML.items():
+            existing = (email_row.value or {}).get(k) or {}
+            if isinstance(existing, dict) and existing.get("html") == old_html:
+                email_row.value[k] = {**existing, "html": SERVICE_EMAIL_TEMPLATES[k]["html"]}
+                changed = True
         if changed:
             flag_modified(email_row, "value")
             db.add(email_row)
@@ -280,6 +305,12 @@ def _ensure_service_templates(db: Session) -> None:
         for k, v in SERVICE_SMS_TEMPLATES.items():
             if k not in (sms_row.value or {}):
                 sms_row.value[k] = v
+                changed = True
+        # Safe upgrade: replace the body only if it still matches the previous default.
+        for k, old_body in OLD_SERVICE_SMS_BODY.items():
+            existing = (sms_row.value or {}).get(k) or {}
+            if isinstance(existing, dict) and existing.get("body") == old_body:
+                sms_row.value[k] = {**existing, "body": SERVICE_SMS_TEMPLATES[k]["body"]}
                 changed = True
         if changed:
             flag_modified(sms_row, "value")

@@ -1,15 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api.js'
 import { useI18n } from '../i18n/index.js'
+import { fmtCalgaryDay, fmtCalgaryHour } from '../utils/calgaryTime.js'
 
 function dayKey(iso) { return iso.slice(0, 10) }
-function fmtDay(dayStr) {
-  const d = new Date(dayStr + 'T12:00:00')
-  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
-}
-function fmtHour(iso) {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-}
 
 /** Slot-based booking: lists available times for a kind and books the chosen one. */
 export function SlotPicker({ token, kind, onBooked }) {
@@ -69,7 +63,7 @@ export function SlotPicker({ token, kind, onBooked }) {
               selDay === d ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-slate-200 bg-white text-slate-700'
             }`}
           >
-            {fmtDay(d)}
+            {fmtCalgaryDay(d)}
           </button>
         ))}
       </div>
@@ -82,7 +76,7 @@ export function SlotPicker({ token, kind, onBooked }) {
             onClick={() => book(s)}
             className="rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:border-emerald-500 hover:bg-emerald-50 disabled:opacity-50"
           >
-            {fmtHour(s)}
+            {fmtCalgaryHour(s)}
           </button>
         ))}
       </div>

@@ -5,8 +5,9 @@ import { Pill, PillButton } from '../../components/ui/Pill.jsx'
 import { SkeletonTable } from '../../components/ui/Skeleton.jsx'
 import { api } from '../../services/api.js'
 import { humanizeStatus, toneForServiceBookingStatus } from '../../utils/serviceTone.js'
+import { fmtCalgary } from '../../utils/calgaryTime.js'
 
-const STATUSES = ['submitted', 'scheduled', 'survey_scheduled', 'quoted', 'approved', 'in_progress', 'install_scheduled', 'completed', 'cancelled']
+const STATUSES = ['submitted', 'scheduled', 'survey_scheduled', 'surveyed', 'quoted', 'approved', 'in_progress', 'install_scheduled', 'completed', 'cancelled']
 
 export default function ServiceBookings() {
   const [searchParams] = useSearchParams()
@@ -107,7 +108,7 @@ export default function ServiceBookings() {
                         <Pill tone={toneForServiceBookingStatus(b.status)}>{humanizeStatus(b.status)}</Pill>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-slate-600">
-                        {b.scheduled_at ? new Date(b.scheduled_at).toLocaleString() : '—'}
+                        {b.scheduled_at ? fmtCalgary(b.scheduled_at) : '—'}
                       </td>
                     </tr>
                   ))}

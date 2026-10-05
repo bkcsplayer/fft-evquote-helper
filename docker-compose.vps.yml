@@ -60,6 +60,8 @@ services:
       NUDGE_REDIRECT: ${NUDGE_REDIRECT:-}
       NUDGE_REDIRECT_SMS: ${NUDGE_REDIRECT_SMS:-+15879669668}
       NUDGE_REDIRECT_EMAIL: ${NUDGE_REDIRECT_EMAIL:-cool@khtain.com}
+      # production default OFF (SPEC decision 7); only the exact value on enables it
+      NOTIFY_REDIRECT: ${NOTIFY_REDIRECT:-off}
     volumes:
       - ./uploads:/app/uploads
     ports:

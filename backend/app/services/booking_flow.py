@@ -32,6 +32,7 @@ from app.services.availability import list_available_slots
 from app.services.booking_config import get_booking_config
 from app.services.notification_service import build_invoice_pdf, notify_case_status_sms, notify_email, render_email_from_db_or_files
 from app.services.status_machine import assert_transition_allowed
+from app.utils.timefmt import fmt_calgary
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ def _notify_survey_deposit(db: Session, case: Case, survey: Survey, start_at: da
         customer = db.get(Customer, case.customer_id)
         if not customer or not customer.email:
             return
-        scheduled_text = start_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        scheduled_text = fmt_calgary(start_at)
         ctx = {
             "title": "FFT - Survey scheduled",
             "nickname": customer.nickname,
@@ -99,7 +100,7 @@ def _notify_booked(db: Session, case: Case, kind: AppointmentKind, start_at: dat
         customer = db.get(Customer, case.customer_id)
         if not customer or not customer.phone:
             return
-        when = start_at.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        when = fmt_calgary(start_at)
         notify_case_status_sms(
             db,
             case_id=str(case.id),

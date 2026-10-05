@@ -33,6 +33,7 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:7220}
       ADMIN_URL: ${ADMIN_URL:-http://localhost:7221}
       ADMIN_NOTIFY_EMAIL: ${ADMIN_NOTIFY_EMAIL:-ops@example.com}
+      NOTIFY_REDIRECT: "on"
       # Tests must NOT dial a real SMTP/Twilio (would hang on a slow server). Force them disabled
       # regardless of the developer's .env — notification rows are still recorded as "failed",
       # which is what the tests assert. Hardcoded empty (do NOT inherit ${SMTP_HOST} from .env).
@@ -81,8 +82,10 @@ services:
       - -q
       - --ignore=tests/test_booking_logic.py
       - --ignore=tests/test_invoice_items.py
-      - --ignore=tests/test_services_v3.py
       - --ignore=tests/test_nudge_service.py
+      - --ignore=tests/test_money.py
+      - --ignore=tests/test_notify_redirect.py
+      - --ignore=tests/test_bird_helpers.py
 
 volumes:
   pgdata_test:

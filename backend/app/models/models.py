@@ -612,13 +612,14 @@ class ServiceBookingStatus(str, enum.Enum):
     transitions are guarded in services/service_booking_flow.py.
 
     diagnostic:   submitted → scheduled → in_progress → completed | cancelled
-    bird_netting: submitted → survey_scheduled → quoted → approved → install_scheduled
+    bird_netting: submitted → survey_scheduled → surveyed → quoted → approved → install_scheduled
                             → completed | cancelled
     """
 
     submitted = "submitted"
     scheduled = "scheduled"                # diagnostic
     survey_scheduled = "survey_scheduled"  # bird netting (drone survey booked)
+    surveyed = "surveyed"  # bird netting (survey result recorded; quote not yet sent)
     quoted = "quoted"                      # bird netting
     approved = "approved"                  # bird netting (customer signed)
     in_progress = "in_progress"            # diagnostic
@@ -700,6 +701,12 @@ class ServiceBooking(Base, TimestampMixin):
     access_token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     disclaimer_accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status_changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # bird-netting-only survey result (CONTEXT.md: 勘测结果)
+    survey_perimeter_ft: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    survey_nest_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    survey_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    survey_photo_urls: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    surveyed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     quote: Mapped["BirdNettingQuote | None"] = relationship(back_populates="booking")
 
@@ -717,6 +724,7 @@ class BirdNettingQuote(Base, TimestampMixin):
     nest_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     roll_price_snapshot: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     nest_fee_snapshot: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    # GST-inclusive total since c7d8e9f0a1b2 (older rows: subtotal == total, gst 0)
     total: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     status: Mapped[QuoteStatus] = mapped_column(
         Enum(QuoteStatus, name="quote_status"), nullable=False, default=QuoteStatus.pending
@@ -724,6 +732,12 @@ class BirdNettingQuote(Base, TimestampMixin):
     signature_data: Mapped[str | None] = mapped_column(Text, nullable=True)
     signed_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    subtotal: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    gst_rate: Mapped[float] = mapped_column(Numeric(4, 2), nullable=False, default=0)
+    gst_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    deposit_amount: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    roll_override_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # NULL = quote draft (ADR-015)
 
     booking: Mapped["ServiceBooking"] = relationship(back_populates="quote")
 

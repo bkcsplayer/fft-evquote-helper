@@ -13,9 +13,12 @@ Touchpoints (slot consumed):
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+import re
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 
 from fastapi import HTTPException
+from jose import jwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -40,9 +43,28 @@ from app.services import booking as booking_svc
 from app.services.availability import list_available_slots
 from app.services.booking_config import get_booking_config
 from app.services.notification_service import build_invoice_pdf, notify_service
+from app.services.security import decode_token
 from app.services.service_pricing import get_service_pricing, resolve_cleaning_tier
+from app.utils.money import GST_RATE_PERCENT, deposit_split, suggested_rolls, to_money, with_gst
 from app.utils.reference import build_prefixed_reference, current_year
+from app.utils.timefmt import fmt_calgary
 from app.utils.token import generate_access_token
+
+# ── bird-netting input limits (trust boundary; flow-layer 400s, not Pydantic 422s) ──
+MAX_PERIMETER_FT = 50_000
+MAX_ITEM_COUNT = 1_000
+MAX_SURVEY_PHOTOS = 30
+MAX_NOTES_LEN = 2000
+MAX_REASON_LEN = 300
+# Only our own uploads may reach the customer quote page (no external links, no "..").
+_SURVEY_PHOTO_RE = re.compile(r"^/uploads/services/[A-Za-z0-9_-][A-Za-z0-9._-]*$")
+PREVIEW_TOKEN_SCOPE = "bird_quote_preview"
+PREVIEW_TOKEN_MINUTES = 30
+
+
+def _money_str(d) -> str:
+    """Customer-facing amount, e.g. 1990.8 -> "1,990.80"."""
+    return f"{d:,.2f}"
 
 # ── allowed status transitions (admin-driven; quote/approve/schedule use dedicated paths) ──
 DIAGNOSTIC_TRANSITIONS: dict[ServiceBookingStatus, set[ServiceBookingStatus]] = {
@@ -52,11 +74,16 @@ DIAGNOSTIC_TRANSITIONS: dict[ServiceBookingStatus, set[ServiceBookingStatus]] = 
 }
 BIRD_TRANSITIONS: dict[ServiceBookingStatus, set[ServiceBookingStatus]] = {
     ServiceBookingStatus.submitted: {ServiceBookingStatus.survey_scheduled, ServiceBookingStatus.cancelled},
-    ServiceBookingStatus.survey_scheduled: {ServiceBookingStatus.quoted, ServiceBookingStatus.cancelled},
-    ServiceBookingStatus.quoted: {ServiceBookingStatus.approved, ServiceBookingStatus.cancelled},
+    ServiceBookingStatus.survey_scheduled: {ServiceBookingStatus.surveyed, ServiceBookingStatus.cancelled},
+    ServiceBookingStatus.surveyed: {ServiceBookingStatus.quoted, ServiceBookingStatus.cancelled},
+    # quoted → surveyed = revise (withdraw the sent quote back to a draft)
+    ServiceBookingStatus.quoted: {ServiceBookingStatus.approved, ServiceBookingStatus.surveyed, ServiceBookingStatus.cancelled},
     ServiceBookingStatus.approved: {ServiceBookingStatus.install_scheduled, ServiceBookingStatus.cancelled},
     ServiceBookingStatus.install_scheduled: {ServiceBookingStatus.completed, ServiceBookingStatus.cancelled},
 }
+# The generic /status endpoint may only complete or cancel a bird booking; every other stage
+# moves through its dedicated action (survey result / quote send / revise / approve / schedule).
+BIRD_STATUS_ENDPOINT_ALLOWED = {ServiceBookingStatus.completed, ServiceBookingStatus.cancelled}
 
 
 # ── URLs ──
@@ -78,6 +105,48 @@ def cleaning_status_url(token: str) -> str:
 
 def _mark_status_changed(obj) -> None:
     obj.status_changed_at = datetime.now(timezone.utc)
+
+
+# ── bird-netting helpers ──
+def _get_bird_quote(db: Session, booking: ServiceBooking) -> BirdNettingQuote | None:
+    return db.execute(
+        select(BirdNettingQuote).where(BirdNettingQuote.booking_id == booking.id)
+    ).scalar_one_or_none()
+
+
+def bird_invoice_items(quote) -> list[dict]:
+    """Invoice line items for a bird quote (deposit + balance invoices). Sum == quote subtotal."""
+    items = [{
+        "description": f"Bird netting installation — {quote.roll_count} roll(s)",
+        "quantity": quote.roll_count, "unit_price": f"${float(quote.roll_price_snapshot):.2f}",
+        "amount": quote.roll_count * float(quote.roll_price_snapshot),
+    }]
+    if quote.nest_count:
+        items.append({
+            "description": f"Bird nest cleanup — {quote.nest_count} nest(s)",
+            "quantity": quote.nest_count, "unit_price": f"${float(quote.nest_fee_snapshot):.2f}",
+            "amount": quote.nest_count * float(quote.nest_fee_snapshot),
+        })
+    return items
+
+
+def make_preview_token(booking_id) -> str:
+    """30-minute admin preview of an unsent quote draft. Carries no role → cannot log in as admin."""
+    exp = datetime.now(timezone.utc) + timedelta(minutes=PREVIEW_TOKEN_MINUTES)
+    return jwt.encode(
+        {"sub": str(booking_id), "scope": PREVIEW_TOKEN_SCOPE, "exp": int(exp.timestamp())},
+        get_settings().secret_key,
+        algorithm="HS256",
+    )
+
+
+def verify_preview_token(token: str, booking_id) -> bool:
+    """True only for an unexpired token with the preview scope for exactly this booking."""
+    try:
+        payload = decode_token(token)  # enforces signature + exp
+    except Exception:
+        return False
+    return payload.get("scope") == PREVIEW_TOKEN_SCOPE and payload.get("sub") == str(booking_id)
 
 
 # ── reference numbers ──
@@ -193,7 +262,7 @@ def create_service_booking(
             "customer_name": customer_name,
             "reference_number": booking.reference_number,
             "service_label": label,
-            "scheduled_text": start_at.astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+            "scheduled_text": fmt_calgary(start_at),
             "status_url": service_status_url(booking.access_token),
         },
         email_subject_fallback=f"We received your {label} booking",
@@ -219,18 +288,26 @@ def admin_schedule_booking(
     db: Session, *, booking: ServiceBooking, start_at: datetime, technician: str | None = None
 ) -> ServiceBooking:
     """Diagnostic: (re)confirm the visit + assign technician → status scheduled.
-    Bird netting (after approval): schedule the installation → status install_scheduled.
+    Bird netting: before the survey is recorded, reschedule the drone survey (status unchanged);
+    after approval, schedule the installation → status install_scheduled.
     """
     if booking.service_type == ServiceType.diagnostic:
         kind = AppointmentKind.diagnostic
         new_status = ServiceBookingStatus.scheduled
         template = "service_scheduled"
-    else:
-        if booking.status not in {ServiceBookingStatus.approved, ServiceBookingStatus.install_scheduled}:
-            raise HTTPException(status_code=400, detail="Install can be scheduled only after the quote is approved.")
+    elif booking.status == ServiceBookingStatus.survey_scheduled:
+        kind = AppointmentKind.bird_survey
+        new_status = ServiceBookingStatus.survey_scheduled
+        template = "service_scheduled"
+    elif booking.status in {ServiceBookingStatus.approved, ServiceBookingStatus.install_scheduled}:
         kind = AppointmentKind.bird_install
         new_status = ServiceBookingStatus.install_scheduled
         template = "bird_install_scheduled"
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="A time can be set only for the drone survey (before it is recorded) or the installation (after approval).",
+        )
 
     for a in _active_appointments(db, service_booking_id=booking.id, kind=kind):
         a.status = AppointmentStatus.cancelled
@@ -253,7 +330,7 @@ def admin_schedule_booking(
         ctx={
             "customer_name": booking.customer_name,
             "reference_number": booking.reference_number,
-            "scheduled_text": start_at.astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+            "scheduled_text": fmt_calgary(start_at),
             "technician": booking.technician or "",
             "status_url": service_status_url(booking.access_token),
         },
@@ -275,22 +352,92 @@ def admin_schedule_booking(
     return booking
 
 
-def admin_create_bird_quote(
-    db: Session, *, booking: ServiceBooking, roll_count: int, nest_count: int
-) -> BirdNettingQuote:
+def _require_bird(booking: ServiceBooking) -> None:
     if booking.service_type != ServiceType.bird_netting:
-        raise HTTPException(status_code=400, detail="Quotes apply to bird-netting bookings only.")
-    if booking.status not in {ServiceBookingStatus.survey_scheduled, ServiceBookingStatus.quoted}:
-        raise HTTPException(status_code=400, detail="A quote can be issued after the drone survey.")
+        raise HTTPException(status_code=400, detail="This action applies to bird-netting bookings only.")
+
+
+def _int_in_range(value, lo: int, hi: int, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+        raise HTTPException(status_code=400, detail=f"{label} must be a whole number from {lo} to {hi}.")
+    return value
+
+
+def admin_record_survey_result(
+    db: Session,
+    *,
+    booking: ServiceBooking,
+    perimeter_ft: int,
+    nest_count: int,
+    notes: str | None,
+    photo_urls: list,
+) -> ServiceBooking:
+    """Record the drone survey result (CONTEXT.md: 勘测结果) → status surveyed. No notification."""
+    _require_bird(booking)
+    if booking.status not in {ServiceBookingStatus.survey_scheduled, ServiceBookingStatus.surveyed}:
+        raise HTTPException(status_code=400, detail="The survey result can be recorded only before a quote is sent.")
+    perimeter_ft = _int_in_range(perimeter_ft, 1, MAX_PERIMETER_FT, "Perimeter (ft)")
+    nest_count = _int_in_range(nest_count, 0, MAX_ITEM_COUNT, "Nest count")
+    notes = (notes or "").strip() or None
+    if notes is not None and len(notes) > MAX_NOTES_LEN:
+        raise HTTPException(status_code=400, detail=f"Survey notes must be at most {MAX_NOTES_LEN} characters.")
+    if not isinstance(photo_urls, list) or len(photo_urls) > MAX_SURVEY_PHOTOS:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_SURVEY_PHOTOS} survey photos are allowed.")
+    for url in photo_urls:
+        if not isinstance(url, str) or not _SURVEY_PHOTO_RE.match(url):
+            raise HTTPException(status_code=400, detail="Survey photos must be uploaded files (/uploads/services/...).")
+
+    booking.survey_perimeter_ft = perimeter_ft
+    booking.survey_nest_count = nest_count
+    booking.survey_notes = notes
+    booking.survey_photo_urls = list(photo_urls)
+    if booking.surveyed_at is None:
+        booking.surveyed_at = datetime.now(timezone.utc)
+    for a in _active_appointments(db, service_booking_id=booking.id, kind=AppointmentKind.bird_survey):
+        a.status = AppointmentStatus.completed
+    if booking.status != ServiceBookingStatus.surveyed:
+        _mark_status_changed(booking)
+    booking.status = ServiceBookingStatus.surveyed
+    db.commit()
+    db.refresh(booking)
+    return booking
+
+
+def admin_save_bird_quote_draft(
+    db: Session,
+    *,
+    booking: ServiceBooking,
+    roll_count: int,
+    nest_count: int,
+    roll_override_reason: str | None,
+) -> BirdNettingQuote:
+    """Create/update the quote draft (sent_at NULL, ADR-015). Booking status unchanged. No notification."""
+    _require_bird(booking)
+    if booking.status == ServiceBookingStatus.quoted:
+        raise HTTPException(status_code=400, detail="Revise the sent quote first.")
+    if booking.status != ServiceBookingStatus.surveyed or booking.survey_perimeter_ft is None:
+        raise HTTPException(status_code=400, detail="Record the survey result first.")
+    roll_count = _int_in_range(roll_count, 0, MAX_ITEM_COUNT, "Roll count")
+    nest_count = _int_in_range(nest_count, 0, MAX_ITEM_COUNT, "Nest count")
+    if roll_count + nest_count == 0:
+        raise HTTPException(status_code=400, detail="A quote needs at least one roll or nest.")
+
+    suggested = suggested_rolls(booking.survey_perimeter_ft)
+    reason = (roll_override_reason or "").strip() or None
+    if roll_count == suggested:
+        reason = None
+    elif reason is None:
+        raise HTTPException(status_code=400, detail=f"Explain why the roll count differs from the suggested {suggested}.")
+    elif len(reason) > MAX_REASON_LEN:
+        raise HTTPException(status_code=400, detail=f"The reason must be at most {MAX_REASON_LEN} characters.")
 
     pricing = get_service_pricing(db)
-    roll_price = float(pricing["bird_netting_roll_price"])
-    nest_fee = float(pricing["bird_netting_nest_fee"])
-    total = roll_count * roll_price + nest_count * nest_fee
+    roll_price = to_money(pricing["bird_netting_roll_price"])
+    nest_fee = to_money(pricing["bird_netting_nest_fee"])
+    subtotal, gst, total = with_gst(roll_count * roll_price + nest_count * nest_fee)
+    deposit, _ = deposit_split(total)
 
-    quote = db.execute(
-        select(BirdNettingQuote).where(BirdNettingQuote.booking_id == booking.id)
-    ).scalar_one_or_none()
+    quote = _get_bird_quote(db, booking)
     if quote is None:
         quote = BirdNettingQuote(booking_id=booking.id)
         db.add(quote)
@@ -298,14 +445,40 @@ def admin_create_bird_quote(
     quote.nest_count = nest_count
     quote.roll_price_snapshot = roll_price
     quote.nest_fee_snapshot = nest_fee
+    quote.subtotal = subtotal
+    quote.gst_rate = GST_RATE_PERCENT
+    quote.gst_amount = gst
     quote.total = total
+    quote.deposit_amount = deposit
+    quote.roll_override_reason = reason
     quote.status = QuoteStatus.pending
     quote.signature_data = None
     quote.signed_name = None
     quote.approved_at = None
+    quote.sent_at = None
+    db.commit()
+    db.refresh(quote)
+    return quote
 
-    if booking.status != ServiceBookingStatus.quoted:
-        _mark_status_changed(booking)
+
+def admin_send_bird_quote(db: Session, *, booking: ServiceBooking) -> BirdNettingQuote:
+    """The ONLY action that notifies the customer about a quote (CONTEXT.md: 发送报价)."""
+    _require_bird(booking)
+    if booking.status != ServiceBookingStatus.surveyed:
+        raise HTTPException(status_code=400, detail="Only a surveyed booking's quote draft can be sent.")
+    quote = _get_bird_quote(db, booking)
+    if quote is None or quote.sent_at is not None:
+        raise HTTPException(status_code=400, detail="Save a quote draft first.")
+    # The survey may have been re-recorded after the draft was saved — re-check the override rule.
+    suggested = suggested_rolls(booking.survey_perimeter_ft)
+    if quote.roll_count != suggested and not quote.roll_override_reason:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The survey now suggests {suggested} rolls — update the draft or explain the difference.",
+        )
+
+    quote.sent_at = datetime.now(timezone.utc)
+    _mark_status_changed(booking)
     booking.status = ServiceBookingStatus.quoted
     db.commit()
     db.refresh(quote)
@@ -318,9 +491,12 @@ def admin_create_bird_quote(
         ctx={
             "customer_name": booking.customer_name,
             "reference_number": booking.reference_number,
-            "roll_count": roll_count,
-            "nest_count": nest_count,
-            "total": f"{total:.2f}",
+            "roll_count": quote.roll_count,
+            "nest_count": quote.nest_count,
+            "subtotal": _money_str(quote.subtotal),
+            "gst_amount": _money_str(quote.gst_amount),
+            "total": _money_str(quote.total),
+            "deposit_amount": _money_str(quote.deposit_amount),
             "quote_url": bird_quote_url(booking.access_token),
         },
         email_subject_fallback="Your bird-netting quote is ready",
@@ -328,13 +504,14 @@ def admin_create_bird_quote(
             '{% extends "base.html" %}{% block content %}'
             '<h2 style="margin:0 0 8px 0;">Your quote is ready</h2>'
             '<p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your bird-netting quote '
-            "is ready: {{ roll_count }} roll(s), {{ nest_count }} nest(s), total "
-            "<strong>${{ total }}</strong>.</p>"
+            "is ready: {{ roll_count }} roll(s), {{ nest_count }} nest(s). Subtotal ${{ subtotal }} + GST "
+            "${{ gst_amount }} = <strong>${{ total }}</strong> (incl. GST). A 30% deposit of "
+            "${{ deposit_amount }} is due on approval.</p>"
             '<p style="margin:0 0 12px 0;"><a class="btn" href="{{ quote_url }}">Review &amp; approve</a></p>'
             "{% endblock %}"
         ),
         sms_fallback=(
-            "{{ brand_name }}\nBird-netting quote ready\nTotal: ${{ total }}\n"
+            "{{ brand_name }}\nBird-netting quote ready\nTotal: ${{ total }} (incl. GST)\n"
             "Ref: {{ reference_number }}\nApprove: {{ quote_url }}"
         ),
         service_booking_id=str(booking.id),
@@ -342,23 +519,40 @@ def admin_create_bird_quote(
     return quote
 
 
+def admin_revise_bird_quote(db: Session, *, booking: ServiceBooking) -> BirdNettingQuote:
+    """Withdraw a sent, unsigned quote back to a draft (status surveyed). Row kept. No notification."""
+    _require_bird(booking)
+    if booking.status != ServiceBookingStatus.quoted:
+        raise HTTPException(status_code=400, detail="Only a sent quote can be revised.")
+    quote = _get_bird_quote(db, booking)
+    if quote is None or quote.status != QuoteStatus.pending:
+        raise HTTPException(status_code=400, detail="This quote is already signed.")
+
+    quote.sent_at = None
+    _mark_status_changed(booking)
+    booking.status = ServiceBookingStatus.surveyed
+    db.commit()
+    db.refresh(quote)
+    return quote
+
+
 def approve_bird_quote(
     db: Session, *, booking: ServiceBooking, signature_data: str, signed_name: str
 ) -> BirdNettingQuote:
-    quote = db.execute(
-        select(BirdNettingQuote).where(BirdNettingQuote.booking_id == booking.id)
-    ).scalar_one_or_none()
+    quote = _get_bird_quote(db, booking)
     if not quote:
         raise HTTPException(status_code=404, detail="No quote to approve.")
     if quote.status == QuoteStatus.approved:
         return quote
+    if quote.sent_at is None:
+        raise HTTPException(status_code=400, detail="This quote has not been sent.")
     if booking.status != ServiceBookingStatus.quoted:
         raise HTTPException(status_code=400, detail="This quote is not awaiting approval.")
 
     quote.status = QuoteStatus.approved
     quote.signature_data = signature_data
     quote.signed_name = signed_name
-    quote.approved_at = datetime.now().astimezone()
+    quote.approved_at = datetime.now(timezone.utc)
     if booking.status != ServiceBookingStatus.approved:
         _mark_status_changed(booking)
     booking.status = ServiceBookingStatus.approved
@@ -369,18 +563,7 @@ def approve_bird_quote(
     # for this booking (the earlier quote email was just a proposal, no invoice attached). Shows
     # the full itemized quote for reference (what was agreed to) with the actual payable amount
     # (30%) called out separately, instead of collapsing straight to one opaque deposit line.
-    deposit_amount = float(quote.total) * 0.30
-    quote_items = [{
-        "description": f"Bird netting installation — {quote.roll_count} roll(s)",
-        "quantity": quote.roll_count, "unit_price": f"${float(quote.roll_price_snapshot):.2f}",
-        "amount": quote.roll_count * float(quote.roll_price_snapshot),
-    }]
-    if quote.nest_count:
-        quote_items.append({
-            "description": f"Bird nest cleanup — {quote.nest_count} nest(s)",
-            "quantity": quote.nest_count, "unit_price": f"${float(quote.nest_fee_snapshot):.2f}",
-            "amount": quote.nest_count * float(quote.nest_fee_snapshot),
-        })
+    deposit = to_money(quote.deposit_amount)
     pdf_attachment = build_invoice_pdf(
         db,
         kind_label="Deposit Invoice",
@@ -389,11 +572,13 @@ def approve_bird_quote(
         bill_to_name=booking.customer_name,
         bill_to_address=booking.address,
         bill_to_phone=booking.phone,
-        items=quote_items,
-        subtotal=float(quote.total),
+        items=bird_invoice_items(quote),
+        subtotal=float(quote.subtotal),
+        gst_rate=float(quote.gst_rate),  # snapshot: historical 0-tax quotes must not print a rate
+        gst_amount=float(quote.gst_amount),
         total=float(quote.total),
         due_now_label="Deposit Due Now (30%)",
-        due_now_amount=deposit_amount,
+        due_now_amount=float(deposit),
         note="Approved project total shown above. A 30% deposit is due now to lock in your install date; the remaining 70% is invoiced separately after installation.",
     )
     notify_service(
@@ -404,7 +589,7 @@ def approve_bird_quote(
         ctx={
             "customer_name": booking.customer_name,
             "reference_number": booking.reference_number,
-            "deposit_amount": f"{deposit_amount:.2f}",
+            "deposit_amount": _money_str(deposit),
             "status_url": service_status_url(booking.access_token),
         },
         email_subject_fallback="Your bird-netting quote is approved",
@@ -436,6 +621,8 @@ def admin_update_status(
     hardware_involved: bool | None = None,
     completion_notes: str | None = None,
 ) -> ServiceBooking:
+    if booking.service_type == ServiceType.bird_netting and new_status not in BIRD_STATUS_ENDPOINT_ALLOWED:
+        raise HTTPException(status_code=400, detail="Use the survey / quote actions for this step.")
     transitions = (
         DIAGNOSTIC_TRANSITIONS if booking.service_type == ServiceType.diagnostic else BIRD_TRANSITIONS
     )
@@ -467,6 +654,11 @@ def admin_update_status(
 
     if new_status == ServiceBookingStatus.completed:
         pdf_attachment = _build_completion_invoice(db, booking=booking)
+        balance_amount = ""
+        quote = _get_bird_quote(db, booking) if booking.service_type == ServiceType.bird_netting else None
+        if quote is not None:
+            # snapshot-based, same rule as the admin view: GST-inclusive total minus the deposit
+            balance_amount = _money_str(to_money(quote.total) - to_money(quote.deposit_amount))
         notify_service(
             db,
             template_key="service_completed",
@@ -476,6 +668,7 @@ def admin_update_status(
                 "customer_name": booking.customer_name,
                 "reference_number": booking.reference_number,
                 "status_url": service_status_url(booking.access_token),
+                "balance_amount": balance_amount,
             },
             email_subject_fallback="Your service is complete",
             email_html_fallback=(
@@ -483,9 +676,14 @@ def admin_update_status(
                 '<h2 style="margin:0 0 8px 0;">Service complete</h2>'
                 '<p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, your service is '
                 "complete. Thank you!</p>"
+                '{% if balance_amount %}<p style="margin:0 0 12px 0;">Balance due: '
+                "<strong>${{ balance_amount }}</strong> — invoice attached.</p>{% endif %}"
                 "{% endblock %}"
             ),
-            sms_fallback="{{ brand_name }}\nService complete\nRef: {{ reference_number }}\nThank you!",
+            sms_fallback=(
+                "{{ brand_name }}\nService complete\nRef: {{ reference_number }}"
+                "{% if balance_amount %}\nBalance due: ${{ balance_amount }}{% endif %}\nThank you!"
+            ),
             service_booking_id=str(booking.id),
             pdf_attachment=pdf_attachment,
         )
@@ -501,7 +699,7 @@ def _build_completion_invoice(db: Session, *, booking: ServiceBooking) -> tuple[
             return None
         hours = float(booking.actual_hours)
         rate = float(booking.hourly_rate_snapshot)
-        total = hours * rate
+        subtotal, gst, total = with_gst(Decimal(str(booking.actual_hours)) * Decimal(str(booking.hourly_rate_snapshot)))
         return build_invoice_pdf(
             db,
             kind_label="Invoice",
@@ -510,26 +708,16 @@ def _build_completion_invoice(db: Session, *, booking: ServiceBooking) -> tuple[
             bill_to_name=booking.customer_name,
             bill_to_address=booking.address,
             bill_to_phone=booking.phone,
-            items=[{"description": "Solar diagnostic service", "quantity": f"{hours:g} hrs", "unit_price": f"${rate:.2f}/hr", "amount": total}],
-            subtotal=total,
-            total=total,
+            items=[{"description": "Solar diagnostic service", "quantity": f"{hours:g} hrs", "unit_price": f"${rate:.2f}/hr", "amount": float(subtotal)}],
+            subtotal=float(subtotal),
+            gst_rate=float(GST_RATE_PERCENT),
+            gst_amount=float(gst),
+            total=float(total),
         )
 
-    quote = db.execute(select(BirdNettingQuote).where(BirdNettingQuote.booking_id == booking.id)).scalar_one_or_none()
+    quote = _get_bird_quote(db, booking)
     if not quote:
         return None
-    deposit_paid = float(quote.total) * 0.30
-    items = [{
-        "description": f"Bird netting installation — {quote.roll_count} roll(s)",
-        "quantity": quote.roll_count, "unit_price": f"${float(quote.roll_price_snapshot):.2f}",
-        "amount": quote.roll_count * float(quote.roll_price_snapshot),
-    }]
-    if quote.nest_count:
-        items.append({
-            "description": f"Bird nest cleanup — {quote.nest_count} nest(s)",
-            "quantity": quote.nest_count, "unit_price": f"${float(quote.nest_fee_snapshot):.2f}",
-            "amount": quote.nest_count * float(quote.nest_fee_snapshot),
-        })
     return build_invoice_pdf(
         db,
         kind_label="Balance Invoice",
@@ -538,10 +726,12 @@ def _build_completion_invoice(db: Session, *, booking: ServiceBooking) -> tuple[
         bill_to_name=booking.customer_name,
         bill_to_address=booking.address,
         bill_to_phone=booking.phone,
-        items=items,
-        subtotal=float(quote.total),
+        items=bird_invoice_items(quote),
+        subtotal=float(quote.subtotal),
+        gst_rate=float(quote.gst_rate),
+        gst_amount=float(quote.gst_amount),
         total=float(quote.total),
-        amount_paid=deposit_paid,
+        amount_paid=float(quote.deposit_amount),
     )
 
 
@@ -597,7 +787,10 @@ def create_cleaning_subscription(
     db.refresh(sub)
 
     pdf_attachment = None
+    annual_total = ""
     if annual_price is not None:
+        subtotal, gst, total = with_gst(annual_price)
+        annual_total = _money_str(total)
         # Fixed price known now (tier1/tier2) -> this confirmation IS the invoice, annual fee due
         # to activate. Custom tier (pending_quote) has no price yet, so no invoice until priced.
         t1_max = int(pricing["cleaning_tier1_max_panels"])
@@ -613,11 +806,13 @@ def create_cleaning_subscription(
             bill_to_phone=phone,
             items=[{
                 "description": f"Annual panel cleaning subscription ({tier.value}, 4 visits)",
-                "quantity": "1", "unit_price": f"${annual_price:.2f}", "amount": annual_price,
+                "quantity": "1", "unit_price": f"${annual_price:.2f}", "amount": float(subtotal),
             }],
             note=f"Tier: {tier.value} ({tier_range}) · Your subscription: {panel_count} panels · Includes 4 quarterly visits over the year.",
-            subtotal=annual_price,
-            total=annual_price,
+            subtotal=float(subtotal),
+            gst_rate=float(GST_RATE_PERCENT),
+            gst_amount=float(gst),
+            total=float(total),
         )
     notify_service(
         db,
@@ -629,6 +824,7 @@ def create_cleaning_subscription(
             "reference_number": sub.reference_number,
             "tier": tier.value,
             "annual_price": (f"{annual_price:.2f}" if annual_price is not None else "TBD"),
+            "annual_total": annual_total,
             "status_url": cleaning_status_url(sub.access_token),
         },
         email_subject_fallback="Your solar panel cleaning subscription is confirmed",
@@ -636,12 +832,14 @@ def create_cleaning_subscription(
             '{% extends "base.html" %}{% block content %}'
             '<h2 style="margin:0 0 8px 0;">Subscription confirmed</h2>'
             '<p class="muted" style="margin:0 0 12px 0;">Hi {{ customer_name }}, thank you for '
-            "subscribing to quarterly panel cleaning. Annual price: <strong>${{ annual_price }}</strong>.</p>"
+            "subscribing to quarterly panel cleaning. Annual price: <strong>${{ annual_price }}</strong>"
+            "{% if annual_total %} + 5% GST = <strong>${{ annual_total }}</strong>{% endif %}.</p>"
             '<p style="margin:0 0 12px 0;"><a class="btn" href="{{ status_url }}">View subscription</a></p>'
             "{% endblock %}"
         ),
         sms_fallback=(
-            "{{ brand_name }}\nCleaning subscription confirmed\nAnnual: ${{ annual_price }}\n"
+            "{{ brand_name }}\nCleaning subscription confirmed\nAnnual: ${{ annual_price }}"
+            "{% if annual_total %} + 5% GST = ${{ annual_total }}{% endif %}\n"
             "Ref: {{ reference_number }}\nView: {{ status_url }}"
         ),
         cleaning_subscription_id=str(sub.id),
@@ -691,7 +889,7 @@ def admin_schedule_visit(db: Session, *, visit: CleaningVisit, start_at: datetim
                 "customer_name": sub.customer_name,
                 "reference_number": sub.reference_number,
                 "quarter": visit.quarter,
-                "scheduled_text": start_at.astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+                "scheduled_text": fmt_calgary(start_at),
                 "status_url": cleaning_status_url(sub.access_token),
             },
             email_subject_fallback="Upcoming solar panel cleaning",

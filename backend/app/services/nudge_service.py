@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Literal, NamedTuple
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
@@ -28,8 +27,8 @@ from app.services.notification_service import (
     _send_service_email, _send_service_sms,
 )
 from app.services.service_booking_flow import bird_quote_url, cleaning_status_url, service_status_url
+from app.utils.timefmt import CALGARY_TZ
 
-CALGARY_TZ = ZoneInfo("America/Edmonton")
 NUDGE_CUSTOMER_TEMPLATE = "nudge_customer"
 NUDGE_DIGEST_TEMPLATE = "nudge_admin_digest"
 NUDGE_CAP = 3
@@ -91,6 +90,7 @@ _SERVICE_CLASSIFY: dict[tuple[ServiceType, ServiceBookingStatus], Bucket] = {
     (ServiceType.diagnostic, ServiceBookingStatus.cancelled): "none",
     (ServiceType.bird_netting, ServiceBookingStatus.submitted): "none",
     (ServiceType.bird_netting, ServiceBookingStatus.survey_scheduled): "ours",
+    (ServiceType.bird_netting, ServiceBookingStatus.surveyed): "ours",
     (ServiceType.bird_netting, ServiceBookingStatus.quoted): "customer",
     (ServiceType.bird_netting, ServiceBookingStatus.approved): "customer",
     (ServiceType.bird_netting, ServiceBookingStatus.install_scheduled): "none",

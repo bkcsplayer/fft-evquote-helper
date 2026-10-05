@@ -7,6 +7,7 @@ import { PhotoUpload } from '../../components/PhotoUpload.jsx'
 import { DisclaimerBlock } from '../../components/DisclaimerBlock.jsx'
 import { api } from '../../services/api.js'
 import { useI18n } from '../../i18n/index.js'
+import { fmtCalgary } from '../../utils/calgaryTime.js'
 
 const CHIP_KEYS = ['no_power', 'low_output', 'inverter_error', 'monitor_offline', 'other']
 
@@ -220,7 +221,7 @@ export default function DiagnosticFlow() {
             <div className="flex justify-between px-3 py-2"><span className="text-slate-600">{t('svc.common.name')}</span><span className="font-semibold text-slate-900">{name}</span></div>
             <div className="flex justify-between px-3 py-2"><span className="text-slate-600">{t('svc.common.address')}</span><span className="text-right font-semibold text-slate-900">{address}</span></div>
             <div className="flex justify-between px-3 py-2"><span className="text-slate-600">{t('svc.common.panel_count')}</span><span className="font-semibold text-slate-900">{panelCount}</span></div>
-            <div className="flex justify-between px-3 py-2"><span className="text-slate-600">{t('svc.common.choose_time')}</span><span className="font-semibold text-slate-900">{slot ? new Date(slot).toLocaleString() : '—'}</span></div>
+            <div className="flex justify-between px-3 py-2"><span className="text-slate-600">{t('svc.common.choose_time')}</span><span className="font-semibold text-slate-900">{slot ? fmtCalgary(slot) : '—'}</span></div>
           </div>
           <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">{t('svc.diagnostic.pricing_note', { price: 179 })}</div>
 

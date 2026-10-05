@@ -20,6 +20,7 @@ from app.services.notification_service import (
     render_sms_from_db_or_fallback,
 )
 from app.utils.url_utils import public_base_url
+from app.utils.timefmt import fmt_calgary
 from app.services.status_machine import assert_transition_allowed
 
 
@@ -110,7 +111,7 @@ def schedule_survey(
     if customer:
         public_base = public_base_url(request=request, configured_url=settings.frontend_url)
         pay_url = f"{public_base}/quote/survey-confirm/{case.access_token}"
-        scheduled_text = payload.scheduled_date.astimezone().strftime("%Y-%m-%d %H:%M %Z")
+        scheduled_text = fmt_calgary(payload.scheduled_date)
         ctx = {
             "title": "FFT - Survey scheduled",
             "nickname": customer.nickname,

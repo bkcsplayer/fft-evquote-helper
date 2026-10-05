@@ -5,6 +5,7 @@ import { StageFlow } from '../components/StageFlow.jsx'
 import { SlotPicker } from '../components/SlotPicker.jsx'
 import { api } from '../services/api.js'
 import { useI18n } from '../i18n/index.js'
+import { fmtCalgary } from '../utils/calgaryTime.js'
 
 const ORDER = [
   'pending',
@@ -45,7 +46,7 @@ const NEXT_TONE = {
 
 export default function StatusPage() {
   const { token } = useParams()
-  const { t, locale } = useI18n()
+  const { t } = useI18n()
   const [data, setData] = useState(null)
   const [timeline, setTimeline] = useState([])
   const [error, setError] = useState('')
@@ -68,7 +69,7 @@ export default function StatusPage() {
 
   function dt(v) {
     try {
-      return new Date(v).toLocaleString(locale)
+      return fmtCalgary(v)
     } catch {
       return String(v || '')
     }
