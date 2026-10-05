@@ -38,9 +38,21 @@
 
 **2026-07-29:14 天无动作自动催单上线（走完整 /build 流水线,CRITICAL 级)**。所有订单（EV cases + service_bookings + cleaning_subscriptions）距**最后一次状态变更**超 14 天即"停滞"；球在客户的发短信催客户（第 14/28/42 天各一次,最多 3 次),球在我们的每天汇总成一封邮件发 Kuo。核心文件 `backend/app/services/nudge_service.py` + 端点 `backend/app/api/v1/internal_nudges.py` + 迁移 `655efc445c97`(给 service_bookings / cleaning_subscriptions 各加 `status_changed_at`)。VPS cron 双 UTC 条目(16:00/17:00)经 `chmod 700` 的 `/usr/local/bin/fft-run-nudges.sh` 调端点,日志 `/var/log/fft-nudges.log`。**重定向默认 ON**:所有催单发到 `+15879669668` / `cool@khtain.com`,正文标出本该发给谁——放开给真实客户是**独立决策门**(把生产 `.env` 的 `NUDGE_REDIRECT` 设成精确的 `off`),不随部署发生。详见记忆 `fft-nudge-feature` 与 ADR-013/014。
 
+**2026-10-05:鸟网流程重整 + 全线 GST/Calgary 时间 + 全局通知重定向，已部署(commit `ec86318`,/build CRITICAL)**。起因:首个真实服务单 **SVC-2026-0001(Nick Li,鸟网,勘测 Fri Oct 9 8:00 AM Calgary)**——客户收到 "14:00 UTC";后台报价无 GST、一点保存就通知客户、Schedule/Status 卡含混。现状:
+- 鸟网阶段:survey_scheduled →(录勘测结果:周长/鸟窝/备注/照片)→ **surveyed** →(报价草稿,可改不通知)→ 预览 → **发送报价**(唯一通知动作,带收件人确认框)→ quoted → approved(30% 定金)→ install_scheduled → completed。草稿=`bird_netting_quotes.sent_at IS NULL`,公开接口永不暴露草稿。后台详情页 = 阶段引导式(`admin/src/pages/services/BirdBookingDetail.jsx` + `components/services/bird/*`),无自由 status 下拉。UI 契约 `design/mockups/v1.html`。
+- 金额:`backend/app/utils/money.py`(Decimal HALF_UP),鸟网/诊断/清洁全部不含税价 + 5% GST;定金 = 含税总额 30%,尾款 = 总额 − 定金。
+- 时间:**阿尔伯塔自 2026-11-01 起永久 UTC−6**(Official Time Act;tzdata 2026c 起缩写 "CST")。所有显示一律 "(Calgary time)",不写缩写;后端 `app/utils/timefmt.py` + pip tzdata 2026.5;前端 `calgaryTime.js`(admin/frontend 两份字节相同)在边界后固定 `Etc/GMT+6`,不信浏览器 ICU。
+- **全局 `NOTIFY_REDIRECT`**:记录层 `_apply_redirect`(5 个发信点)+ 传输层兜底(开着时非 Kuo 收件人直接拒发)。本地 compose 写死 `"on"`;**生产默认 off**(Kuo 决定:真实客户要收到报价)。
+- 镜像生产库到本地:`scripts/mirror-prod-db.ps1`(-Fc 流式只读、先备本地库、需输入 MIRROR、先验重定向闸)。本地库现在 = 生产镜像 + mock seed。
+- ADR-015..023 记在 DESIGN.md(codebase-memory ADR 存储本次写入失败,未同步)。
+
 ## 下一步 / 待办
 
-1. **v3.0 尚未部署**:确认没问题后走标准部署(`./deploy.sh` push GitHub → VPS 拉取重建),注意 VPS 库要吃到 v3 迁移(`b1c2d3e4f5a6`,含 `appointment_kind` 枚举扩容,PG 对 `ALTER TYPE...ADD VALUE` 有事务限制,迁移文件已处理但上生产前建议先在 VPS 做一次干跑确认)。
+0. **Nick(SVC-2026-0001)**:Kuo 亲自电话确认周五 10/9 上午 8:00 勘测(系统不发更正)。勘测后在后台录入结果 → 存草稿 → 预览 → 发送报价。**一旦有单进入 `surveyed`,代码回滚到 `ec86318` 之前就不安全**(旧代码不认该枚举)。
+0.1 EV 线中文页面 `QuoteApprove.jsx`/`QuoteView.jsx` 仍显示 "CA$"(本次范围外,用 `currencyDisplay:'narrowSymbol'` 同法修)。
+0.2 后台时间线不记录"勘测改期"(可由已取消的 bird_survey appointments 推出,无需 schema)。
+0.3 cmm 图谱未重建(codebase-memory-mcp 本次断连)——下次会话跑 `/cmm`;`.cmm/REPORT.md` 仍是 07-29 版,不含 money/timefmt/calgaryTime/bird 组件。
+1. ~~v3.0 尚未部署~~(已于 v3 期间部署上线)。
 2. **4 张服务卡片的插画是占位 SVG**(`frontend/src/assets/services/*.svg`),没用真实素材,交付前建议换真图/更精致插画。
 3. **未实现,故意搁置**:`cleaning_renewal_reminder`(订阅到期前 30 天提醒)需要 cron/定时任务,现有栈没有 Celery 之类的调度器,建议 v3.1 单独设计;`bird_survey_scheduled` 模板键在契约里列了但实现里没单独触发(鸟网提交确认邮件已经把勘测时间带上了,语义上够用,没造第二封信)。
 4. **通知模板确认保持纯英文**,不做中英双语(2026-07-23 已和用户确认,理由:现有 EV 通知机制本身就不分语言,保持一致优先于新增双语能力)。
@@ -107,3 +119,4 @@
   - 排障:修复 Tailscale 接管 DNS/路由导致的本机断网(`--accept-dns=false` + `--accept-routes=false`)。
   - 重置后台管理员 `FFTAdmin` 密码为 `.env` 值,澄清登录用户名不是 `admin`。
   - 生成 `docs/SYSTEM-OVERVIEW.md`(全系统功能盘点)与本 `MEMORY.md`。
+- **2026-10-05** /build CRITICAL「鸟网流程与 UX 重整」:grill 9 条决策 → UI 契约 v1 冻结 → architect(Fable)DESIGN + 7 票 → reviewer(发现第 5 个绕过重定向的发信点 case_extras resend,并改全串行)→ implementer T0/T2/T1 → GATE 1 顾问(加传输层兜底 ADR-020)→ T3/T4 → tester 抓到 tzdata 差异 = **阿尔伯塔 2026-11-01 起永久 UTC−6**(ADR-021,改显示 "(Calgary time)")→ 复测绿 → T5 生产库只读镜像 + 本地全流程(10 条通知全重定向 NON_KURO [])→ GATE 2 顾问(模板安全升级 ADR-022、部署不变量 ADR-023)→ ponytail(无可删)→ 部署 `ec86318`:迁移 655efc445c97→c7d8e9f0a1b2、生产备份 `/root/backups/evquote-full-20261005-2148.dump`、部署窗口零通知、Nick 记录未变。顾问咨询 2/2(按计划);cmm 未跑(MCP 断连)。
