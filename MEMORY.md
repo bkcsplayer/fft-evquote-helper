@@ -120,3 +120,4 @@
   - 重置后台管理员 `FFTAdmin` 密码为 `.env` 值,澄清登录用户名不是 `admin`。
   - 生成 `docs/SYSTEM-OVERVIEW.md`(全系统功能盘点)与本 `MEMORY.md`。
 - **2026-10-05** /build CRITICAL「鸟网流程与 UX 重整」:grill 9 条决策 → UI 契约 v1 冻结 → architect(Fable)DESIGN + 7 票 → reviewer(发现第 5 个绕过重定向的发信点 case_extras resend,并改全串行)→ implementer T0/T2/T1 → GATE 1 顾问(加传输层兜底 ADR-020)→ T3/T4 → tester 抓到 tzdata 差异 = **阿尔伯塔 2026-11-01 起永久 UTC−6**(ADR-021,改显示 "(Calgary time)")→ 复测绿 → T5 生产库只读镜像 + 本地全流程(10 条通知全重定向 NON_KURO [])→ GATE 2 顾问(模板安全升级 ADR-022、部署不变量 ADR-023)→ ponytail(无可删)→ 部署 `ec86318`:迁移 655efc445c97→c7d8e9f0a1b2、生产备份 `/root/backups/evquote-full-20261005-2148.dump`、部署窗口零通知、Nick 记录未变。顾问咨询 2/2(按计划);cmm 未跑(MCP 断连)。
+- **2026-10-06** 按 Kuo 要求清空**生产**库 mock(purge 92 行:13 服务单 + 6 清洁订阅及其预约/通知/报价;备份 `/root/backups/evquote-pre-mockpurge-20261006-0213.dump`,先回滚演练再执行)。生产现只剩真实单 FFT-2026-0002(Raju)+ SVC-2026-0001(Nick)。**本地开发库 mock 保留**,以后不要在生产 seed。
