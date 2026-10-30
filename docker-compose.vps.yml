@@ -32,6 +32,7 @@ services:
       ADMIN_URL: ${ADMIN_URL:-https://evquote.khtain.com}
       # Recipient for "customer did something" admin-alert emails.
       ADMIN_NOTIFY_EMAIL: ${ADMIN_NOTIFY_EMAIL:-}
+      ADMIN_NOTIFY_CC: ${ADMIN_NOTIFY_CC:-}
       # Stripe disabled (kept only for compatibility)
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}

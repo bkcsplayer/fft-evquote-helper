@@ -302,8 +302,11 @@ def notify_email(
     subject: str,
     html: str,
     pdf_attachment: tuple[str, bytes] | None = None,
+    cc: list[str] | None = None,
 ) -> Notification:
     to_email, subject, html = _apply_redirect(is_sms=False, to=to_email, subject=subject, body=html)
+    # Redirect mode delivers to Kuo only, so CC is dropped (send_email fails closed on it anyway).
+    cc = [] if notify_redirect_enabled() else [c for c in (cc or []) if c.casefold() != to_email.casefold()]
     n = Notification(
         case_id=case_id,
         channel=NotificationChannel.email,
@@ -327,7 +330,9 @@ def notify_email(
         if pdf_attachment:
             filename, pdf_bytes = pdf_attachment
             attachments = [(filename, pdf_bytes, "pdf")]
-        send_email(to_email=to_email, subject=subject, html=html, inline_images=inline_images, attachments=attachments)
+        send_email(
+            to_email=to_email, subject=subject, html=html, inline_images=inline_images, attachments=attachments, cc=cc
+        )
         n.status = NotificationStatus.sent
         n.sent_at = datetime.now(timezone.utc)
     except Exception as e:
@@ -397,6 +402,11 @@ def admin_notify_recipient() -> str | None:
     return (s.admin_notify_email or s.bootstrap_admin_email or "").strip() or None
 
 
+def admin_notify_cc() -> list[str]:
+    """Parse ADMIN_NOTIFY_CC (comma-separated) into a clean address list."""
+    return [a.strip() for a in (get_settings().admin_notify_cc or "").split(",") if a.strip()]
+
+
 def admin_case_url(case_id: str) -> str:
     """Build a link to the admin case detail page."""
     base = str(get_settings().admin_url or "").rstrip("/")
@@ -460,6 +470,7 @@ def notify_admin_event(
         template_name=event_key,
         subject=subject,
         html=html,
+        cc=admin_notify_cc(),
     )
 
 

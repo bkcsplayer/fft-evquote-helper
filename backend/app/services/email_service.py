@@ -38,6 +38,7 @@ def send_email(
     html: str,
     inline_images: list[tuple[str, bytes, str]] | None = None,
     attachments: list[tuple[str, bytes, str]] | None = None,
+    cc: list[str] | None = None,
 ) -> None:
     """
     inline_images: list of (content_id, image_bytes, mime_subtype) referenced from `html` via
@@ -53,7 +54,7 @@ def send_email(
     # Fail-closed (ADR-020): with NOTIFY_REDIRECT=on only the redirect target may receive mail, so a
     # call site that bypasses notification_service._apply_redirect fails loudly instead of delivering.
     if (settings.notify_redirect or "").strip().casefold() == "on" and (
-        to_email.strip().casefold() != settings.nudge_redirect_email.strip().casefold()
+        to_email.strip().casefold() != settings.nudge_redirect_email.strip().casefold() or cc
     ):
         raise RuntimeError("NOTIFY_REDIRECT=on: refusing to email a non-redirect recipient")
     if not (settings.smtp_host and settings.smtp_port):
@@ -67,6 +68,8 @@ def send_email(
     msg["Subject"] = subject
     msg["From"] = f"{settings.smtp_from_name or 'FFT'} <{from_email}>"
     msg["To"] = to_email
+    if cc:
+        msg["Cc"] = ", ".join(cc)
     msg["Date"] = formatdate(localtime=True)
     # Some providers spam-score emails missing Message-ID/Date/plaintext.
     msg["Message-ID"] = make_msgid(domain=from_email.split("@", 1)[1] if "@" in from_email else None)
@@ -92,7 +95,7 @@ def send_email(
             server.ehlo()
         if settings.smtp_user and settings.smtp_password:
             server.login(settings.smtp_user, settings.smtp_password)
-        refused = server.send_message(msg, from_addr=from_email, to_addrs=[to_email])
+        refused = server.send_message(msg, from_addr=from_email, to_addrs=[to_email, *(cc or [])])
         if refused:
             raise RuntimeError(f"SMTP refused recipients: {refused}")
 

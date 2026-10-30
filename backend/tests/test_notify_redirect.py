@@ -261,6 +261,52 @@ def test_10_transport_guard_passes_target():
         assert msg == "Twilio not configured", msg
 
 
+def test_11_cc_off_passes_through_on_dropped():
+    db = SessionLocal()
+    try:
+        case = _mk_case(db)
+        cc = ["cool@khtain.com", "bruce@khtain.com", "INFO@khtain.com"]
+        with _mode(False) as rec:
+            n = notif_svc.notify_email(
+                db, case_id=str(case.id), to_email="info@khtain.com", template_name="t",
+                subject="Hi", html="<p>x</p>", cc=cc,
+            )
+        # the To address is never duplicated into CC; recipient stays a single address (resend uses it)
+        assert rec["email"][-1]["cc"] == ["cool@khtain.com", "bruce@khtain.com"]
+        assert n.recipient == "info@khtain.com"
+        with _mode(True) as rec:
+            notif_svc.notify_email(
+                db, case_id=str(case.id), to_email="info@khtain.com", template_name="t",
+                subject="Hi", html="<p>x</p>", cc=cc,
+            )
+        assert rec["email"][-1]["to_email"] == KUO_EMAIL and rec["email"][-1]["cc"] == []
+    finally:
+        db.rollback()
+        db.close()
+
+
+def test_12_transport_guard_refuses_cc():
+    with _transport_on():
+        msg = _raises(lambda: email_service.send_email(
+            to_email=KUO_EMAIL, subject="Hi", html="<p>x</p>", cc=["bruce@khtain.com"],
+        ))
+        assert "NOTIFY_REDIRECT" in msg, msg
+
+
+def test_13_admin_notify_cc_parsing():
+    orig = notif_svc.get_settings
+    try:
+        for value, expected in (
+            ("cool@khtain.com, bruce@khtain.com", ["cool@khtain.com", "bruce@khtain.com"]),
+            (" a@x.com ,, ", ["a@x.com"]),
+            ("", []),
+        ):
+            notif_svc.get_settings = lambda v=value: Settings(ADMIN_NOTIFY_CC=v)
+            assert notif_svc.admin_notify_cc() == expected, value
+    finally:
+        notif_svc.get_settings = orig
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     # Internal recipient for "customer did something" notifications.
     # Falls back to bootstrap_admin_email at send time if unset; if neither is set, admin emails are skipped.
     admin_notify_email: str | None = Field(default=None, validation_alias="ADMIN_NOTIFY_EMAIL")
+    # Comma-separated CC list for those admin notifications (blank = no CC).
+    admin_notify_cc: str | None = Field(default=None, validation_alias="ADMIN_NOTIFY_CC")
 
     stripe_secret_key: str | None = Field(default=None, validation_alias="STRIPE_SECRET_KEY")
     stripe_webhook_secret: str | None = Field(default=None, validation_alias="STRIPE_WEBHOOK_SECRET")
@@ -83,6 +85,7 @@ class Settings(BaseSettings):
     @field_validator(
         "brand_support_email",
         "admin_notify_email",
+        "admin_notify_cc",
         "smtp_from_email",
         "smtp_host",
         "smtp_user",
